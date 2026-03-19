@@ -59,7 +59,7 @@ if __name__ == "__main__":
     # Ventana de login
     from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox
     from sqlalchemy.orm import Session
-    from core.security import verify_password
+    from core.security import verify_password, hash_password
     from models.user import AuthUser
     from PySide6.QtGui import QIcon, QPixmap
     import base64
@@ -102,7 +102,59 @@ AAABAAEAICAAAAAAIADaCQAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAgAAAAIAgGAAAAc3p69AAACaFJ
             user = session.query(AuthUser).filter_by(username=self.user_input.text()).first()
             # Si user es None, no hay usuario
             if user and hasattr(user, 'password_hash') and isinstance(user.password_hash, str) and verify_password(self.pass_input.text(), user.password_hash):
-                self.accepted_user = user
+                if not user.is_active:
+                    QMessageBox.warning(self, "Acceso denegado", "La cuenta está inactiva.")
+                    session.close()
+                    return
+
+                entered_password = self.pass_input.text()
+                is_default_admin_login = user.username == "admin" and entered_password == "admin"
+                if bool(getattr(user, "must_change_password", False)) or is_default_admin_login:
+                    dlg = QDialog(self)
+                    dlg.setWindowTitle("Cambiar contraseña")
+                    lyt = QVBoxLayout(dlg)
+                    lyt.addWidget(QLabel("Debes cambiar la contraseña por seguridad."))
+                    lyt.addWidget(QLabel("Nueva contraseña:"))
+                    new_pass = QLineEdit()
+                    new_pass.setEchoMode(QLineEdit.EchoMode.Password)
+                    lyt.addWidget(new_pass)
+                    lyt.addWidget(QLabel("Confirmar contraseña:"))
+                    confirm_pass = QLineEdit()
+                    confirm_pass.setEchoMode(QLineEdit.EchoMode.Password)
+                    lyt.addWidget(confirm_pass)
+                    btns = QVBoxLayout()
+                    btn_ok = QPushButton("Guardar")
+                    btn_cancel = QPushButton("Cancelar")
+                    btns.addWidget(btn_ok)
+                    btns.addWidget(btn_cancel)
+                    lyt.addLayout(btns)
+
+                    def save_new_password():
+                        p1 = new_pass.text()
+                        p2 = confirm_pass.text()
+                        if len(p1) < 6:
+                            QMessageBox.warning(dlg, "Error", "La contraseña debe tener al menos 6 caracteres.")
+                            return
+                        if p1 != p2:
+                            QMessageBox.warning(dlg, "Error", "Las contraseñas no coinciden.")
+                            return
+                        user.password_hash = hash_password(p1)
+                        user.must_change_password = False
+                        session.commit()
+                        dlg.accept()
+
+                    btn_ok.clicked.connect(save_new_password)
+                    btn_cancel.clicked.connect(dlg.reject)
+
+                    if dlg.exec() != QDialog.DialogCode.Accepted:
+                        session.close()
+                        return
+
+                self.accepted_user = {
+                    "id": user.id,
+                    "username": user.username,
+                    "role": user.role or "viewer",
+                }
                 self.accept()
             else:
                 QMessageBox.warning(self, "Error", "Usuario o contraseña incorrectos")
@@ -110,7 +162,7 @@ AAABAAEAICAAAAAAIADaCQAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAgAAAAIAgGAAAAc3p69AAACaFJ
 
     login = LoginDialog()
     if login.exec() == QDialog.DialogCode.Accepted:
-        window = MainWindow()
+        window = MainWindow(login.accepted_user)
         window.show()
         sys.exit(app.exec())
     else:

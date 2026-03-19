@@ -1,6 +1,7 @@
 from PySide6.QtWidgets import QMainWindow, QTabWidget, QPushButton
 from ui.tabs.import_tab import ImportTab
 from ui.tabs.users_tab import UsersTab
+from ui.tabs.auth_user import AuthUserTab
 from ui.tabs.movements_tab import MovementsTab
 from ui.tabs.processed_tab import ProcessedTab
 from ui.tabs.shifts_tab import ShiftsTab
@@ -8,7 +9,7 @@ from core.database import SessionLocal
 from PySide6.QtGui import QIcon
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, current_auth_user=None):
         super().__init__()
         self.setWindowTitle("SRTime")
         self.resize(1000, 600)
@@ -29,11 +30,14 @@ AAABAAEAICAAAAAAIADaCQAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAgAAAAIAgGAAAAc3p69AAACaFJ
         self.setWindowIcon(get_icon())
 
         self.session = SessionLocal()
+        self.current_auth_user = current_auth_user or {}
+        self.is_root = (self.current_auth_user.get("role") == "root")
 
         tabs = QTabWidget()
         import_tab = ImportTab(self.session)
         shifts_tab = ShiftsTab(self.session)
         users_tab = UsersTab(self.session)
+        auth_user_tab = AuthUserTab(self.session, self.current_auth_user)
         movements_tab = MovementsTab(self.session)
         processed_tab = ProcessedTab(self.session)
         
@@ -41,22 +45,26 @@ AAABAAEAICAAAAAAIADaCQAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAgAAAAIAgGAAAAc3p69AAACaFJ
         users_tab.movements_tab = movements_tab
         
         tabs.addTab(import_tab, "Importar")
+        tabs.addTab(users_tab, "Empleados")
         tabs.addTab(shifts_tab, "Turnos Horarios")
-        tabs.addTab(users_tab, "Usuarios")
         tabs.addTab(movements_tab, "Movimientos")
         tabs.addTab(processed_tab, "Asistencia Procesada")
+        if self.is_root:
+            tabs.addTab(auth_user_tab, "Usuarios Autorizados")
         
         def on_tab_changed(index):
-            if index == 1 and hasattr(shifts_tab, 'load_data'):
-                shifts_tab.load_data()
-            elif index == 2 and hasattr(users_tab, 'load_data'):
+            if index == 1 and hasattr(users_tab, 'load_data'):
                 users_tab.load_data()
+            elif index == 2 and hasattr(shifts_tab, 'load_data'):
+                shifts_tab.load_data()
             elif index == 3 and hasattr(movements_tab, 'load_data'):
                 movements_tab.load_data()
             elif index == 4 and hasattr(processed_tab, 'load_data'):
                 if hasattr(processed_tab, 'update_user_selector'):
                     processed_tab.update_user_selector()
                 processed_tab.load_data()
+            elif self.is_root and index == 5 and hasattr(auth_user_tab, 'load_data'):
+                auth_user_tab.load_data()
                 
         tabs.currentChanged.connect(on_tab_changed)
         self.setCentralWidget(tabs)

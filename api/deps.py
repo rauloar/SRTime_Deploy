@@ -37,4 +37,18 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     user = db.query(AuthUser).filter(AuthUser.username == username).first()
     if user is None:
         raise credentials_exception
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Inactive user",
+        )
     return user
+
+
+def require_root(current_user: AuthUser = Depends(get_current_user)):
+    if current_user.role != "root":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Root role required",
+        )
+    return current_user

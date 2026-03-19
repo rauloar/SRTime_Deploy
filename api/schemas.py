@@ -50,3 +50,43 @@ class ProcessedAttendanceResponse(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str
+    must_change_password: bool = False
+
+
+# --- AUTH USERS / ROLES ---
+class AuthUserResponse(BaseModel):
+    id: int
+    username: str
+    role: str
+    is_active: bool
+    must_change_password: bool
+
+    class Config:
+        from_attributes = True
+
+
+class AuthUserCreate(BaseModel):
+    username: str
+    password: str
+    role: str = "viewer"
+    is_active: bool = True
+
+
+class AuthUserUpdate(BaseModel):
+    username: Optional[str] = None
+    password: Optional[str] = None
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: Optional[str] = None
+    new_password: str
+
+
+class AuthMeResponse(BaseModel):
+    id: int
+    username: str
+    role: str
+    is_active: bool
+    must_change_password: bool

@@ -1,6 +1,7 @@
 "use client"
 import { useState } from "react"
 import { useAuth } from "../context/AuthContext"
+import { Lock, User, AlertCircle, LogIn } from "lucide-react"
 
 export default function LoginPage() {
   const { login } = useAuth()
@@ -22,42 +23,55 @@ export default function LoginPage() {
   }
 
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: "var(--bg)" }}>
+    <div className="login-page">
       <div className="login-box">
-        <div className="login-header">🕐 SRTime</div>
-        <p style={{ color: "var(--fg)", opacity: 0.7, marginBottom: 24, fontSize: 13 }}>
-          Sistema de Control de Asistencias
-        </p>
+        {/* Logo */}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 28 }}>
+          <img
+            src="/img/sr_logo.png"
+            alt="SRTime Logo"
+            style={{ width: 72, height: 72, objectFit: "contain", marginBottom: 14 }}
+          />
+          <div className="login-header" style={{ marginBottom: 4 }}>SRTime</div>
+          <p style={{ color: "var(--text-secondary)", fontSize: 13, margin: 0 }}>
+            Sistema de Control de Asistencias
+          </p>
+        </div>
 
         <form onSubmit={handleSubmit}>
           <div className="form-group">
             <label>Usuario</label>
-            <input
-              type="text"
-              value={username}
-              onChange={e => setUsername(e.target.value)}
-              autoFocus
-              required
-              placeholder="admin"
-            />
+            <div style={{ position: "relative" }}>
+              <User size={15} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)" }} />
+              <input
+                type="text" value={username}
+                onChange={e => setUsername(e.target.value)}
+                autoFocus required placeholder="admin"
+                style={{ paddingLeft: 34 }}
+              />
+            </div>
           </div>
           <div className="form-group">
             <label>Contraseña</label>
-            <input
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              required
-              placeholder="••••••"
-            />
+            <div style={{ position: "relative" }}>
+              <Lock size={15} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)" }} />
+              <input
+                type="password" value={password}
+                onChange={e => setPassword(e.target.value)}
+                required placeholder="••••••"
+                style={{ paddingLeft: 34 }}
+              />
+            </div>
           </div>
 
           {error && (
-            <p style={{ color: "#c0392b", fontSize: 13, marginBottom: 12 }}>⚠️ {error}</p>
+            <div style={{ display: "flex", alignItems: "center", gap: 7, color: "var(--status-error)", fontSize: 13, marginBottom: 12 }}>
+              <AlertCircle size={14} /> {error}
+            </div>
           )}
 
-          <button type="submit" className="btn btn-primary" style={{ width: "100%" }} disabled={loading}>
-            {loading ? "Iniciando sesión..." : "Iniciar Sesión"}
+          <button type="submit" className="btn btn-primary" style={{ width: "100%", justifyContent: "center", gap: 8, height: 40, marginTop: 4 }} disabled={loading}>
+            {loading ? "Iniciando sesión..." : <><LogIn size={16} /> Iniciar Sesión</>}
           </button>
         </form>
       </div>

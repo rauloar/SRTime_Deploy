@@ -10,6 +10,7 @@ from models.processed_attendance import ProcessedAttendance
 from models.employee import User as EmployeeModel
 from models.shift import Shift
 from models.user import AuthUser
+from services.engine import AttendanceEngine
 
 router = APIRouter()
 
@@ -17,6 +18,26 @@ class JustifyRequest(BaseModel):
     first_in: str   # HH:MM
     last_out: str   # HH:MM
     justification: str
+
+
+@router.post("/process-pending")
+def process_pending(
+    db: Session = Depends(get_db),
+    current_user: AuthUser = Depends(get_current_user)
+):
+    engine = AttendanceEngine(db)
+    count = engine.process_all(progress_callback=None, force_all=False)
+    return {"ok": True, "processed_days": count, "mode": "pending"}
+
+
+@router.post("/reprocess-all")
+def reprocess_all(
+    db: Session = Depends(get_db),
+    current_user: AuthUser = Depends(get_current_user)
+):
+    engine = AttendanceEngine(db)
+    count = engine.process_all(progress_callback=None, force_all=True)
+    return {"ok": True, "processed_days": count, "mode": "all"}
 
 @router.get("/", response_model=List[ProcessedAttendanceResponse])
 def read_processed(

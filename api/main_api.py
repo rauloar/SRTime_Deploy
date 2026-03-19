@@ -4,7 +4,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from api.routers import auth, users, shifts, processed, movements
+from api.routers import auth, users, shifts, processed, movements, auth_users, importer
 
 app = FastAPI(
     title="Attendance System API",
@@ -29,6 +29,8 @@ app.add_middleware(
 
 # Mount Sub-Routers
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
+app.include_router(auth_users.router, prefix="/api/auth-users", tags=["Authorized Users"])
+app.include_router(importer.router, prefix="/api/import", tags=["Import"])
 app.include_router(users.router, prefix="/api/users", tags=["Employees Management"])
 app.include_router(shifts.router, prefix="/api/shifts", tags=["Shifts"])
 app.include_router(processed.router, prefix="/api/processed", tags=["Processed Attendance"])

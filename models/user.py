@@ -8,5 +8,7 @@ class AuthUser(Base):
     id = Column(Integer, primary_key=True)
     username = Column(String, unique=True, nullable=False)
     password_hash = Column(String, nullable=False)
+    role = Column(String(20), nullable=False, default="viewer")
+    must_change_password = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
