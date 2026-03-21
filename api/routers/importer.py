@@ -19,8 +19,8 @@ async def import_txt_file(
 ):
     filename = (file.filename or "").strip()
     suffix = Path(filename).suffix.lower()
-    if suffix not in {".txt", ".bak"}:
-        raise HTTPException(status_code=400, detail="Only .txt or .bak files are supported")
+    if suffix != ".txt":
+        raise HTTPException(status_code=400, detail="Only .txt files are supported")
 
     temp_path = None
     try:

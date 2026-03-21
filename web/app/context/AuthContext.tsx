@@ -1,6 +1,6 @@
 "use client"
 import { createContext, useContext, useState, useEffect, ReactNode } from "react"
-import axios from "axios"
+import axios, { AxiosInstance } from "axios"
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
@@ -13,7 +13,7 @@ interface AuthCtx {
   changePassword: (newPassword: string, currentPassword?: string) => Promise<void>
   refreshProfile: () => Promise<void>
   logout: () => void
-  api: typeof axios
+  api: AxiosInstance
 }
 
 const AuthContext = createContext<AuthCtx | null>(null)

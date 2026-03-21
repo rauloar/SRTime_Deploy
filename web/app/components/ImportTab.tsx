@@ -1,7 +1,16 @@
 "use client"
 import { useState } from "react"
 import { useAuth } from "../context/AuthContext"
+import axios from "axios"
 import { Upload, RefreshCw } from "lucide-react"
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (axios.isAxiosError(error)) {
+    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
+    if (detail) return detail
+  }
+  return fallback
+}
 
 export default function ImportTab() {
   const { api } = useAuth()
@@ -34,8 +43,8 @@ export default function ImportTab() {
       })
       setStatus(`Logs: ${res.data.total} | Nuevos: ${res.data.nuevos} | Duplicados: ${res.data.duplicados}`)
       setLogs((res.data.logs || []) as string[])
-    } catch (e: any) {
-      setError(e?.response?.data?.detail || "Error al importar")
+    } catch (e: unknown) {
+      setError(getErrorMessage(e, "Error al importar"))
     } finally {
       setRunning(false)
     }

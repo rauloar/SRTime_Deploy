@@ -122,6 +122,9 @@ class AuthUserTab(QWidget):
             if not password:
                 QMessageBox.warning(dialog, "Error", "La contraseña es obligatoria.")
                 return
+            if len(password) < 6:
+                QMessageBox.warning(dialog, "Error", "La contraseña debe tener al menos 6 caracteres.")
+                return
             if self.session.query(AuthUser).filter_by(username=username).first():
                 QMessageBox.warning(dialog, "Error", "Ese usuario ya existe.")
                 return
@@ -205,6 +208,9 @@ class AuthUserTab(QWidget):
 
             new_pass = le_pass.text()
             if new_pass:
+                if len(new_pass) < 6:
+                    QMessageBox.warning(dialog, "Error", "La contraseña debe tener al menos 6 caracteres.")
+                    return
                 user.password_hash = hash_password(new_pass)
 
             self.session.commit()
@@ -225,10 +231,10 @@ class AuthUserTab(QWidget):
             QMessageBox.warning(self, "Error", "Cuenta no encontrada.")
             return
 
-        if user.role == "admin":
-            admins_count = self.session.query(AuthUser).filter_by(role="admin").count()
-            if admins_count <= 1:
-                QMessageBox.warning(self, "Bloqueado", "Debe existir al menos una cuenta admin.")
+        if user.role == "root":
+            roots_count = self.session.query(AuthUser).filter_by(role="root").count()
+            if roots_count <= 1:
+                QMessageBox.warning(self, "Bloqueado", "Debe existir al menos una cuenta root.")
                 return
 
         confirm = QMessageBox.question(

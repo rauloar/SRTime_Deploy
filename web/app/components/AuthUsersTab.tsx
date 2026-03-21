@@ -1,6 +1,7 @@
 "use client"
 import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "../context/AuthContext"
+import axios from "axios"
 import { Plus, RefreshCw, Pencil, Trash2, X } from "lucide-react"
 
 interface AuthUser {
@@ -29,6 +30,14 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <div className="form-group"><label>{label}</label>{children}</div>
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  if (axios.isAxiosError(error)) {
+    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
+    if (detail) return detail
+  }
+  return fallback
+}
+
 export default function AuthUsersTab() {
   const { api } = useAuth()
   const [items, setItems] = useState<AuthUser[]>([])
@@ -43,8 +52,8 @@ export default function AuthUsersTab() {
     try {
       const res = await api.get("/api/auth-users/")
       setItems(res.data)
-    } catch (e: any) {
-      setError(e?.response?.data?.detail || "Error al cargar usuarios autorizados")
+    } catch (e: unknown) {
+      setError(getErrorMessage(e, "Error al cargar usuarios autorizados"))
     } finally {
       setLoading(false)
     }
@@ -91,8 +100,8 @@ export default function AuthUsersTab() {
       }
       setModal(null)
       await load()
-    } catch (e: any) {
-      setError(e?.response?.data?.detail || "Error al guardar")
+    } catch (e: unknown) {
+      setError(getErrorMessage(e, "Error al guardar"))
     }
   }
 
@@ -101,8 +110,8 @@ export default function AuthUsersTab() {
     try {
       await api.delete(`/api/auth-users/${u.id}`)
       await load()
-    } catch (e: any) {
-      setError(e?.response?.data?.detail || "Error al eliminar")
+    } catch (e: unknown) {
+      setError(getErrorMessage(e, "Error al eliminar"))
     }
   }
 

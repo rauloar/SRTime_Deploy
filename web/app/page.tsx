@@ -1,6 +1,8 @@
 "use client"
 import { useState, useEffect } from "react"
 import { useAuth } from "./context/AuthContext"
+import axios from "axios"
+import Image from "next/image"
 import LoginPage from "./components/LoginPage"
 import ImportTab from "./components/ImportTab"
 import UsersTab from "./components/UsersTab"
@@ -19,6 +21,14 @@ const TABS = [
 ]
 
 type Theme = "light" | "dark"
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (axios.isAxiosError(error)) {
+    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
+    if (detail) return detail
+  }
+  return fallback
+}
 
 export default function Home() {
   const { token, username, role, mustChangePassword, changePassword, logout } = useAuth()
@@ -73,8 +83,8 @@ export default function Home() {
       await changePassword(newPassword)
       setNewPassword("")
       setConfirmPassword("")
-    } catch (e: any) {
-      setPasswordError(e?.response?.data?.detail || "Error al cambiar contraseña")
+    } catch (e: unknown) {
+      setPasswordError(getErrorMessage(e, "Error al cambiar contraseña"))
     } finally {
       setSavingPassword(false)
     }
@@ -111,7 +121,7 @@ export default function Home() {
       {/* Top Bar */}
       <div className="topbar">
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <img src="/img/sr_logo.png" alt="SRTime" style={{ width: 30, height: 30, objectFit: "contain" }} />
+          <Image src="/img/sr_logo.png" alt="SRTime" width={30} height={30} style={{ objectFit: "contain" }} />
           <span className="topbar-title">SRTime</span>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>

@@ -1,8 +1,10 @@
 "use client"
 import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "../context/AuthContext"
+import axios from "axios"
 import { Plus, RefreshCw, Pencil, Trash2, X, Search } from "lucide-react"
 import Pagination from "./Pagination"
+import * as XLSX from "xlsx"
 
 interface User { id: number; identifier: string; first_name: string | null; last_name: string | null; is_active: boolean; shift_id: number | null }
 interface Shift { id: number; name: string }
@@ -20,6 +22,14 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
 }
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <div className="form-group"><label>{label}</label>{children}</div>
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (axios.isAxiosError(error)) {
+    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
+    if (detail) return detail
+  }
+  return fallback
 }
 
 export default function UsersTab() {
@@ -50,6 +60,43 @@ export default function UsersTab() {
   const paginated = filtered.slice((page - 1) * pageSize, page * pageSize)
   const shiftName = (id: number | null) => id ? (shifts.find(s => s.id === id)?.name || "Sin Turno") : "Sin Turno"
 
+  function exportCsv() {
+    const rows = filtered.map(u => ({
+      Identificador: u.identifier,
+      Nombre: u.first_name || "",
+      Apellido: u.last_name || "",
+      Turno: shiftName(u.shift_id),
+      Activo: u.is_active ? "Si" : "No",
+    }))
+
+    const header = ["Identificador", "Nombre", "Apellido", "Turno", "Activo"]
+    const lines = [
+      header.join(","),
+      ...rows.map(r => [r.Identificador, r.Nombre, r.Apellido, r.Turno, r.Activo].map(v => `"${String(v).replaceAll('"', '""')}"`).join(",")),
+    ]
+    const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8;" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = "empleados.csv"
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  function exportExcel() {
+    const rows = filtered.map(u => ({
+      Identificador: u.identifier,
+      Nombre: u.first_name || "",
+      Apellido: u.last_name || "",
+      Turno: shiftName(u.shift_id),
+      Activo: u.is_active ? "Si" : "No",
+    }))
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "Empleados")
+    XLSX.writeFile(wb, "empleados.xlsx")
+  }
+
   function openAdd() { setCurrent(EMPTY); setError(""); setModal("add") }
   function openEdit(u: User) { setCurrent({ ...u }); setError(""); setModal("edit") }
 
@@ -62,7 +109,7 @@ export default function UsersTab() {
       else
         await api.put(`/api/users/${current.id}`, { identifier: current.identifier, first_name: current.first_name, last_name: current.last_name, is_active: current.is_active, shift_id: current.shift_id || null })
       setModal(null); load()
-    } catch (e: any) { setError(e?.response?.data?.detail || "Error al guardar.")
+    } catch (e: unknown) { setError(getErrorMessage(e, "Error al guardar."))
     } finally { setSaving(false) }
   }
 
@@ -101,6 +148,8 @@ export default function UsersTab() {
         <Search size={15} color="var(--text-muted)" />
         <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Identificador o nombre..." style={{ width: 220 }} />
         <button className="btn btn-primary" onClick={openAdd}><Plus size={15} /> Agregar</button>
+        <button className="btn" onClick={exportCsv}>Exportar CSV</button>
+        <button className="btn" onClick={exportExcel}>Exportar Excel</button>
         <button className="btn" onClick={load} disabled={loading}><RefreshCw size={14} /></button>
       </div>
 

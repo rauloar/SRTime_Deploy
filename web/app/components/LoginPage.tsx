@@ -1,5 +1,6 @@
 "use client"
 import { useState } from "react"
+import Image from "next/image"
 import { useAuth } from "../context/AuthContext"
 import { Lock, User, AlertCircle, LogIn } from "lucide-react"
 
@@ -27,10 +28,12 @@ export default function LoginPage() {
       <div className="login-box">
         {/* Logo */}
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 28 }}>
-          <img
+          <Image
             src="/img/sr_logo.png"
             alt="SRTime Logo"
-            style={{ width: 72, height: 72, objectFit: "contain", marginBottom: 14 }}
+            width={72}
+            height={72}
+            style={{ objectFit: "contain", marginBottom: 14 }}
           />
           <div className="login-header" style={{ marginBottom: 4 }}>SRTime</div>
           <p style={{ color: "var(--text-secondary)", fontSize: 13, margin: 0 }}>

@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "../context/AuthContext"
 import { Search, RefreshCw, LogIn, LogOut } from "lucide-react"
 import Pagination from "./Pagination"
+import * as XLSX from "xlsx"
 
 interface Movement {
   id: number; raw_identifier: string; employee_id: number | null
@@ -43,6 +44,43 @@ export default function MovementsTab() {
   })
   const paginated = filtered.slice((page - 1) * pageSize, page * pageSize)
 
+  function exportCsv() {
+    const rows = filtered.map(m => ({
+      Identificador: m.raw_identifier,
+      Nombre: nameOf(m),
+      Fecha: m.date,
+      Hora: m.time || "",
+      Movimiento: m.mark_type === 0 ? "ENTRADA" : m.mark_type === 1 ? "SALIDA" : "",
+    }))
+
+    const header = ["Identificador", "Nombre", "Fecha", "Hora", "Movimiento"]
+    const lines = [
+      header.join(","),
+      ...rows.map(r => [r.Identificador, r.Nombre, r.Fecha, r.Hora, r.Movimiento].map(v => `"${String(v).replaceAll('"', '""')}"`).join(",")),
+    ]
+    const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8;" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = "movimientos.csv"
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  function exportExcel() {
+    const rows = filtered.map(m => ({
+      Identificador: m.raw_identifier,
+      Nombre: nameOf(m),
+      Fecha: m.date,
+      Hora: m.time || "",
+      Movimiento: m.mark_type === 0 ? "ENTRADA" : m.mark_type === 1 ? "SALIDA" : "",
+    }))
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "Movimientos")
+    XLSX.writeFile(wb, "movimientos.xlsx")
+  }
+
   const markLabel = (t: number | null) => {
     if (t === 0) return <span style={{ color: "var(--status-ok)", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 4 }}><LogIn size={13} /> ENTRADA</span>
     if (t === 1) return <span style={{ color: "var(--status-error)", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 4 }}><LogOut size={13} /> SALIDA</span>
@@ -59,6 +97,8 @@ export default function MovementsTab() {
         <Search size={15} color="var(--text-muted)" />
         <input type="text" value={empFilter} onChange={e => setEmpFilter(e.target.value)}
           placeholder="Nombre o identificador..." style={{ width: 200 }} />
+        <button className="btn" onClick={exportCsv}>Exportar CSV</button>
+        <button className="btn" onClick={exportExcel}>Exportar Excel</button>
         <button className="btn" onClick={load} disabled={loading}><RefreshCw size={14} /> Actualizar</button>
       </div>
 

@@ -1,8 +1,10 @@
 "use client"
 import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "../context/AuthContext"
+import axios from "axios"
 import { RefreshCw, Wrench, X, Play, RotateCcw } from "lucide-react"
 import Pagination from "./Pagination"
+import * as XLSX from "xlsx"
 
 interface ProcessedRecord {
   id: number; employee_id: number; date: string;
@@ -32,6 +34,14 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
 }
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <div className="form-group"><label>{label}</label>{children}</div>
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (axios.isAxiosError(error)) {
+    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
+    if (detail) return detail
+  }
+  return fallback
 }
 
 export default function ProcessedTab() {
@@ -75,6 +85,76 @@ export default function ProcessedTab() {
   const filtered = records.filter(r => !empFilter || nameOf(r.employee_id).toLowerCase().includes(empFilter.toLowerCase()))
   const paginated = filtered.slice((page - 1) * pageSize, page * pageSize)
 
+  function exportCsv() {
+    const rows = filtered.map(r => ({
+      Empleado: nameOf(r.employee_id),
+      Fecha: r.date,
+      "Primera Entrada": r.first_in || "",
+      "Última Salida": r.last_out || "",
+      "Horas Totales": r.total_hours,
+      "Tardanza (Min)": r.tardiness_minutes,
+      "Salida Ant. (Min)": r.early_departure_minutes,
+      "Hs Extra (Min)": r.overtime_minutes,
+      Estado: r.status,
+      Justificación: r.justification || "",
+    }))
+
+    const header = [
+      "Empleado",
+      "Fecha",
+      "Primera Entrada",
+      "Última Salida",
+      "Horas Totales",
+      "Tardanza (Min)",
+      "Salida Ant. (Min)",
+      "Hs Extra (Min)",
+      "Estado",
+      "Justificación",
+    ]
+    const lines = [
+      header.join(","),
+      ...rows.map(r => [
+        r.Empleado,
+        r.Fecha,
+        r["Primera Entrada"],
+        r["Última Salida"],
+        r["Horas Totales"],
+        r["Tardanza (Min)"],
+        r["Salida Ant. (Min)"],
+        r["Hs Extra (Min)"],
+        r.Estado,
+        r.Justificación,
+      ].map(v => `"${String(v).replaceAll('"', '""')}"`).join(",")),
+    ]
+
+    const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8;" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = "asistencia_procesada.csv"
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  function exportExcel() {
+    const rows = filtered.map(r => ({
+      Empleado: nameOf(r.employee_id),
+      Fecha: r.date,
+      "Primera Entrada": r.first_in || "",
+      "Última Salida": r.last_out || "",
+      "Horas Totales": r.total_hours,
+      "Tardanza (Min)": r.tardiness_minutes,
+      "Salida Ant. (Min)": r.early_departure_minutes,
+      "Hs Extra (Min)": r.overtime_minutes,
+      Estado: r.status,
+      Justificación: r.justification || "",
+    }))
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "Asistencia Procesada")
+    XLSX.writeFile(wb, "asistencia_procesada.xlsx")
+  }
+
   useEffect(() => {
     if (selectedRowId == null) return
     const exists = records.some(r => r.id === selectedRowId)
@@ -82,6 +162,10 @@ export default function ProcessedTab() {
   }, [records, selectedRowId])
 
   function openJustify(r: ProcessedRecord) {
+    if (r.status === "OK") {
+      const proceed = window.confirm("Este registro ya está OK. ¿Deseas justificarlo de todos modos?")
+      if (!proceed) return
+    }
     setSelected(r)
     setJustIn(r.first_in ? r.first_in.slice(0, 5) : "08:00")
     setJustOut(r.last_out ? r.last_out.slice(0, 5) : "17:00")
@@ -110,8 +194,8 @@ export default function ProcessedTab() {
       const res = await api.post(endpoint)
       await load()
       setActionMsg(`Proceso completado: ${res.data.processed_days} flujos diarios procesados.`)
-    } catch (e: any) {
-      setActionMsg(e?.response?.data?.detail || "Error al ejecutar el proceso")
+    } catch (e: unknown) {
+      setActionMsg(getErrorMessage(e, "Error al ejecutar el proceso"))
     } finally {
       setProcessing(null)
     }
@@ -123,7 +207,7 @@ export default function ProcessedTab() {
     try {
       await api.patch(`/api/processed/${selected!.id}/justify`, { first_in: justIn, last_out: justOut, justification: justText })
       setSelected(null); load()
-    } catch (e: any) { setJustError(e?.response?.data?.detail || "Error al guardar.")
+    } catch (e: unknown) { setJustError(getErrorMessage(e, "Error al guardar."))
     } finally { setSaving(false) }
   }
 
@@ -159,6 +243,8 @@ export default function ProcessedTab() {
         <button className="btn" onClick={justifySelectedRow}>
           <Wrench size={14} /> Justificar Fila Seleccionada
         </button>
+        <button className="btn" onClick={exportCsv}>Exportar CSV</button>
+        <button className="btn" onClick={exportExcel}>Exportar Excel</button>
         <button className="btn" onClick={load} disabled={loading}><RefreshCw size={14} /> Actualizar</button>
       </div>
 

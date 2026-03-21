@@ -3,6 +3,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
 from PySide6.QtCore import Qt, QTime
 from sqlalchemy.orm import Session
 from models.shift import Shift
+from models.employee import User
 from datetime import time
 
 class ShiftsTab(QWidget):
@@ -106,6 +107,11 @@ class ShiftsTab(QWidget):
                 grace_period_minutes=grace
             )
             self.session.add(shift)
+            self.session.flush()
+
+            # New shifts become the default shift for all employees.
+            self.session.query(User).update({User.shift_id: shift.id})
+
             self.session.commit()
             dialog.accept()
             self.load_data()

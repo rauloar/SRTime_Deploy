@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, 
-                               QHeaderView, QMessageBox, QHBoxLayout, QDialog, QLabel, QTimeEdit, QTextEdit)
+                               QHeaderView, QMessageBox, QHBoxLayout, QDialog, QLabel, QTimeEdit, QTextEdit, QFileDialog, QStyle)
 from PySide6.QtCore import Qt, QThread, Signal, QTime
 from sqlalchemy.orm import Session
 from models.processed_attendance import ProcessedAttendance
@@ -7,6 +7,7 @@ from models.employee import User
 from models.shift import Shift
 from services.engine import AttendanceEngine
 from datetime import datetime, time
+import pandas as pd
 
 class EngineWorker(QThread):
     progress = Signal(int, int)
@@ -80,6 +81,16 @@ class ProcessedTab(QWidget):
         self.btn_justify.setStyleSheet("font-weight: bold; font-size: 14px; padding: 10px;")
         self.btn_justify.clicked.connect(self.justify_selected_row)
         btn_toolbar.addWidget(self.btn_justify)
+
+        self.btn_export_csv = QPushButton("Exportar CSV")
+        self.btn_export_csv.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton))
+        self.btn_export_csv.clicked.connect(self.export_csv)
+        btn_toolbar.addWidget(self.btn_export_csv)
+
+        self.btn_export_excel = QPushButton("Exportar Excel")
+        self.btn_export_excel.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DriveHDIcon))
+        self.btn_export_excel.clicked.connect(self.export_excel)
+        btn_toolbar.addWidget(self.btn_export_excel)
         
         layout.addLayout(btn_toolbar)
 
@@ -279,3 +290,56 @@ class ProcessedTab(QWidget):
         btn_save.clicked.connect(save)
         btn_cancel.clicked.connect(dialog.reject)
         dialog.exec()
+
+    def _collect_export_data(self):
+        data = []
+        selected_rows = self.table.selectionModel().selectedRows()
+        if selected_rows:
+            row_indexes = [idx.row() for idx in selected_rows]
+        else:
+            row_indexes = list(range(self.table.rowCount()))
+
+        for row in row_indexes:
+            empleado = self.table.item(row, 0).text() if self.table.item(row, 0) else ""
+            fecha = self.table.item(row, 1).text() if self.table.item(row, 1) else ""
+            primera_entrada = self.table.item(row, 2).text() if self.table.item(row, 2) else ""
+            ultima_salida = self.table.item(row, 3).text() if self.table.item(row, 3) else ""
+            horas_totales = self.table.item(row, 4).text() if self.table.item(row, 4) else ""
+            tardanza = self.table.item(row, 5).text() if self.table.item(row, 5) else ""
+            salida_ant = self.table.item(row, 6).text() if self.table.item(row, 6) else ""
+            hs_extra = self.table.item(row, 7).text() if self.table.item(row, 7) else ""
+            estado = self.table.item(row, 8).text() if self.table.item(row, 8) else ""
+            data.append([
+                empleado,
+                fecha,
+                primera_entrada,
+                ultima_salida,
+                horas_totales,
+                tardanza,
+                salida_ant,
+                hs_extra,
+                estado,
+            ])
+        return data
+
+    def export_csv(self):
+        path, _ = QFileDialog.getSaveFileName(self, "Guardar CSV", "", "CSV Files (*.csv)")
+        if not path:
+            return
+        data = self._collect_export_data()
+        df = pd.DataFrame(data, columns=[
+            "Empleado", "Fecha", "Primera Entrada", "Última Salida", "Horas Totales",
+            "Tardanza (Min)", "Salida Ant. (Min)", "Hs Extra (Min)", "Estado"
+        ])
+        df.to_csv(path, index=False)
+
+    def export_excel(self):
+        path, _ = QFileDialog.getSaveFileName(self, "Guardar Excel", "", "Excel Files (*.xlsx)")
+        if not path:
+            return
+        data = self._collect_export_data()
+        df = pd.DataFrame(data, columns=[
+            "Empleado", "Fecha", "Primera Entrada", "Última Salida", "Horas Totales",
+            "Tardanza (Min)", "Salida Ant. (Min)", "Hs Extra (Min)", "Estado"
+        ])
+        df.to_excel(path, index=False)

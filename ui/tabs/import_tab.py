@@ -85,9 +85,8 @@ class ImportTab(QWidget):
     def restore_backup(self):
         try:
             path, _ = QFileDialog.getOpenFileName(self, "Seleccionar Backup", "", "Backup Files (*.bak)")
-            path, _ = QFileDialog.getOpenFileName(self, "Seleccionar Backup", "", "Backup Files (*.bak)")
             if not path:
-                        from PySide6.QtWidgets import QStyle
+                return
             with open(path, 'r') as f:
                 lines = f.readlines()
             total = len(lines)

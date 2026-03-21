@@ -8,6 +8,7 @@ from typing import Optional
 from api.deps import get_db, get_current_user
 from api.schemas import ShiftResponse
 from models.shift import Shift
+from models.employee import User
 from models.user import AuthUser
 
 router = APIRouter()
@@ -47,7 +48,14 @@ def create_shift(data: ShiftCreate, db: Session = Depends(get_db), current_user:
         expected_out=parse_time(data.expected_out),
         grace_period_minutes=data.grace_period_minutes
     )
-    db.add(shift); db.commit(); db.refresh(shift)
+    db.add(shift)
+    db.flush()
+
+    # New shifts become the default shift for all employees.
+    db.query(User).update({User.shift_id: shift.id})
+
+    db.commit()
+    db.refresh(shift)
     return shift
 
 @router.put("/{shift_id}", response_model=ShiftResponse)
