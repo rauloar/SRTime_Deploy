@@ -12,6 +12,11 @@ env/
 att/
 .venv/
 
+# Root artifacts
+/backup/
+/build/
+/dist/
+
 # Environment (SECRETS - never commit)
 .env
 *.env
