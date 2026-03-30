@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+*.egg
+dist/
+build/
+*.spec
+venv/
+env/
+att/
+.venv/
+
+# Root artifacts
+/backup/
+/build/
+/dist/
+
+# Environment (SECRETS - never commit)
+.env
+*.env
+
+# Logs
+*.log
+uvicorn.log
+uvicorn_err.log
+
+# Database
+*.db
+*.sqlite3
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Next.js
+web/.next/
+web/node_modules/
+web/.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Temp scripts
+update_db*.py
+debug_*.py
+create_api_admin.py
+tmp_token.txt
