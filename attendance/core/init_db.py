@@ -8,6 +8,9 @@ from core.security import hash_password, verify_password
 from models.user import AuthUser
 from models.shift import Shift
 from models.processed_attendance import ProcessedAttendance
+from core.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 def _should_initialize_on_startup() -> bool:
@@ -23,8 +26,10 @@ def _should_initialize_on_startup() -> bool:
 
 def init_database():
     if not _should_initialize_on_startup():
+        logger.debug("Database already initialized, skipping")
         return
 
+    logger.info("Initializing database schema...")
     Base.metadata.create_all(bind=engine)
     session = Session(bind=engine)
 
@@ -94,4 +99,5 @@ def init_database():
             setattr(admin, "role", "root")
             session.commit()
 
+    logger.info("Database initialization complete")
     session.close()

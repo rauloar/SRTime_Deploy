@@ -1,5 +1,8 @@
 from typing import List
 
+from core.logging_config import get_logger
+logger = get_logger(__name__)
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -50,6 +53,7 @@ def create_auth_user(
     db.add(rec)
     db.commit()
     db.refresh(rec)
+    logger.info(f"Auth user created: {username}", extra={"user": _root_user.username, "action": "create_auth_user", "detail": username})
     return rec
 
 
@@ -90,6 +94,7 @@ def update_auth_user(
 
     db.commit()
     db.refresh(rec)
+    logger.info(f"Auth user updated: {rec.username}", extra={"user": _root_user.username, "action": "update_auth_user", "detail": rec.username})
     return rec
 
 
@@ -111,4 +116,5 @@ def delete_auth_user(
 
     db.delete(rec)
     db.commit()
+    logger.info(f"Auth user deleted: {rec.username}", extra={"user": _root_user.username, "action": "delete_auth_user", "detail": rec.username})
     return {"ok": True}

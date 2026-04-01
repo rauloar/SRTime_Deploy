@@ -1,5 +1,5 @@
 "use client"
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { useAuth } from "../context/AuthContext"
 import { Search, RefreshCw, LogIn, LogOut } from "lucide-react"
 import Pagination from "./Pagination"
@@ -23,6 +23,7 @@ export default function MovementsTab() {
   const [empFilter, setEmpFilter] = useState("")
   const [page, setPage]           = useState(1)
   const [pageSize, setPageSize]   = useState(50)
+  const [viewMode, setViewMode]   = useState<"vertical" | "horizontal">("vertical")
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -42,18 +43,75 @@ export default function MovementsTab() {
     if (!empFilter) return true
     return (nameOf(m) + m.raw_identifier).toLowerCase().includes(empFilter.toLowerCase())
   })
-  const paginated = filtered.slice((page - 1) * pageSize, page * pageSize)
+
+  const groupedMovements = useMemo(() => {
+    if (viewMode !== "horizontal") return []
+    const map = new Map<string, any>()
+    
+    filtered.forEach(m => {
+      const key = `${m.raw_identifier}_${m.date}`
+      if (!map.has(key)) {
+        map.set(key, { identifier: m.raw_identifier, name: nameOf(m), date: m.date, movements: [] })
+      }
+      map.get(key).movements.push(m)
+    })
+    
+    return Array.from(map.values()).map(g => {
+      g.movements.sort((a: any, b: any) => (a.time || "").localeCompare(b.time || ""))
+      let inTime = ""
+      let outTime = ""
+      const ins = g.movements.filter((m: any) => m.mark_type === 0)
+      const outs = g.movements.filter((m: any) => m.mark_type === 1)
+      
+      if (ins.length && outs.length) {
+        inTime = ins[0].time
+        outTime = outs[outs.length - 1].time
+      } else if (g.movements.length >= 2) {
+        inTime = g.movements[0].time
+        outTime = g.movements[g.movements.length - 1].time
+      } else if (g.movements.length === 1) {
+        const m = g.movements[0]
+        if (m.mark_type === 0) inTime = m.time
+        else if (m.mark_type === 1) outTime = m.time
+        else inTime = m.time
+      }
+      
+      return {
+        identifier: g.identifier,
+        name: g.name,
+        date: g.date,
+        inTime: inTime || "--:--",
+        outTime: outTime || "--:--"
+      }
+    })
+  }, [filtered, viewMode])
+
+  const paginated = (viewMode === "vertical" ? filtered : groupedMovements).slice((page - 1) * pageSize, page * pageSize)
 
   function exportCsv() {
-    const rows = filtered.map(m => ({
-      Identificador: m.raw_identifier,
-      Nombre: nameOf(m),
-      Fecha: m.date,
-      Hora: m.time || "",
-      Movimiento: m.mark_type === 0 ? "ENTRADA" : m.mark_type === 1 ? "SALIDA" : "",
-    }))
+    let rows = []
+    let header = []
+    
+    if (viewMode === "vertical") {
+      rows = filtered.map(m => ({
+        Identificador: m.raw_identifier,
+        Nombre: nameOf(m),
+        Fecha: m.date,
+        Hora: m.time || "",
+        Movimiento: m.mark_type === 0 ? "ENTRADA" : m.mark_type === 1 ? "SALIDA" : "",
+      }))
+      header = ["Identificador", "Nombre", "Fecha", "Hora", "Movimiento"]
+    } else {
+      rows = groupedMovements.map(g => ({
+        Identificador: g.identifier,
+        Nombre: g.name,
+        Fecha: g.date,
+        Hora: g.inTime,
+        Movimiento: g.outTime,
+      }))
+      header = ["Identificador", "Nombre", "Fecha", "Entrada", "Salida"]
+    }
 
-    const header = ["Identificador", "Nombre", "Fecha", "Hora", "Movimiento"]
     const lines = [
       header.join(","),
       ...rows.map(r => [r.Identificador, r.Nombre, r.Fecha, r.Hora, r.Movimiento].map(v => `"${String(v).replaceAll('"', '""')}"`).join(",")),
@@ -68,13 +126,24 @@ export default function MovementsTab() {
   }
 
   function exportExcel() {
-    const rows = filtered.map(m => ({
-      Identificador: m.raw_identifier,
-      Nombre: nameOf(m),
-      Fecha: m.date,
-      Hora: m.time || "",
-      Movimiento: m.mark_type === 0 ? "ENTRADA" : m.mark_type === 1 ? "SALIDA" : "",
-    }))
+    let rows = []
+    if (viewMode === "vertical") {
+      rows = filtered.map(m => ({
+        Identificador: m.raw_identifier,
+        Nombre: nameOf(m),
+        Fecha: m.date,
+        Hora: m.time || "",
+        Movimiento: m.mark_type === 0 ? "ENTRADA" : m.mark_type === 1 ? "SALIDA" : "",
+      }))
+    } else {
+      rows = groupedMovements.map(g => ({
+        Identificador: g.identifier,
+        Nombre: g.name,
+        Fecha: g.date,
+        Entrada: g.inTime,
+        Salida: g.outTime,
+      }))
+    }
     const ws = XLSX.utils.json_to_sheet(rows)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, "Movimientos")
@@ -94,9 +163,14 @@ export default function MovementsTab() {
         <input type="date" value={dateStart} onChange={e => setDateStart(e.target.value)} />
         <label>Hasta:</label>
         <input type="date" value={dateEnd} onChange={e => setDateEnd(e.target.value)} />
-        <Search size={15} color="var(--text-muted)" />
+        <label>Vista:</label>
+        <select value={viewMode} onChange={e => { setViewMode(e.target.value as any); setPage(1); }} style={{ padding: "4px 8px", borderRadius: 4, border: "1px solid var(--border-color)", background: "var(--bg-color)", color: "var(--text-color)" }}>
+          <option value="vertical">Vertical</option>
+          <option value="horizontal">Horizontal</option>
+        </select>
+        <Search size={15} color="var(--text-muted)" style={{marginLeft: 10}}/>
         <input type="text" value={empFilter} onChange={e => setEmpFilter(e.target.value)}
-          placeholder="Nombre o identificador..." style={{ width: 200 }} />
+          placeholder="Nombre o ID..." style={{ width: 150 }} />
         <button className="btn" onClick={exportCsv}>Exportar CSV</button>
         <button className="btn" onClick={exportExcel}>Exportar Excel</button>
         <button className="btn" onClick={load} disabled={loading}><RefreshCw size={14} /> Actualizar</button>
@@ -107,15 +181,21 @@ export default function MovementsTab() {
           <div className="table-wrapper">
             <table className="data-table">
               <thead>
-                <tr>
-                  <th>Identificador</th><th>Nombre</th><th>Fecha</th><th>Hora</th><th>Movimiento</th>
-                </tr>
+                {viewMode === "vertical" ? (
+                  <tr>
+                    <th>Identificador</th><th>Nombre</th><th>Fecha</th><th>Hora</th><th>Movimiento</th>
+                  </tr>
+                ) : (
+                  <tr>
+                    <th>Identificador</th><th>Nombre</th><th>Fecha</th><th>Entrada</th><th>Salida</th>
+                  </tr>
+                )}
               </thead>
               <tbody>
                 {paginated.length === 0 && (
                   <tr><td colSpan={5} style={{ textAlign: "center", opacity: 0.5, padding: 20 }}>Sin movimientos en el rango seleccionado</td></tr>
                 )}
-                {paginated.map(m => (
+                {viewMode === "vertical" ? paginated.map((m: any) => (
                   <tr key={m.id}>
                     <td><code style={{ fontSize: 12 }}>{m.raw_identifier}</code></td>
                     <td>{nameOf(m)}</td>
@@ -123,11 +203,19 @@ export default function MovementsTab() {
                     <td>{m.time || "--:--"}</td>
                     <td>{markLabel(m.mark_type)}</td>
                   </tr>
+                )) : paginated.map((g: any, idx: number) => (
+                  <tr key={idx}>
+                    <td><code style={{ fontSize: 12 }}>{g.identifier}</code></td>
+                    <td>{g.name}</td>
+                    <td>{g.date}</td>
+                    <td>{g.inTime}</td>
+                    <td>{g.outTime}</td>
+                  </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <Pagination total={filtered.length} page={page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={setPageSize} />
+          <Pagination total={viewMode === "vertical" ? filtered.length : groupedMovements.length} page={page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={setPageSize} />
         </>
       )}
     </div>

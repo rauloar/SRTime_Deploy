@@ -3,6 +3,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
+from core.logging_config import get_logger
+logger = get_logger(__name__)
+
 from api.deps import get_db, get_current_user
 from api.schemas import UserResponse, UserCreate
 from models.employee import User as EmployeeModel
@@ -44,6 +47,7 @@ def create_user(user: UserCreate, db: Session = Depends(get_db), current_user: A
     db.add(new_employee)
     db.commit()
     db.refresh(new_employee)
+    logger.info(f"Employee created: {user.identifier}", extra={"user": current_user.username, "action": "create_employee", "detail": user.identifier})
     return new_employee
 
 @router.put("/{user_id}", response_model=UserResponse)
@@ -63,6 +67,7 @@ def update_user(user_id: int, user: UserUpdate, db: Session = Depends(get_db), c
     else: db_user.shift_id = None  # Allow removing shift
     db.commit()
     db.refresh(db_user)
+    logger.info(f"Employee updated: {db_user.identifier}", extra={"user": current_user.username, "action": "update_employee", "detail": db_user.identifier})
     return db_user
 
 @router.delete("/{user_id}")
@@ -72,4 +77,5 @@ def delete_user(user_id: int, db: Session = Depends(get_db), current_user: AuthU
         raise HTTPException(status_code=404, detail="User not found")
     db.delete(db_user)
     db.commit()
+    logger.info(f"Employee deleted: {db_user.identifier}", extra={"user": current_user.username, "action": "delete_employee", "detail": db_user.identifier})
     return {"ok": True, "message": f"User {db_user.identifier} deleted"}

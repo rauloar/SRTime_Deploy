@@ -3,6 +3,9 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from datetime import date
 
+from core.logging_config import get_logger
+logger = get_logger(__name__)
+
 from api.deps import get_db, get_current_user
 from models.user import AuthUser
 from models.attendance import AttendanceLog

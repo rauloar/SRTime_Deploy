@@ -35,6 +35,12 @@ class MovementsTab(QWidget):
             self.user_selector.addItem(f"{user.identifier} - {display.strip()}", user.identifier)
         filter_layout.addWidget(self.user_selector)
 
+        filter_layout.addWidget(QLabel("Vista:"))
+        self.view_selector = QComboBox()
+        self.view_selector.addItem("Vertical (Entradas/Salidas)", "vertical")
+        self.view_selector.addItem("Horizontal (Por Día)", "horizontal")
+        self.view_selector.currentIndexChanged.connect(self.load_data)
+        filter_layout.addWidget(self.view_selector)
 
         layout.addLayout(filter_layout)
 
@@ -92,47 +98,95 @@ class MovementsTab(QWidget):
         if end:
             query = query.filter(AttendanceLog.date <= end)
         logs = query.all()
+        
+        self.table.setSortingEnabled(False)
         self.table.clearContents()
-        self.table.setRowCount(len(logs))
-        self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels(["Identificador", "Nombre", "Fecha", "Hora", "Movimiento"])
-        for row, (log, user) in enumerate(logs):
-            movimiento = "ENTRADA" if log.mark_type == 0 else "SALIDA"
-            if user.first_name or user.last_name:
-                nombre = (user.first_name or "") + " " + (user.last_name or "")
-            else:
-                nombre = log.raw_identifier
-            fecha_str = log.date.strftime("%d/%m/%Y") if log.date else ""
-            hora_str = log.time.strftime("%H:%M") if log.time else ""
-            self.table.setItem(row, 0, QTableWidgetItem(log.raw_identifier))
-            self.table.setItem(row, 1, QTableWidgetItem(nombre))
-            self.table.setItem(row, 2, QTableWidgetItem(fecha_str))
-            self.table.setItem(row, 3, QTableWidgetItem(hora_str))
-            self.table.setItem(row, 4, QTableWidgetItem(movimiento))
+        
+        view_mode = self.view_selector.currentData()
+        
+        if view_mode == "vertical":
+            self.table.setRowCount(len(logs))
+            self.table.setColumnCount(5)
+            self.table.setHorizontalHeaderLabels(["Identificador", "Nombre", "Fecha", "Hora", "Movimiento"])
+            for row, (log, user) in enumerate(logs):
+                movimiento = "ENTRADA" if log.mark_type == 0 else "SALIDA"
+                if user.first_name or user.last_name:
+                    nombre = (user.first_name or "") + " " + (user.last_name or "")
+                else:
+                    nombre = log.raw_identifier
+                fecha_str = log.date.strftime("%d/%m/%Y") if log.date else ""
+                hora_str = log.time.strftime("%H:%M") if log.time else ""
+                self.table.setItem(row, 0, QTableWidgetItem(log.raw_identifier))
+                self.table.setItem(row, 1, QTableWidgetItem(nombre))
+                self.table.setItem(row, 2, QTableWidgetItem(fecha_str))
+                self.table.setItem(row, 3, QTableWidgetItem(hora_str))
+                self.table.setItem(row, 4, QTableWidgetItem(movimiento))
+        else:
+            # Vista horizontal agrupando por usuario y fecha
+            from collections import defaultdict
+            grouped = defaultdict(list)
+            for log, user in logs:
+                grouped[(log.raw_identifier, log.date)].append((log, user))
+                
+            self.table.setRowCount(len(grouped))
+            self.table.setColumnCount(5)
+            self.table.setHorizontalHeaderLabels(["Identificador", "Nombre", "Fecha", "Entrada", "Salida"])
+            
+            row = 0
+            for (identifier, date), items in grouped.items():
+                items.sort(key=lambda x: x[0].time)
+                user = items[0][1]
+                nombre = (user.first_name or "") + " " + (user.last_name or "") if user.first_name or user.last_name else identifier
+                fecha_str = date.strftime("%d/%m/%Y") if date else ""
+                
+                in_time_str = ""
+                out_time_str = ""
+                
+                in_logs = [x for x in items if x[0].mark_type == 0]
+                out_logs = [x for x in items if x[0].mark_type == 1]
+                
+                if in_logs and out_logs:
+                    in_time_str = in_logs[0][0].time.strftime("%H:%M")
+                    out_time_str = out_logs[-1][0].time.strftime("%H:%M")
+                elif len(items) >= 2:
+                    in_time_str = items[0][0].time.strftime("%H:%M")
+                    out_time_str = items[-1][0].time.strftime("%H:%M")
+                elif len(items) == 1:
+                    log_item = items[0][0]
+                    if log_item.mark_type == 0:
+                        in_time_str = log_item.time.strftime("%H:%M")
+                    elif log_item.mark_type == 1:
+                        out_time_str = log_item.time.strftime("%H:%M")
+                    else:
+                        in_time_str = log_item.time.strftime("%H:%M")
+                        
+                self.table.setItem(row, 0, QTableWidgetItem(identifier))
+                self.table.setItem(row, 1, QTableWidgetItem(nombre))
+                self.table.setItem(row, 2, QTableWidgetItem(fecha_str))
+                self.table.setItem(row, 3, QTableWidgetItem(in_time_str))
+                self.table.setItem(row, 4, QTableWidgetItem(out_time_str))
+                row += 1
+
+        self.table.setSortingEnabled(True)
 
     def export_csv(self):
         path, _ = QFileDialog.getSaveFileName(self, "Guardar CSV", "", "CSV Files (*.csv)")
         if path:
+            headers = [self.table.horizontalHeaderItem(i).text() for i in range(self.table.columnCount())]
             data = []
-            selected_rows = self.table.selectionModel().selectedRows()
-            if selected_rows:
-                for index in selected_rows:
-                    row = index.row()
-                    log_id = self.table.item(row, 0).text()
-                    nombre = self.table.item(row, 1).text()
-                    fecha_str = self.table.item(row, 2).text()
-                    hora_str = self.table.item(row, 3).text()
-                    movimiento = self.table.item(row, 4).text()
-                    data.append([log_id, nombre, fecha_str, hora_str, movimiento])
-            else:
-                for row in range(self.table.rowCount()):
-                    log_id = self.table.item(row, 0).text()
-                    nombre = self.table.item(row, 1).text()
-                    fecha_str = self.table.item(row, 2).text()
-                    hora_str = self.table.item(row, 3).text()
-                    movimiento = self.table.item(row, 4).text()
-                    data.append([log_id, nombre, fecha_str, hora_str, movimiento])
-            df = pd.DataFrame(data, columns=["Identificador", "Nombre", "Fecha", "Hora", "Movimiento"])
+            
+            selected_indexes = self.table.selectionModel().selectedRows()
+            selected_rows = [i.row() for i in selected_indexes]
+            rows_to_export = selected_rows if selected_rows else range(self.table.rowCount())
+
+            for row in rows_to_export:
+                row_data = []
+                for col in range(self.table.columnCount()):
+                    item = self.table.item(row, col)
+                    row_data.append(item.text() if item else "")
+                data.append(row_data)
+
+            df = pd.DataFrame(data, columns=headers)
             df.to_csv(path, index=False)
 
     def export_excel(self):
@@ -141,32 +195,27 @@ class MovementsTab(QWidget):
             import openpyxl
             from openpyxl.styles import Font, Alignment
             from openpyxl.utils import get_column_letter
+
+            headers = [self.table.horizontalHeaderItem(i).text() for i in range(self.table.columnCount())]
             data = []
-            selected_rows = self.table.selectionModel().selectedRows()
-            if selected_rows:
-                for index in selected_rows:
-                    row = index.row()
-                    log_id = self.table.item(row, 0).text()
-                    nombre = self.table.item(row, 1).text()
-                    fecha_str = self.table.item(row, 2).text()
-                    hora_str = self.table.item(row, 3).text()
-                    movimiento = self.table.item(row, 4).text()
-                    data.append([log_id, nombre, fecha_str, hora_str, movimiento])
-            else:
-                for row in range(self.table.rowCount()):
-                    log_id = self.table.item(row, 0).text()
-                    nombre = self.table.item(row, 1).text()
-                    fecha_str = self.table.item(row, 2).text()
-                    hora_str = self.table.item(row, 3).text()
-                    movimiento = self.table.item(row, 4).text()
-                    data.append([log_id, nombre, fecha_str, hora_str, movimiento])
+            
+            selected_indexes = self.table.selectionModel().selectedRows()
+            selected_rows = [i.row() for i in selected_indexes]
+            rows_to_export = selected_rows if selected_rows else range(self.table.rowCount())
+
+            for row in rows_to_export:
+                row_data = []
+                for col in range(self.table.columnCount()):
+                    item = self.table.item(row, col)
+                    row_data.append(item.text() if item else "")
+                data.append(row_data)
+
             # Crear workbook y hoja
             wb = openpyxl.Workbook()
             ws = wb.active
             import os
             sheet_name = os.path.splitext(os.path.basename(path))[0]
             ws.title = sheet_name
-            headers = ["Identificador", "Nombre", "Fecha", "Hora", "Movimiento"]
             # Encabezados en negrita
             for col, header in enumerate(headers, 1):
                 cell = ws.cell(row=1, column=col, value=header)

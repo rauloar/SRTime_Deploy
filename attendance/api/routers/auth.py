@@ -2,6 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
+from core.logging_config import get_logger
+logger = get_logger(__name__)
+
 from api.deps import get_db, get_current_user
 from models.user import AuthUser
 from api.security import verify_password, create_access_token, get_password_hash
@@ -15,6 +18,7 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
     
     # Secure Password Verification
     if not user or not verify_password(form_data.password, user.password_hash):
+        logger.warning("Login failed", extra={"user": form_data.username, "action": "login_failed"})
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
@@ -28,6 +32,7 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
         )
         
     access_token = create_access_token(data={"sub": user.username})
+    logger.info("Login successful", extra={"user": user.username, "action": "login"})
     return {
         "access_token": access_token,
         "token_type": "bearer",
@@ -66,4 +71,5 @@ def change_password(
     current_user.password_hash = get_password_hash(new_password)
     current_user.must_change_password = False
     db.commit()
+    logger.info("Password changed", extra={"user": current_user.username, "action": "password_change"})
     return {"ok": True}

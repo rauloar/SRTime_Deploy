@@ -5,6 +5,9 @@ from pydantic import BaseModel
 from datetime import time as Time
 from typing import Optional
 
+from core.logging_config import get_logger
+logger = get_logger(__name__)
+
 from api.deps import get_db, get_current_user
 from api.schemas import ShiftResponse
 from models.shift import Shift
@@ -56,6 +59,7 @@ def create_shift(data: ShiftCreate, db: Session = Depends(get_db), current_user:
 
     db.commit()
     db.refresh(shift)
+    logger.info(f"Shift created: {data.name}", extra={"user": current_user.username, "action": "create_shift", "detail": data.name})
     return shift
 
 @router.put("/{shift_id}", response_model=ShiftResponse)
@@ -68,6 +72,7 @@ def update_shift(shift_id: int, data: ShiftUpdate, db: Session = Depends(get_db)
     if data.expected_out is not None: shift.expected_out = parse_time(data.expected_out)
     if data.grace_period_minutes is not None: shift.grace_period_minutes = data.grace_period_minutes
     db.commit(); db.refresh(shift)
+    logger.info(f"Shift updated: {shift.name}", extra={"user": current_user.username, "action": "update_shift", "detail": shift.name})
     return shift
 
 @router.delete("/{shift_id}")
@@ -76,4 +81,5 @@ def delete_shift(shift_id: int, db: Session = Depends(get_db), current_user: Aut
     if not shift:
         raise HTTPException(status_code=404, detail="Shift not found")
     db.delete(shift); db.commit()
+    logger.info(f"Shift deleted: {shift.name}", extra={"user": current_user.username, "action": "delete_shift", "detail": shift.name})
     return {"ok": True, "message": f"Shift '{shift.name}' deleted"}

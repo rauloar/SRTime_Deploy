@@ -4,6 +4,9 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from datetime import date, datetime
 
+from core.logging_config import get_logger
+logger = get_logger(__name__)
+
 from api.deps import get_db, get_current_user
 from api.schemas import ProcessedAttendanceResponse
 from models.processed_attendance import ProcessedAttendance
@@ -27,6 +30,7 @@ def process_pending(
 ):
     engine = AttendanceEngine(db)
     count = engine.process_all(progress_callback=None, force_all=False)
+    logger.info(f"Processed {count} pending days", extra={"user": current_user.username, "action": "process_pending"})
     return {"ok": True, "processed_days": count, "mode": "pending"}
 
 
@@ -37,6 +41,7 @@ def reprocess_all(
 ):
     engine = AttendanceEngine(db)
     count = engine.process_all(progress_callback=None, force_all=True)
+    logger.info(f"Reprocessed all: {count} days", extra={"user": current_user.username, "action": "reprocess_all"})
     return {"ok": True, "processed_days": count, "mode": "all"}
 
 @router.get("/", response_model=List[ProcessedAttendanceResponse])
@@ -101,4 +106,5 @@ def justify_record(
     rec.justification = body.justification
     db.commit()
     db.refresh(rec)
+    logger.info(f"Record {record_id} justified", extra={"user": current_user.username, "action": "justify", "detail": str(record_id)})
     return rec

@@ -25,6 +25,7 @@ att/
 *.log
 uvicorn.log
 uvicorn_err.log
+logs/
 
 # Database
 *.db

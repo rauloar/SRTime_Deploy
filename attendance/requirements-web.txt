@@ -1,0 +1,10 @@
+# ── SRTime — Web (Windows + Linux) ───────────────────────────
+# Uso: pip install -r requirements-web.txt
+
+-r requirements-base.txt
+
+# Production web server
+gunicorn==23.0.0
+
+# Database migrations
+alembic==1.18.4
