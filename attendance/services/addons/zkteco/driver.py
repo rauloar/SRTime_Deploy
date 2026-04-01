@@ -58,8 +58,17 @@ class ZKTecoDriver(BiometricDriver):
         try:
             name = self.conn.get_device_name()
             mac = self.conn.get_mac()
+            serial_number = self.conn.get_serialnumber()
+            firmware = self.conn.get_firmware_version()
             t = self.conn.get_time()
-            return {"status": "ok", "name": name, "mac": mac, "time": str(t)}
+            return {
+                "status": "ok",
+                "name": name,
+                "mac": mac,
+                "serial_number": serial_number,
+                "firmware": firmware,
+                "time": str(t),
+            }
         finally:
             self.disconnect()
 

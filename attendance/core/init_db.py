@@ -8,6 +8,7 @@ from core.security import hash_password, verify_password
 from models.user import AuthUser
 from models.shift import Shift
 from models.processed_attendance import ProcessedAttendance
+from models.terminal import DeviceTerminal
 from core.logging_config import get_logger
 
 logger = get_logger(__name__)

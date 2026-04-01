@@ -16,7 +16,7 @@ from core.logging_config import setup_logging, get_logger, request_id_ctx
 setup_logging()
 logger = get_logger("api")
 
-from api.routers import auth, users, shifts, processed, movements, auth_users, importer
+from api.routers import auth, users, shifts, processed, movements, auth_users, importer, terminals
 
 app = FastAPI(
     title="Attendance System API",
@@ -102,6 +102,7 @@ app.include_router(users.router, prefix="/api/users", tags=["Employees Managemen
 app.include_router(shifts.router, prefix="/api/shifts", tags=["Shifts"])
 app.include_router(processed.router, prefix="/api/processed", tags=["Processed Attendance"])
 app.include_router(movements.router, prefix="/api/movements", tags=["Raw Movements"])
+app.include_router(terminals.router, prefix="/api/terminals", tags=["Device Terminals"])
 
 
 @app.get("/api/health")
