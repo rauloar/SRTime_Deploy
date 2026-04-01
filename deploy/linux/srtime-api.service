@@ -1,0 +1,19 @@
+[Unit]
+Description=SRTime API (FastAPI + Gunicorn)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=exec
+User=raul
+Group=raul
+WorkingDirectory=/home/raul/proyectos/SRTime/api
+EnvironmentFile=/home/raul/proyectos/SRTime/config/.env
+ExecStart=/home/raul/proyectos/SRTime/api/run_api \
+    --workers 4 \
+    --bind 127.0.0.1:8000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,18 @@
+[Unit]
+Description=SRTime Web Frontend (Next.js)
+After=network.target srtime-api.service
+
+[Service]
+Type=exec
+User=raul
+Group=raul
+WorkingDirectory=/home/raul/proyectos/SRTime/web
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOSTNAME=127.0.0.1
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
