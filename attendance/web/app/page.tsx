@@ -10,10 +10,12 @@ import ShiftsTab from "./components/ShiftsTab"
 import ProcessedTab from "./components/ProcessedTab"
 import MovementsTab from "./components/MovementsTab"
 import AuthUsersTab from "./components/AuthUsersTab"
-import { Users, Clock, ArrowLeftRight, CheckSquare, Sun, Moon, LogOut, ShieldCheck, FileUp } from "lucide-react"
+import TerminalsTab from "./components/TerminalsTab"
+import { Users, Clock, ArrowLeftRight, CheckSquare, Sun, Moon, LogOut, ShieldCheck, FileUp, MonitorSmartphone } from "lucide-react"
 
 const TABS = [
   { id: "import",    label: "Importar",             Icon: FileUp },
+  { id: "terminals", label: "Terminales y Biométricos",Icon: MonitorSmartphone },
   { id: "users",     label: "Empleados",            Icon: Users },
   { id: "shifts",    label: "Turnos Horarios",      Icon: Clock },
   { id: "movements", label: "Movimientos",          Icon: ArrowLeftRight },
@@ -156,6 +158,7 @@ export default function Home() {
         <div className="content-wrapper">
           {activeTab === "users"      && <UsersTab />}
           {activeTab === "import"     && <ImportTab />}
+          {activeTab === "terminals"  && <TerminalsTab />}
           {activeTab === "shifts"     && <ShiftsTab />}
           {activeTab === "movements"  && <MovementsTab />}
           {activeTab === "processed"  && <ProcessedTab />}

@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react"
 import { useAuth } from "../context/AuthContext"
 import axios from "axios"
-import { Upload, RefreshCw } from "lucide-react"
+import { Upload, RefreshCw, Activity, CheckCircle2 } from "lucide-react"
 
 function getErrorMessage(error: unknown, fallback: string) {
   if (axios.isAxiosError(error)) {
@@ -15,7 +15,13 @@ function getErrorMessage(error: unknown, fallback: string) {
 interface ParserInfo {
   name: string
   is_driver: boolean
-  connection_fields: any[]
+}
+
+interface TerminalInfo {
+  id: number
+  name: string
+  ip: string
+  is_active: boolean
 }
 
 export default function ImportTab() {
@@ -26,41 +32,57 @@ export default function ImportTab() {
   const [running, setRunning] = useState(false)
   const [error, setError] = useState("")
   const [parsers, setParsers] = useState<ParserInfo[]>([])
+  const [terminals, setTerminals] = useState<TerminalInfo[]>([])
   const [selectedParser, setSelectedParser] = useState("")
-  const [driverParams, setDriverParams] = useState<Record<string, string>>({})
+  const [selectedTerminal, setSelectedTerminal] = useState<number | "">("")
   const [activeTab, setActiveTab] = useState<"file" | "device">("file")
   const [testing, setTesting] = useState(false)
   const [syncing, setSyncing] = useState(false)
 
   useEffect(() => {
-    api.get("/api/import/parsers").then(res => {
-      const list = res.data.parsers || []
-      setParsers(list)
-      const fileList = list.filter((p: any) => !p.is_driver)
-      if (fileList.length > 0) setSelectedParser(fileList[0].name)
-    }).catch(e => console.error("Error cargando parsers:", e))
+    async function init() {
+      try {
+        const [resParsers, resTerminals] = await Promise.all([
+          api.get("/api/import/parsers"),
+          api.get("/api/terminals/")
+        ])
+        
+        const list = resParsers.data.parsers || []
+        setParsers(list)
+        const fileList = list.filter((p: any) => !p.is_driver)
+        if (fileList.length > 0) setSelectedParser(fileList[0].name)
+
+        const termList = resTerminals.data.terminals || []
+        setTerminals(termList)
+        const activeTerms = termList.filter((t: TerminalInfo) => t.is_active)
+        if (activeTerms.length > 0) {
+          setSelectedTerminal(activeTerms[0].id)
+        }
+      } catch (e) {
+        console.error("Error cargando componentes de importación:", e)
+      }
+    }
+    init()
   }, [api])
 
   function switchTab(tab: "file" | "device") {
     setActiveTab(tab)
-    const list = tab === "file" ? parsers.filter(p => !p.is_driver) : parsers.filter(p => p.is_driver)
-    if (list.length > 0) setSelectedParser(list[0].name)
+    if (tab === "file") {
+      const list = parsers.filter(p => !p.is_driver)
+      if (list.length > 0) setSelectedParser(list[0].name)
+    } else {
+      const activeTerms = terminals.filter(t => t.is_active)
+      if (activeTerms.length > 0) setSelectedTerminal(activeTerms[0].id)
+    }
   }
 
-  const selectedInfo = parsers.find(p => p.name === selectedParser)
-
   async function testConnection() {
-    setTesting(true)
-    setError("")
-    setLogs([])
+    if (!selectedTerminal) return
+    setTesting(true); setError(""); setLogs([])
     try {
-      const payloadParams = { ...driverParams }
-      selectedInfo?.connection_fields?.forEach((f: any) => {
-        if (payloadParams[f.name] === undefined) payloadParams[f.name] = f.default
-      })
-      const res = await api.post("/api/import/device/test", { parser_name: selectedParser, params: payloadParams })
+      const res = await api.post(`/api/terminals/${selectedTerminal}/test`)
       setStatus(`Conexión exitosa. MAC: ${res.data.mac}`)
-      setLogs([`Dispositivo: ${res.data.name}`, `Hora local: ${res.data.time}`])
+      setLogs([`SN: ${res.data.serial_number}`, `Hora local: ${res.data.time}`])
     } catch (e: unknown) {
       setError(getErrorMessage(e, "Error al probar conexión"))
     } finally {
@@ -69,15 +91,10 @@ export default function ImportTab() {
   }
 
   async function syncTime() {
-    setSyncing(true)
-    setError("")
-    setLogs([])
+    if (!selectedTerminal) return
+    setSyncing(true); setError(""); setLogs([])
     try {
-      const payloadParams = { ...driverParams }
-      selectedInfo?.connection_fields?.forEach((f: any) => {
-        if (payloadParams[f.name] === undefined) payloadParams[f.name] = f.default
-      })
-      await api.post("/api/import/device/sync", { parser_name: selectedParser, params: payloadParams })
+      await api.post(`/api/terminals/${selectedTerminal}/sync`)
       setStatus(`Sincronización de hora completada.`)
     } catch (e: unknown) {
       setError(getErrorMessage(e, "Error al sincronizar hora"))
@@ -88,15 +105,10 @@ export default function ImportTab() {
 
   async function runImport() {
     if (activeTab === "device") {
-      setRunning(true)
-      setError("")
-      setLogs([])
+      if (!selectedTerminal) return
+      setRunning(true); setError(""); setLogs([])
       try {
-        const payloadParams = { ...driverParams }
-        selectedInfo?.connection_fields?.forEach((f: any) => {
-          if (payloadParams[f.name] === undefined) payloadParams[f.name] = f.default
-        })
-        const res = await api.post("/api/import/device", { parser_name: selectedParser, params: payloadParams })
+        const res = await api.post(`/api/terminals/${selectedTerminal}/import`)
         setStatus(`Logs: ${res.data.total} | Nuevos: ${res.data.nuevos} | Duplicados: ${res.data.duplicados}`)
         setLogs((res.data.logs || []) as string[])
       } catch (e: unknown) {
@@ -117,10 +129,7 @@ export default function ImportTab() {
       return
     }
 
-    setRunning(true)
-    setError("")
-    setLogs([])
-
+    setRunning(true); setError(""); setLogs([])
     try {
       const form = new FormData()
       form.append("file", file)
@@ -156,50 +165,44 @@ export default function ImportTab() {
           onClick={() => switchTab('device')}
           style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: activeTab === 'device' ? "var(--primary-color)" : "transparent", color: activeTab === 'device' ? "#fff" : "var(--text-color)", fontWeight: activeTab === 'device' ? "bold" : "normal", cursor: "pointer" }}
         >
-          Desde Terminal
+          Desde Red Física
         </button>
       </div>
 
       <div className="toolbar" style={{ flexWrap: "wrap", gap: 10 }}>
-        {activeTab === "device" && (
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 500 }}>
-              Controlador Biométrico:
-            </span>
-            <select 
-              value={selectedParser} 
-              onChange={e => setSelectedParser(e.target.value)}
-              style={{ padding: "6px 10px", borderRadius: 4, border: "1px solid var(--border-color)", background: "var(--bg-color)", color: "var(--text-color)", fontSize: 13 }}
-            >
-              {parsers.filter(p => p.is_driver).map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
-            </select>
-          </div>
-        )}
-        
         {activeTab === "device" ? (
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-             {selectedInfo?.connection_fields?.map((f: any) => (
-               <div key={f.name} style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                 <label style={{ fontSize: 13 }}>{f.label}:</label>
-                 <input 
-                   type={f.type === "number" ? "number" : "text"} 
-                   defaultValue={f.default ?? ""}
-                   onChange={e => setDriverParams(prev => ({...prev, [f.name]: e.target.value}))}
-                   style={{ padding: "6px 8px", width: 140, borderRadius: 4, border: "1px solid var(--border-color)", background: "var(--bg-color)", color: "var(--text-color)", fontSize: 13 }}
-                 />
-               </div>
-             ))}
-             <div style={{ display: "flex", gap: 5, width: "100%", marginTop: 5 }}>
-               <button className="btn" onClick={testConnection} disabled={testing || running || syncing}>
-                 {testing ? "Probando..." : "Probar Conexión"}
-               </button>
-               <button className="btn" onClick={syncTime} disabled={testing || running || syncing}>
-                 {syncing ? "Sincronizando..." : "Sincronizar Hora"}
-               </button>
-               <button className="btn btn-primary" onClick={runImport} disabled={testing || running || syncing}>
-                 <RefreshCw size={14} /> {running ? "Conectando..." : "Descargar e Importar Logs"}
-               </button>
-             </div>
+            <span style={{ fontSize: 13, fontWeight: 500 }}>
+              Equipo Registrado:
+            </span>
+            <select 
+              value={selectedTerminal} 
+              onChange={e => setSelectedTerminal(Number(e.target.value))}
+              style={{ padding: "6px 10px", borderRadius: 4, border: "1px solid var(--border-color)", background: "var(--bg-color)", color: "var(--text-color)", fontSize: 13, minWidth: 200 }}
+            >
+              <option value="" disabled>Seleccionar terminal...</option>
+              {terminals.map(t => (
+                <option key={t.id} value={t.id}>
+                  {t.name} {t.is_active ? `(${t.ip})` : '(Inactiva)'}
+                </option>
+              ))}
+            </select>
+
+            {terminals.length === 0 ? (
+               <span style={{ opacity: 0.6, fontSize: 12 }}>⚠️ No hay terminales configuradas. Dirígete a la pestaña "Terminales".</span>
+            ) : (
+                <div style={{ display: "flex", gap: 5, marginLeft: 10 }}>
+                  <button className="btn" onClick={testConnection} disabled={testing || running || syncing || !selectedTerminal}>
+                    <Activity size={14} /> {testing ? "Probando..." : "Diagnóstico"}
+                  </button>
+                  <button className="btn" onClick={syncTime} disabled={testing || running || syncing || !selectedTerminal}>
+                    <CheckCircle2 size={14} /> {syncing ? "Sincronizando..." : "Setear Reloj"}
+                  </button>
+                  <button className="btn btn-primary" onClick={runImport} disabled={testing || running || syncing || !selectedTerminal}>
+                    <RefreshCw size={14} /> {running ? "Conectando..." : "Descargar Memorias"}
+                  </button>
+                </div>
+            )}
           </div>
         ) : (
           <>
