@@ -36,9 +36,11 @@ check_pkg "postgresql"
 check_pkg "libpq5" 
 check_pkg "libpq-dev"
 check_pkg "tzdata"
-check_pkg "curl"
-check_pkg "git"
-check_pkg "openssl"
+check_pkg "python3-venv"
+check_pkg "python3-pip"
+check_pkg "python3-dev"
+check_pkg "gcc"
+check_pkg "g++"
 
 # Verificamos NodeJS interactuando con su versión
 if ! command -v node &> /dev/null; then
@@ -78,27 +80,42 @@ else
 fi
 
 
-echo -e "\n[3/6] 📦 DESPLIEGUE DEL PAYLOAD BINARIO (NUITKA + NEXTJS)..."
+echo -e "\n[3/6] 📦 CONSTRUYENDO Y PROTEGIENDO EL PAYLOAD BINARIO LOCALMENTE..."
 # Busca si subiste el archivo empaquetado a esta misma carpeta (o root del server)
-if [ -f "srtime-web-linux.tar.gz" ]; then
-    echo "→ Extrayendo paquete binario..."
-    tar -xzf srtime-web-linux.tar.gz -C "$APP_DIR" --strip-components=1
-    chmod +x "$APP_DIR/api/run_api"
-    chmod +x "$APP_DIR/migrate_sqlite.py" 2>/dev/null || true
-else
-    echo ""
-    echo "⚠️ ADVERTENCIA: No se encontró 'srtime-web-linux.tar.gz'!"
-    echo "Clonamos el código fuente, per para usar la arquitectura compilada y protegida"
-    echo "debes proveer este archivo generado mediante deploy/linux/build.sh."
-    echo "Si deseas compilarlo tú mismo DENTRO del servidor, ejecuta ahora:"
-    echo "  > cd $APP_DIR/deploy/linux && bash build.sh"
-    echo "Y luego vuelve a correr este setup.sh."
-    echo "Pausando instalación..."
-    exit 1
+if [ ! -f "srtime-web-linux.tar.gz" ]; then
+    echo "→ No se proveyó empaquetado precompilado. ¡Se compilará Nuitka y NextJS dentro de este servidor ahora mismo!"
+    
+    # Preparamos un entorno virtual ciego para Nuitka
+    echo "→ Creando entorno de compilación temporal..."
+    python3 -m venv "$APP_DIR/venv"
+    source "$APP_DIR/venv/bin/activate"
+    pip install --upgrade pip > /dev/null
+    pip install -r "$APP_DIR/attendance/requirements-web.txt" > /dev/null
+    pip install nuitka > /dev/null
+    
+    # Corremos el pipeline
+    echo "→ Ejecutando pipeline aisla-código en $APP_DIR/deploy/linux/build.sh..."
+    cd "$APP_DIR/deploy/linux"
+    bash build.sh
+
+    # Traemos el resultado y apagamos el virtual env
+    deactivate
+    cd "$(dirname "$APP_DIR")"
+    cp "$APP_DIR/deploy/dist/linux/srtime-web-linux.tar.gz" "./"
 fi
 
+echo -e "\n[4/6] ⚙️ EXTRACCIÓN Y LIMPIEZA FINAL..."
+echo "→ Acoplando binarios aislados..."
+tar -xzf srtime-web-linux.tar.gz -C "$APP_DIR" --strip-components=1
+chmod +x "$APP_DIR/api/run_api"
+chmod +x "$APP_DIR/migrate_sqlite.py" 2>/dev/null || true
 
-echo -e "\n[4/6] 🔐 CONFIGURANDO VARIABLES Y SEGURIDAD..."
+# Como ya extrajimos el binario, podemos eliminar el código fuente clonado inicialmente si se desea máxima seguridad local
+# (Ocultando dependencias en ~/.git y raw código)
+# rm -rf "$APP_DIR/attendance" "$APP_DIR/venv"
+
+
+echo -e "\n[5/7] 🔐 CONFIGURANDO VARIABLES Y SEGURIDAD..."
 if [ ! -f "$APP_DIR/config/.env" ]; then
     mkdir -p "$APP_DIR/config"
     cp "$APP_DIR/config/.env.example" "$APP_DIR/config/.env" 2>/dev/null || cp "$APP_DIR/deploy/.env.production.example" "$APP_DIR/config/.env"
@@ -113,7 +130,7 @@ if [ ! -f "$APP_DIR/config/.env" ]; then
 fi
 
 
-echo -e "\n[5/6] ⚙️ CONFIGURANDO DEMONIOS Y PROXY REVERSO (APACHE)..."
+echo -e "\n[6/7] ⚙️ CONFIGURANDO DEMONIOS Y PROXY REVERSO (APACHE)..."
 sudo mkdir -p /var/log/srtime
 sudo chown $APP_USER:$APP_USER /var/log/srtime
 
@@ -133,7 +150,7 @@ sudo a2ensite srtime > /dev/null
 sudo systemctl reload apache2
 
 
-echo -e "\n[6/6] ✅ INSTALACIÓN ESTRUCTURAL COMPLETADA"
+echo -e "\n[7/7] ✅ INSTALACIÓN ESTRUCTURAL COMPLETADA"
 echo "================================================="
 echo " PASOS RESTANTES MANUALES:"
 echo ""
