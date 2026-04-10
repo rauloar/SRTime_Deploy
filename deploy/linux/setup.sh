@@ -2,7 +2,7 @@
 set -e
 
 APP_DIR="/home/raul/proyectos/SRTime"
-REPO_URL="https://github.com/rauloar/SRTime_Deploy.git"
+APP_USER="raul"
 
 echo "=========================================="
 echo "  SRTime Web — Setup en Debian 13"
@@ -36,18 +36,26 @@ chmod +x "$APP_DIR/migrate_sqlite.py" 2>/dev/null || true
 
 
 # 3. Copiar template de .env si no existe
-echo "[3/5] Configuración..."
+echo "[3/5] Configuración Segura..."
 if [ ! -f "$APP_DIR/config/.env" ]; then
     cp "$APP_DIR/config/.env.example" "$APP_DIR/config/.env"
+    
+    # Generate secure 256-bit random JWT secret and replace the dummy SECRET_KEY
+    NEW_SECRET=$(openssl rand -hex 32)
+    sed -i "s/SECRET_KEY=.*/SECRET_KEY=$NEW_SECRET/g" "$APP_DIR/config/.env"
+    
+    # Ensure env file is only readable by the owner to prevent jwt or db leaks
+    chmod 600 "$APP_DIR/config/.env"
+    
     echo ""
-    echo "⚠️  EDITA $APP_DIR/config/.env con tus valores reales:"
+    echo "⚠️  EDITA $APP_DIR/config/.env con tus valores reales de Postgres:"
     echo "   nano $APP_DIR/config/.env"
 fi
 
 # 4. Crear directorio de logs e instalar servicios
 echo "[4/5] Instalando servicios..."
 sudo mkdir -p /var/log/srtime
-sudo chown raul:raul /var/log/srtime
+sudo chown $APP_USER:$APP_USER /var/log/srtime
 
 # Instalar servicios systemd
 sudo cp "$APP_DIR/config/srtime-api.service" /etc/systemd/system/
@@ -69,8 +77,8 @@ echo ""
 echo "  Próximos pasos:"
 echo "  1. Editar $APP_DIR/config/.env con credenciales"
 echo "  2. Crear BD en PostgreSQL:"
-echo "     sudo -u postgres createuser raul"
-echo "     sudo -u postgres createdb -O raul srtime_attendance"
+echo "     sudo -u postgres createuser $APP_USER"
+echo "     sudo -u postgres createdb -O $APP_USER srtime_attendance"
 echo "  3. Abrir puerto 80 en UFW:"
 echo "     sudo ufw allow 80/tcp"
 echo "  4. Iniciar servicios:"
