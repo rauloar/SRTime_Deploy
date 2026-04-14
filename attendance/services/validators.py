@@ -2,7 +2,7 @@
 Validators para datos de Attendance.
 Validaciones de integridad, duplicados y datos anómalos.
 """
-from datetime import datetime, time as Time, date
+from datetime import datetime, time as Time, time, date
 from sqlalchemy.orm import Session
 from models.attendance import AttendanceLog
 from typing import List, Tuple, Optional, Dict
