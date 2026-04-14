@@ -9,9 +9,20 @@ from sqlalchemy.orm import Session
 
 from api.deps import get_db, get_current_user
 from models.user import AuthUser
+from models.terminal import DeviceTerminal
 from services.importer_service import import_att_logs
+from datetime import datetime
 
 router = APIRouter()
+
+def _get_driver_and_params(terminal: DeviceTerminal):
+    import services.addons
+    info = services.addons.get_addon_info(terminal.driver_name)
+    if not info or not info.get("is_driver"):
+        raise HTTPException(status_code=400, detail=f"Driver '{terminal.driver_name}' no encontrado")
+    driver = info["class"]()
+    params = {"ip": terminal.ip, "port": str(terminal.port), "password": terminal.password or "0"}
+    return driver, params
 
 @router.get("/parsers")
 def list_parsers():
@@ -26,81 +37,38 @@ def list_parsers():
         })
     return {"parsers": res}
 
-@router.post("/device")
-async def import_from_device(
-    payload: dict,
+@router.post("/device/{terminal_id}")
+async def import_from_terminal_db(
+    terminal_id: int,
     db: Session = Depends(get_db),
     current_user: AuthUser = Depends(get_current_user),
 ):
-    parser_name = payload.get("parser_name")
-    params = payload.get("params", {})
-    
-    if not parser_name:
-        raise HTTPException(status_code=400, detail="parser_name is required")
+    terminal = db.query(DeviceTerminal).filter(DeviceTerminal.id == terminal_id).first()
+    if not terminal:
+        raise HTTPException(status_code=404, detail="Terminal no encontrada")
         
-    import services.addons
-    info = services.addons.get_addon_info(parser_name)
-    if not info or not info.get("is_driver"):
-        raise HTTPException(status_code=400, detail="Driver inválido o no encontrado")
-        
-    driver_instance = info["class"]()
+    driver, params = _get_driver_and_params(terminal)
+
     from services.importer_service import import_from_driver
-    logger.info("Device import started", extra={"user": current_user.username, "action": "import_device", "detail": parser_name})
-    nuevos, duplicados, total, logs_msgs = import_from_driver(driver_instance, params, db, progress_signal=None)
-    logger.info(
-        f"Device import completed: {nuevos} new, {duplicados} duplicates, {total} total",
-        extra={"user": current_user.username, "action": "import_device_done", "detail": parser_name},
-    )
+    logger.info(f"Terminal import started: {terminal.name} ({terminal.ip})",
+                extra={"user": current_user.username, "action": "terminal_import"})
+
+    nuevos, duplicados, total, logs_msgs = import_from_driver(driver, params, db, progress_signal=None)
+
+    terminal.last_sync = datetime.now()
+    db.commit()
+
+    logger.info(f"Terminal import done: {terminal.name} → {nuevos} new, {duplicados} dup",
+                extra={"user": current_user.username, "action": "terminal_import_done"})
+
     return {
         "ok": True,
+        "terminal_name": terminal.name,
         "total": total,
         "nuevos": nuevos,
         "duplicados": duplicados,
         "logs": logs_msgs[-200:],
     }
-
-
-@router.post("/device/test")
-async def test_device_connection(
-    payload: dict,
-    db: Session = Depends(get_db),
-    current_user: AuthUser = Depends(get_current_user),
-):
-    parser_name = payload.get("parser_name")
-    params = payload.get("params", {})
-    if not parser_name:
-        raise HTTPException(status_code=400, detail="parser_name is required")
-    import services.addons
-    info = services.addons.get_addon_info(parser_name)
-    if not info or not info.get("is_driver"):
-        raise HTTPException(status_code=400, detail="Driver inválido")
-    driver = info["class"]()
-    try:
-        res = driver.test_connection(params)
-        return res
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@router.post("/device/sync")
-async def sync_device_time(
-    payload: dict,
-    db: Session = Depends(get_db),
-    current_user: AuthUser = Depends(get_current_user),
-):
-    parser_name = payload.get("parser_name")
-    params = payload.get("params", {})
-    if not parser_name:
-        raise HTTPException(status_code=400, detail="parser_name is required")
-    import services.addons
-    info = services.addons.get_addon_info(parser_name)
-    if not info or not info.get("is_driver"):
-        raise HTTPException(status_code=400, detail="Driver inválido")
-    driver = info["class"]()
-    try:
-        ok = driver.sync_time(params)
-        return {"ok": ok}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/txt")
 async def import_txt_file(

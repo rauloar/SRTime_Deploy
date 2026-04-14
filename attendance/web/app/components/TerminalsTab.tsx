@@ -58,6 +58,9 @@ export default function TerminalsTab() {
   const [error, setError]       = useState("")
   const [page, setPage]         = useState(1)
   const [pageSize, setPageSize] = useState(20)
+  
+  const [testingId, setTestingId] = useState<number | null>(null)
+  const [syncingId, setSyncingId] = useState<number | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -125,6 +128,31 @@ export default function TerminalsTab() {
       load()
     } catch (e) {
       alert(getErrorMessage(e, "Error al eliminar la terminal."))
+    }
+  }
+
+  async function testConnection(id: number) {
+    setTestingId(id)
+    try {
+      const res = await api.post(`/api/terminals/${id}/test`)
+      alert(`✅ Conexión exitosa. MAC: ${res.data.mac} | SN: ${res.data.serial_number}`)
+      load() // recargar para mostrar el serial number en la tabla
+    } catch (e) {
+      alert(getErrorMessage(e, "Error al conectar."))
+    } finally {
+      setTestingId(null)
+    }
+  }
+
+  async function syncTime(id: number) {
+    setSyncingId(id)
+    try {
+      await api.post(`/api/terminals/${id}/sync`)
+      alert("✅ Sincronización completada.")
+    } catch (e) {
+      alert(getErrorMessage(e, "Error al sincronizar reloj."))
+    } finally {
+      setSyncingId(null)
     }
   }
 
@@ -217,12 +245,18 @@ export default function TerminalsTab() {
                     <td style={{ fontSize: 13, color: "var(--text-secondary)" }}>
                       {t.last_sync ? new Date(t.last_sync).toLocaleString() : "Nunca"}
                     </td>
-                    <td style={{ display: "flex", gap: 6 }}>
-                      <button className="btn" style={{ padding: "4px 10px", fontSize: 12 }} onClick={() => openEdit(t)}>
+                    <td style={{ display: "flex", gap: 6, flexWrap: "wrap", maxWidth: 280 }}>
+                      <button className="btn" style={{ padding: "4px 8px", fontSize: 12 }} onClick={() => testConnection(t.id)} disabled={testingId === t.id || syncingId === t.id || !t.is_active}>
+                        <Activity size={13} /> {testingId === t.id ? "..." : "Píng"}
+                      </button>
+                      <button className="btn" style={{ padding: "4px 8px", fontSize: 12 }} onClick={() => syncTime(t.id)} disabled={testingId === t.id || syncingId === t.id || !t.is_active}>
+                        <RefreshCw size={13} /> {syncingId === t.id ? "..." : "Reloj"}
+                      </button>
+                      <button className="btn" style={{ padding: "4px 8px", fontSize: 12 }} onClick={() => openEdit(t)}>
                         <Pencil size={13} /> Editar
                       </button>
-                      <button className="btn btn-danger" style={{ padding: "4px 10px", fontSize: 12 }} onClick={() => handleDelete(t)}>
-                        <Trash2 size={13} /> Eliminar
+                      <button className="btn btn-danger" style={{ padding: "4px 8px", fontSize: 12 }} onClick={() => handleDelete(t)}>
+                        <Trash2 size={13} /> Borrar
                       </button>
                     </td>
                   </tr>

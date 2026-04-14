@@ -193,34 +193,3 @@ def sync_terminal_time(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.post("/{terminal_id}/import")
-def import_from_terminal(
-    terminal_id: int,
-    db: Session = Depends(get_db),
-    current_user: AuthUser = Depends(get_current_user),
-):
-    terminal = _get_terminal(terminal_id, db)
-    driver = _get_driver_instance(terminal)
-    params = _get_connection_params(terminal)
-
-    from services.importer_service import import_from_driver
-    logger.info(f"Terminal import started: {terminal.name} ({terminal.ip})",
-                extra={"user": current_user.username, "action": "terminal_import"})
-
-    nuevos, duplicados, total, logs_msgs = import_from_driver(driver, params, db, progress_signal=None)
-
-    # Actualizar last_sync
-    terminal.last_sync = datetime.now()
-    db.commit()
-
-    logger.info(f"Terminal import done: {terminal.name} → {nuevos} new, {duplicados} dup",
-                extra={"user": current_user.username, "action": "terminal_import_done"})
-
-    return {
-        "ok": True,
-        "terminal_name": terminal.name,
-        "total": total,
-        "nuevos": nuevos,
-        "duplicados": duplicados,
-        "logs": logs_msgs[-200:],
-    }

@@ -38,6 +38,8 @@ AAABAAEAICAAAAAAIADaCQAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAgAAAAIAgGAAAAc3p69AAACaFJ
         tabs = QTabWidget()
         self.tabs = tabs
         import_tab = ImportTab(self.session)
+        from ui.tabs.terminals_tab import TerminalsTab
+        terminals_tab = TerminalsTab(self.session)
         shifts_tab = ShiftsTab(self.session)
         users_tab = UsersTab(self.session)
         auth_user_tab = AuthUserTab(self.session, self.current_auth_user)
@@ -49,15 +51,17 @@ AAABAAEAICAAAAAAIADaCQAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAgAAAAIAgGAAAAc3p69AAACaFJ
 
         self._tab_loaders = {
             0: self._load_import_tab,
-            1: users_tab.load_data,
-            2: shifts_tab.load_data,
-            3: self._load_movements_tab,
-            4: self._load_processed_tab,
+            1: terminals_tab.load_data,
+            2: users_tab.load_data,
+            3: shifts_tab.load_data,
+            4: self._load_movements_tab,
+            5: self._load_processed_tab,
         }
         if self.is_root:
-            self._tab_loaders[5] = auth_user_tab.load_data
+            self._tab_loaders[6] = auth_user_tab.load_data
         
         tabs.addTab(import_tab, "Importar")
+        tabs.addTab(terminals_tab, "Terminales")
         tabs.addTab(users_tab, "Empleados")
         tabs.addTab(shifts_tab, "Turnos Horarios")
         tabs.addTab(movements_tab, "Movimientos")
@@ -181,7 +185,7 @@ AAABAAEAICAAAAAAIADaCQAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAgAAAAIAgGAAAAc3p69AAACaFJ
             current_widget.show_path()
 
     def _load_movements_tab(self):
-        current_widget = self.tabs.widget(3)
+        current_widget = self.tabs.widget(4)
         if current_widget:
             if hasattr(current_widget, 'update_user_selector'):
                 current_widget.update_user_selector()
@@ -189,7 +193,7 @@ AAABAAEAICAAAAAAIADaCQAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAgAAAAIAgGAAAAc3p69AAACaFJ
                 current_widget.load_data()
 
     def _load_processed_tab(self):
-        current_widget = self.tabs.widget(4)
+        current_widget = self.tabs.widget(5)
         if current_widget:
             if hasattr(current_widget, 'update_user_selector'):
                 current_widget.update_user_selector()

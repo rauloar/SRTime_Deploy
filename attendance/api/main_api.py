@@ -9,12 +9,18 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from core.logging_config import setup_logging, get_logger, request_id_ctx
 
 # Initialize logging BEFORE importing routers
 setup_logging()
 logger = get_logger("api")
+
+# Limiter instances global
+limiter = Limiter(key_func=get_remote_address)
 
 from api.routers import auth, users, shifts, processed, movements, auth_users, importer, terminals
 
@@ -23,6 +29,9 @@ app = FastAPI(
     description="SRTime REST API — Attendance Management",
     version="1.0.0",
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 # ── Request Logging Middleware ────────────────────────────────
@@ -67,7 +76,18 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Agrega cabeceras HTTP de seguridad a todas las respuestas."""
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        return response
+
 app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 
 # ── CORS Policy Configuration ────────────────────────────────
@@ -79,7 +99,10 @@ origins = (
     else [
         "http://localhost",
         "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://192.168.1.35:3000",
         "http://localhost:5173",
+        "http://127.0.0.1:5173",
     ]
 )
 

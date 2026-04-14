@@ -95,34 +95,14 @@ class ImportTab(QWidget):
         self.tab_device = QWidget()
         self.device_layout = QVBoxLayout(self.tab_device)
         
-        self.driver_selector = QComboBox()
-        for name, info in self.addons.items():
-            if info.get("is_driver"):
-                self.driver_selector.addItem(name)
+        self.terminal_selector = QComboBox()
+        self.device_layout.addWidget(QLabel("Equipo Registrado:"))
+        self.device_layout.addWidget(self.terminal_selector)
         
-        self.device_layout.addWidget(QLabel("Controlador Biométrico:"))
-        self.device_layout.addWidget(self.driver_selector)
+        # Load Terminals into ComboBox
+        self.update_terminal_selector()
         
-        # Contenedor dinámico de credenciales dependiente del driver elegido
-        self.credentials_widget = QWidget()
-        self.credentials_layout = QVBoxLayout(self.credentials_widget)
-        self.credentials_layout.setContentsMargins(0,0,0,0)
-        self.device_layout.addWidget(self.credentials_widget)
-        
-        self.driver_widgets_map = {}
-        self.driver_selector.currentIndexChanged.connect(self.on_driver_changed)
-        
-        from PySide6.QtWidgets import QHBoxLayout
-        self.advanced_buttons_layout = QHBoxLayout()
-        self.btn_test_conn = QPushButton("Probar Conexión")
-        self.btn_test_conn.clicked.connect(self.test_driver_connection)
-        self.btn_sync_time = QPushButton("Sincronizar Hora")
-        self.btn_sync_time.clicked.connect(self.sync_driver_time)
-        self.advanced_buttons_layout.addWidget(self.btn_test_conn)
-        self.advanced_buttons_layout.addWidget(self.btn_sync_time)
-        self.device_layout.addLayout(self.advanced_buttons_layout)
-        
-        self.btn_import_driver = QPushButton("Descargar Logs e Importar")
+        self.btn_import_driver = QPushButton("Descargar Memorias")
         self.btn_import_driver.setStyleSheet("font-weight: bold; font-size: 14px; padding: 10px; background-color: #2e6b2e; color: white;")
         self.btn_import_driver.clicked.connect(self.import_from_driver_ui)
         self.device_layout.addWidget(self.btn_import_driver)
@@ -143,84 +123,35 @@ class ImportTab(QWidget):
         self.setLayout(layout)
         
         self.show_path()
-        self.on_driver_changed()
 
-    def on_driver_changed(self):
-        import services.addons
-        from PySide6.QtWidgets import QLineEdit, QLabel
-        driver_name = self.driver_selector.currentText()
-        if not driver_name: return
-        info = services.addons.get_addon_info(driver_name)
-        if not info or not info.get("is_driver"): return
-        
-        while self.credentials_layout.count():
-            child = self.credentials_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
-        self.driver_widgets_map.clear()
-        
-        for field in info.get("connection_fields", []):
-            self.credentials_layout.addWidget(QLabel(field.get("label", field["name"])))
-            le = QLineEdit(str(field.get("default", "")))
-            self.credentials_layout.addWidget(le)
-            self.driver_widgets_map[field["name"]] = le
-
-    def get_driver_params(self):
-        params = {}
-        for k, we in self.driver_widgets_map.items():
-            params[k] = we.text()
-        return params
-
-    def get_driver_instance(self):
-        import services.addons
-        driver_name = self.driver_selector.currentText()
-        if not driver_name: return None
-        return services.addons.get_parser_instance(driver_name)
-
-    def test_driver_connection(self):
-        from PySide6.QtWidgets import QApplication, QMessageBox
-        from PySide6.QtCore import Qt
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        self.btn_test_conn.setEnabled(False)
-        try:
-            driver = self.get_driver_instance()
-            if not driver: return
-            res = driver.test_connection(self.get_driver_params())
-            QMessageBox.information(self, "Conexión Exitosa", 
-                f"Dispositivo: {res.get('name')}\nMAC: {res.get('mac')}\nHora local: {res.get('time')}")
-        except Exception as e:
-            QMessageBox.critical(self, "Error de conexión", f"No se pudo conectar al dispositivo:\n{str(e)}")
-        finally:
-            self.btn_test_conn.setEnabled(True)
-            QApplication.restoreOverrideCursor()
-
-    def sync_driver_time(self):
-        from PySide6.QtWidgets import QApplication, QMessageBox
-        from PySide6.QtCore import Qt
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        self.btn_sync_time.setEnabled(False)
-        try:
-            driver = self.get_driver_instance()
-            if not driver: return
-            ok = driver.sync_time(self.get_driver_params())
-            from datetime import datetime
-            if ok:
-                QMessageBox.information(self, "Sincronización Exitosa", f"Se actualizó la hora del dispositivo a:\n{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-            else:
-                QMessageBox.warning(self, "Aviso", "Este controlador no soporta la sincronización de hora.")
-        except Exception as e:
-            QMessageBox.critical(self, "Error al sincronizar", f"Fallo en la comunicación con el dispositivo:\n{str(e)}")
-        finally:
-            self.btn_sync_time.setEnabled(True)
-            QApplication.restoreOverrideCursor()
+    def update_terminal_selector(self):
+        self.terminal_selector.clear()
+        from models.terminal import DeviceTerminal
+        terminals = self.session.query(DeviceTerminal).filter_by(is_active=True).all()
+        for t in terminals:
+            self.terminal_selector.addItem(f"{t.name} ({t.ip})", userData=t.id)
 
     def import_from_driver_ui(self):
-        driver_instance = self.get_driver_instance()
-        params = self.get_driver_params()
-        if not driver_instance: return
+        t_id_val = self.terminal_selector.currentData()
+        if not t_id_val:
+            QMessageBox.warning(self, "Aviso", "No hay terminal seleccionada.")
+            return
+
+        from models.terminal import DeviceTerminal
+        terminal = self.session.query(DeviceTerminal).get(t_id_val)
+        if not terminal: return
+        
+        import services.addons
+        info = services.addons.get_addon_info(terminal.driver_name)
+        if not info or not info.get("is_driver"):
+            QMessageBox.warning(self, "Aviso", "Driver no encontrado.")
+            return
+            
+        driver_instance = info["class"]()
+        params = {"ip": terminal.ip, "port": str(terminal.port), "password": terminal.password or "0"}
             
         self.spinner_label.setVisible(True)
-        self.status_label.setText("Importando logs desde el dispositivo...")
+        self.status_label.setText(f"Importando desde {terminal.name}...")
         self.live_log.clear()
         
         self.worker = ImportWorker(self.session, driver_instance, connection_params=params)

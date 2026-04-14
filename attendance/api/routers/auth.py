@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
@@ -12,8 +12,16 @@ from api.schemas import Token, PasswordChangeRequest, AuthMeResponse
 
 router = APIRouter()
 
+# Obtenemos el limiter exportado de main_api pero lo inyectamos de manera segura 
+# evitando dependencias circulares, o mejor lo creamos en deps.py si es necesario.
+# Por simplicidad importaremos limiter diferido o lo inyectamos en el router.
+def get_limiter():
+    from api.main_api import limiter
+    return limiter
+
 @router.post("/token", response_model=Token)
-def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+@get_limiter().limit("5/minute")
+def login_for_access_token(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = db.query(AuthUser).filter(AuthUser.username == form_data.username).first()
     
     # Secure Password Verification

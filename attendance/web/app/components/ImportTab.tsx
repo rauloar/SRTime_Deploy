@@ -36,8 +36,6 @@ export default function ImportTab() {
   const [selectedParser, setSelectedParser] = useState("")
   const [selectedTerminal, setSelectedTerminal] = useState<number | "">("")
   const [activeTab, setActiveTab] = useState<"file" | "device">("file")
-  const [testing, setTesting] = useState(false)
-  const [syncing, setSyncing] = useState(false)
 
   useEffect(() => {
     async function init() {
@@ -76,39 +74,12 @@ export default function ImportTab() {
     }
   }
 
-  async function testConnection() {
-    if (!selectedTerminal) return
-    setTesting(true); setError(""); setLogs([])
-    try {
-      const res = await api.post(`/api/terminals/${selectedTerminal}/test`)
-      setStatus(`Conexión exitosa. MAC: ${res.data.mac}`)
-      setLogs([`SN: ${res.data.serial_number}`, `Hora local: ${res.data.time}`])
-    } catch (e: unknown) {
-      setError(getErrorMessage(e, "Error al probar conexión"))
-    } finally {
-      setTesting(false)
-    }
-  }
-
-  async function syncTime() {
-    if (!selectedTerminal) return
-    setSyncing(true); setError(""); setLogs([])
-    try {
-      await api.post(`/api/terminals/${selectedTerminal}/sync`)
-      setStatus(`Sincronización de hora completada.`)
-    } catch (e: unknown) {
-      setError(getErrorMessage(e, "Error al sincronizar hora"))
-    } finally {
-      setSyncing(false)
-    }
-  }
-
   async function runImport() {
     if (activeTab === "device") {
       if (!selectedTerminal) return
       setRunning(true); setError(""); setLogs([])
       try {
-        const res = await api.post(`/api/terminals/${selectedTerminal}/import`)
+        const res = await api.post(`/api/import/device/${selectedTerminal}`)
         setStatus(`Logs: ${res.data.total} | Nuevos: ${res.data.nuevos} | Duplicados: ${res.data.duplicados}`)
         setLogs((res.data.logs || []) as string[])
       } catch (e: unknown) {
@@ -192,13 +163,7 @@ export default function ImportTab() {
                <span style={{ opacity: 0.6, fontSize: 12 }}>⚠️ No hay terminales configuradas. Dirígete a la pestaña "Terminales".</span>
             ) : (
                 <div style={{ display: "flex", gap: 5, marginLeft: 10 }}>
-                  <button className="btn" onClick={testConnection} disabled={testing || running || syncing || !selectedTerminal}>
-                    <Activity size={14} /> {testing ? "Probando..." : "Diagnóstico"}
-                  </button>
-                  <button className="btn" onClick={syncTime} disabled={testing || running || syncing || !selectedTerminal}>
-                    <CheckCircle2 size={14} /> {syncing ? "Sincronizando..." : "Setear Reloj"}
-                  </button>
-                  <button className="btn btn-primary" onClick={runImport} disabled={testing || running || syncing || !selectedTerminal}>
+                  <button className="btn btn-primary" onClick={runImport} disabled={running || !selectedTerminal}>
                     <RefreshCw size={14} /> {running ? "Conectando..." : "Descargar Memorias"}
                   </button>
                 </div>
