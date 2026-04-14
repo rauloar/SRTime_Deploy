@@ -4,9 +4,9 @@ After=network.target srtime-api.service
 
 [Service]
 Type=exec
-User=raul
-Group=raul
-WorkingDirectory=/home/raul/proyectos/SRTime/web
+User=__APP_USER__
+Group=__APP_USER__
+WorkingDirectory=__APP_DIR__/web
 Environment=NODE_ENV=production
 Environment=PORT=3000
 Environment=HOSTNAME=127.0.0.1

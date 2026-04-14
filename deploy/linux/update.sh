@@ -1,12 +1,17 @@
 #!/bin/bash
 set -e
-APP_DIR="/home/raul/proyectos/SRTime"
+
+# Deriva APP_DIR desde la ubicación de este script
+APP_DIR="$(cd "$(dirname "$0")" && pwd)"
+GIT_BRANCH="${GIT_BRANCH:-master}"
 
 echo "=== SRTime Web — Actualización ==="
+echo "  Directorio: $APP_DIR"
+echo "  Rama      : $GIT_BRANCH"
 
 # Pull últimos cambios
 cd $APP_DIR
-git pull origin main
+git pull origin $GIT_BRANCH
 
 # Rebuild backend
 echo "[1/4] Actualizando dependencias Python..."

@@ -3,15 +3,22 @@ set -e
 
 # ==============================================================================
 # SRTime Web — Setup Integrado para Debian (Validación, Clonado e Instalación)
-# Ubicación Final: /home/raul/proyectos/SRTime
+# ==============================================================================
+# Variables configurables — pueden sobreescribirse por entorno:
+#   APP_USER=otrouser GIT_BRANCH=develop bash setup.sh
 # ==============================================================================
 
-APP_DIR="/home/raul/proyectos/SRTime"
-REPO_URL="https://github.com/rauloar/SRTime_Deploy.git"
-APP_USER="raul"
+APP_USER="${APP_USER:-$(whoami)}"
+APP_DIR="${APP_DIR:-/home/$APP_USER/proyectos/SRTime}"
+REPO_URL="${REPO_URL:-https://github.com/rauloar/SRTime_Deploy.git}"
+GIT_BRANCH="${GIT_BRANCH:-master}"
 
 echo "================================================="
 echo "  🚀 INICIANDO SETUP DE SRTIME WEB EN DEBIAN"
+echo "================================================="
+echo "  Usuario : $APP_USER"
+echo "  Directorio: $APP_DIR"
+echo "  Rama    : $GIT_BRANCH"
 echo "================================================="
 
 # Variables globales para control de instalación
@@ -33,7 +40,7 @@ sudo apt-get update -qq
 # Verificamos Apache y módulos core
 check_pkg "apache2"
 check_pkg "postgresql"
-check_pkg "libpq5" 
+check_pkg "libpq5"
 check_pkg "libpq-dev"
 check_pkg "tzdata"
 check_pkg "python3-venv"
@@ -71,12 +78,12 @@ if [ -d "$APP_DIR/.git" ]; then
     echo "→ Actualizando Repositorio Existente..."
     cd "$APP_DIR"
     git fetch origin
-    git reset --hard origin/master
+    git reset --hard origin/$GIT_BRANCH
 else
     echo "→ Clonando SRTime desde GitHub..."
     cd "$(dirname "$APP_DIR")"
-    git clone $REPO_URL SRTime
-    cd SRTime
+    git clone --branch $GIT_BRANCH $REPO_URL "$(basename "$APP_DIR")"
+    cd "$(basename "$APP_DIR")"
 fi
 
 
@@ -84,7 +91,7 @@ echo -e "\n[3/6] 📦 CONSTRUYENDO Y PROTEGIENDO EL PAYLOAD BINARIO LOCALMENTE..
 # Busca si subiste el archivo empaquetado a esta misma carpeta (o root del server)
 if [ ! -f "srtime-web-linux.tar.gz" ]; then
     echo "→ No se proveyó empaquetado precompilado. ¡Se compilará Nuitka y NextJS dentro de este servidor ahora mismo!"
-    
+
     # Preparamos un entorno virtual ciego para Nuitka
     echo "→ Creando entorno de compilación temporal..."
     python3 -m venv "$APP_DIR/venv"
@@ -92,7 +99,7 @@ if [ ! -f "srtime-web-linux.tar.gz" ]; then
     pip install --upgrade pip > /dev/null
     pip install -r "$APP_DIR/attendance/requirements-web.txt" > /dev/null
     pip install nuitka > /dev/null
-    
+
     # Corremos el pipeline
     echo "→ Ejecutando pipeline aisla-código en $APP_DIR/deploy/linux/build.sh..."
     cd "$APP_DIR/deploy/linux"
@@ -119,11 +126,11 @@ echo -e "\n[5/7] 🔐 CONFIGURANDO VARIABLES Y SEGURIDAD..."
 if [ ! -f "$APP_DIR/config/.env" ]; then
     mkdir -p "$APP_DIR/config"
     cp "$APP_DIR/config/.env.example" "$APP_DIR/config/.env" 2>/dev/null || cp "$APP_DIR/deploy/.env.production.example" "$APP_DIR/config/.env"
-    
+
     # Inyectar una llave secreta maestra (JWT - 256 bits)
     NEW_SECRET=$(openssl rand -hex 32)
     sed -i "s/SECRET_KEY=.*/SECRET_KEY=$NEW_SECRET/g" "$APP_DIR/config/.env"
-    
+
     # CHMOD 600 evita que otros usuarios lean la base de base de datos Postgres del cliente
     chmod 600 "$APP_DIR/config/.env"
     echo "→ Archivo JWT configurado. Deberás cargar la contraseña de Postgres manualmente."
@@ -134,9 +141,16 @@ echo -e "\n[6/7] ⚙️ CONFIGURANDO DEMONIOS Y PROXY REVERSO (APACHE)..."
 sudo mkdir -p /var/log/srtime
 sudo chown $APP_USER:$APP_USER /var/log/srtime
 
-# Montaje de Demonios Linux
-sudo cp "$APP_DIR/config/srtime-api.service" /etc/systemd/system/ 2>/dev/null || sudo cp "$APP_DIR/deploy/linux/srtime-api.service" /etc/systemd/system/
-sudo cp "$APP_DIR/config/srtime-web.service" /etc/systemd/system/ 2>/dev/null || sudo cp "$APP_DIR/deploy/linux/srtime-web.service" /etc/systemd/system/
+# Montar servicios sustituyendo placeholders con los valores reales
+echo "→ Instalando servicios systemd..."
+for SERVICE in srtime-api srtime-web; do
+    SRC="$APP_DIR/config/$SERVICE.service"
+    [ -f "$SRC" ] || SRC="$APP_DIR/deploy/linux/$SERVICE.service"
+    sed -e "s|__APP_USER__|$APP_USER|g" \
+        -e "s|__APP_DIR__|$APP_DIR|g" \
+        "$SRC" | sudo tee /etc/systemd/system/$SERVICE.service > /dev/null
+    echo "✅ $SERVICE.service instalado"
+done
 
 sudo systemctl daemon-reload
 sudo systemctl enable srtime-api srtime-web
@@ -145,7 +159,12 @@ sudo systemctl enable srtime-api srtime-web
 echo "→ Activando Módulos Apache..."
 sudo a2enmod proxy proxy_http proxy_wstunnel rewrite headers > /dev/null
 
-sudo cp "$APP_DIR/config/srtime-apache.conf" /etc/apache2/sites-available/srtime.conf 2>/dev/null || sudo cp "$APP_DIR/deploy/linux/srtime-apache.conf" /etc/apache2/sites-available/srtime.conf
+# Sustituir SERVER_NAME en la config de Apache
+SERVER_NAME="${SERVER_NAME:-$(hostname -I | awk '{print $1}')}"
+APACHE_SRC="$APP_DIR/config/srtime-apache.conf"
+[ -f "$APACHE_SRC" ] || APACHE_SRC="$APP_DIR/deploy/linux/srtime-apache.conf"
+sed "s|__SERVER_NAME__|$SERVER_NAME|g" "$APACHE_SRC" | sudo tee /etc/apache2/sites-available/srtime.conf > /dev/null
+
 sudo a2ensite srtime > /dev/null
 sudo systemctl reload apache2
 
