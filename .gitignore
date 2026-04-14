@@ -73,3 +73,15 @@ attendance/logs/
 CLEANUP_EXECUTED.md
 test_results.html
 coverage.xml
+
+# ── AI agent instruction files ────────────────────────────────
+AGENTS.md
+CLAUDE.md
+
+# ── Frozen requirements (generado, no editar a mano) ─────────
+attendance/requirements-frozen.txt
+
+# ── Dumps y backups de base de datos ─────────────────────────
+*.dump
+*.sql.gz
+*.pg_dump

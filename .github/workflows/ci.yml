@@ -14,8 +14,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install web dependencies
-        run: pip install -r attendance/requirements-web.txt pytest
+      - name: Install dependencies
+        run: pip install -r attendance/requirements.txt pytest
       - name: Run shared test suite
         run: cd attendance && python -m pytest tests/ -v --tb=short
         env:
