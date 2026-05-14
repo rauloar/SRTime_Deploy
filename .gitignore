@@ -60,6 +60,9 @@ Thumbs.db
 *.tmp
 _git_status.txt
 
+# ── Credenciales y archivos sensibles locales ─────────────────
+CREDENCIALES.txt
+
 # ── Node.js / Next.js (frontend) ─────────────────────────────
 attendance/web/node_modules/
 attendance/web/.next/

@@ -1,6 +1,7 @@
 from core.database import engine, Base
 from models import user, attendance
 from models.employee import User
+from models.holiday import Holiday  # noqa: F401 — registers Holiday with Base.metadata
 from sqlalchemy.orm import Session
 from sqlalchemy import inspect, text
 from pathlib import Path
@@ -26,12 +27,14 @@ def _should_initialize_on_startup() -> bool:
     return not Path(db_file).exists()
 
 def init_database():
+    # create_all is idempotent: only creates missing tables, never drops existing ones.
+    Base.metadata.create_all(bind=engine)
+
     if not _should_initialize_on_startup():
-        logger.debug("Database already initialized, skipping")
+        logger.debug("Database already initialized, skipping bootstrap")
         return
 
     logger.info("Initializing database schema...")
-    Base.metadata.create_all(bind=engine)
     session = Session(bind=engine)
 
     # Backward-compatible bootstrap for existing databases.
@@ -52,6 +55,18 @@ def init_database():
     if "is_processed" not in attendance_cols:
         session.execute(text("ALTER TABLE attendance_log ADD COLUMN is_processed BOOLEAN"))
         session.commit()
+
+    pa_cols = {c["name"] for c in inspect(engine).get_columns("processed_attendance")}
+    for col_def in [
+        ("previous_status", "VARCHAR(20)"),
+        ("pending_first_in", "TIME"),
+        ("pending_last_out", "TIME"),
+        ("pending_justification", "VARCHAR"),
+        ("requested_by", "VARCHAR"),
+    ]:
+        if col_def[0] not in pa_cols:
+            session.execute(text(f"ALTER TABLE processed_attendance ADD COLUMN {col_def[0]} {col_def[1]}"))
+            session.commit()
 
     session.execute(text("UPDATE auth_user SET role = 'viewer' WHERE role IS NULL OR role = ''"))
     session.execute(text("UPDATE auth_user SET must_change_password = FALSE WHERE must_change_password IS NULL"))

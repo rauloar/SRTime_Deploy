@@ -5,6 +5,9 @@ from ui.tabs.auth_user import AuthUserTab
 from ui.tabs.movements_tab import MovementsTab
 from ui.tabs.processed_tab import ProcessedTab
 from ui.tabs.shifts_tab import ShiftsTab
+from ui.tabs.dashboard_tab import DashboardTab
+from ui.tabs.holidays_tab import HolidaysTab
+from ui.tabs.reports_tab import ReportsTab
 from core.database import SessionLocal
 from PySide6.QtGui import QIcon
 from PySide6.QtCore import QTimer
@@ -44,28 +47,37 @@ AAABAAEAICAAAAAAIADaCQAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAgAAAAIAgGAAAAc3p69AAACaFJ
         users_tab = UsersTab(self.session)
         auth_user_tab = AuthUserTab(self.session, self.current_auth_user)
         movements_tab = MovementsTab(self.session)
-        processed_tab = ProcessedTab(self.session)
-        
+        processed_tab = ProcessedTab(self.session, self.current_auth_user)
+        dashboard_tab = DashboardTab(self.session)
+        holidays_tab = HolidaysTab(self.session)
+        reports_tab = ReportsTab(self.session)
+
         # Referencia cruzada
         users_tab.movements_tab = movements_tab
 
         self._tab_loaders = {
-            0: self._load_import_tab,
-            1: terminals_tab.load_data,
-            2: users_tab.load_data,
-            3: shifts_tab.load_data,
-            4: self._load_movements_tab,
-            5: self._load_processed_tab,
+            0: dashboard_tab.load_data,
+            1: self._load_import_tab,
+            2: terminals_tab.load_data,
+            3: users_tab.load_data,
+            4: shifts_tab.load_data,
+            5: self._load_movements_tab,
+            6: self._load_processed_tab,
+            7: holidays_tab.load_data,
+            8: reports_tab.load_data,
         }
         if self.is_root:
-            self._tab_loaders[6] = auth_user_tab.load_data
-        
+            self._tab_loaders[9] = auth_user_tab.load_data
+
+        tabs.addTab(dashboard_tab, "Dashboard")
         tabs.addTab(import_tab, "Importar")
         tabs.addTab(terminals_tab, "Terminales")
         tabs.addTab(users_tab, "Empleados")
         tabs.addTab(shifts_tab, "Turnos Horarios")
         tabs.addTab(movements_tab, "Movimientos")
         tabs.addTab(processed_tab, "Asistencia Procesada")
+        tabs.addTab(holidays_tab, "Feriados")
+        tabs.addTab(reports_tab, "Reportes")
         if self.is_root:
             tabs.addTab(auth_user_tab, "Usuarios Autorizados")
         
@@ -180,12 +192,12 @@ AAABAAEAICAAAAAAIADaCQAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAgAAAAIAgGAAAAc3p69AAACaFJ
             self._loaded_tabs.add(index)
 
     def _load_import_tab(self):
-        current_widget = self.tabs.widget(0)
+        current_widget = self.tabs.widget(1)
         if current_widget and hasattr(current_widget, 'show_path'):
             current_widget.show_path()
 
     def _load_movements_tab(self):
-        current_widget = self.tabs.widget(4)
+        current_widget = self.tabs.widget(5)
         if current_widget:
             if hasattr(current_widget, 'update_user_selector'):
                 current_widget.update_user_selector()
@@ -193,7 +205,7 @@ AAABAAEAICAAAAAAIADaCQAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAgAAAAIAgGAAAAc3p69AAACaFJ
                 current_widget.load_data()
 
     def _load_processed_tab(self):
-        current_widget = self.tabs.widget(5)
+        current_widget = self.tabs.widget(6)
         if current_widget:
             if hasattr(current_widget, 'update_user_selector'):
                 current_widget.update_user_selector()

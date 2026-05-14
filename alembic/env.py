@@ -27,6 +27,7 @@ from models.employee import User
 from models.attendance import AttendanceLog
 from models.processed_attendance import ProcessedAttendance
 from models.terminal import DeviceTerminal
+from models.holiday import Holiday  # noqa: F401
 
 target_metadata = Base.metadata
 

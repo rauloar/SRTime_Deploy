@@ -1,6 +1,7 @@
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, 
-                               QHeaderView, QMessageBox, QHBoxLayout, QDialog, QLabel, QTimeEdit, QTextEdit, QFileDialog, QStyle)
-from PySide6.QtCore import Qt, QThread, Signal, QTime
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QTableWidget, QTableWidgetItem,
+                               QHeaderView, QMessageBox, QHBoxLayout, QDialog, QLabel, QTimeEdit,
+                               QTextEdit, QFileDialog, QStyle, QComboBox, QDateEdit)
+from PySide6.QtCore import Qt, QThread, Signal, QTime, QDate
 from sqlalchemy.orm import Session
 from models.processed_attendance import ProcessedAttendance
 from models.employee import User
@@ -8,6 +9,7 @@ from models.shift import Shift
 from services.engine import AttendanceEngine
 from datetime import datetime, time
 import pandas as pd
+
 
 class EngineWorker(QThread):
     progress = Signal(int, int)
@@ -22,22 +24,24 @@ class EngineWorker(QThread):
         engine = AttendanceEngine(self.session)
         def progress_cb(current, total):
             self.progress.emit(current, total)
-        
         try:
             count = engine.process_all(progress_callback=progress_cb, force_all=self.force_all)
             self.finished.emit(count, "")
         except Exception as e:
             self.finished.emit(0, str(e))
 
+
 class ProcessedTab(QWidget):
-    def __init__(self, session: Session):
+    def __init__(self, session: Session, current_auth_user: dict = None):
         super().__init__()
         self.session = session
+        auth = current_auth_user or {}
+        self.current_role = auth.get("role", "viewer")
+        self.current_username = auth.get("username", "")
 
         layout = QVBoxLayout(self)
 
-        from PySide6.QtWidgets import QHBoxLayout, QLabel, QComboBox, QDateEdit
-        from PySide6.QtCore import QDate
+        # ── Filters ────────────────────────────────────────────────────────
         filter_layout = QHBoxLayout()
         filter_layout.addWidget(QLabel("Fecha inicio:"))
         self.date_start = QDateEdit()
@@ -56,31 +60,32 @@ class ProcessedTab(QWidget):
         self.user_selector.setEditable(True)
         self.user_selector.addItem("Todos")
         filter_layout.addWidget(self.user_selector)
-        
-        from PySide6.QtWidgets import QStyle
+
+        filter_layout.addWidget(QLabel("Estado:"))
+        self.status_selector = QComboBox()
+        self.status_selector.addItems(["Todos", "OK", "INCOMPLETO", "JUSTIFICADO", "FERIADO", "PENDIENTE"])
+        filter_layout.addWidget(self.status_selector)
+
         self.btn_refresh = QPushButton("Actualizar Filtros")
         self.btn_refresh.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
         self.btn_refresh.clicked.connect(self.load_data)
         filter_layout.addWidget(self.btn_refresh)
-        
         layout.addLayout(filter_layout)
 
-        # Botón para detonar el motor y justificar
+        # ── Engine + export toolbar ────────────────────────────────────────
         btn_toolbar = QHBoxLayout()
-        self.btn_process = QPushButton("🚀 Procesar Pendientes")
-        self.btn_process.setStyleSheet("font-weight: bold; font-size: 14px; padding: 10px;")
+
+        self.btn_process = QPushButton("Procesar Pendientes")
+        self.btn_process.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
         self.btn_process.clicked.connect(lambda: self.process_data(force_all=False))
         btn_toolbar.addWidget(self.btn_process)
-        
-        self.btn_reprocess = QPushButton("🔄 Reprocesar Histórico Completo")
-        self.btn_reprocess.setStyleSheet("font-weight: bold; font-size: 14px; padding: 10px;")
+
+        self.btn_reprocess = QPushButton("Reprocesar Histórico")
+        self.btn_reprocess.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
         self.btn_reprocess.clicked.connect(lambda: self.process_data(force_all=True))
         btn_toolbar.addWidget(self.btn_reprocess)
-        
-        self.btn_justify = QPushButton("🛠️ Justificar Fila Seleccionada")
-        self.btn_justify.setStyleSheet("font-weight: bold; font-size: 14px; padding: 10px;")
-        self.btn_justify.clicked.connect(self.justify_selected_row)
-        btn_toolbar.addWidget(self.btn_justify)
+
+        btn_toolbar.addStretch()
 
         self.btn_export_csv = QPushButton("Exportar CSV")
         self.btn_export_csv.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton))
@@ -91,26 +96,86 @@ class ProcessedTab(QWidget):
         self.btn_export_excel.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DriveHDIcon))
         self.btn_export_excel.clicked.connect(self.export_excel)
         btn_toolbar.addWidget(self.btn_export_excel)
-        
+
+        self.btn_export_pdf = QPushButton("Exportar PDF")
+        self.btn_export_pdf.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileIcon))
+        self.btn_export_pdf.clicked.connect(self.export_pdf)
+        btn_toolbar.addWidget(self.btn_export_pdf)
+
         layout.addLayout(btn_toolbar)
 
-        # Tabla de resultados
+        # ── Justification toolbar (role-dependent) ─────────────────────────
+        justify_toolbar = QHBoxLayout()
+
+        if self.current_role == "root":
+            self.btn_justify = QPushButton("Justificar Directamente")
+            self.btn_justify.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton))
+            self.btn_justify.clicked.connect(self.justify_selected_row)
+            justify_toolbar.addWidget(self.btn_justify)
+
+            self.btn_approve = QPushButton("Aprobar Solicitud")
+            self.btn_approve.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogYesButton))
+            self.btn_approve.setEnabled(False)
+            self.btn_approve.clicked.connect(self.approve_selected_row)
+            justify_toolbar.addWidget(self.btn_approve)
+
+            self.btn_reject = QPushButton("Rechazar Solicitud")
+            self.btn_reject.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogNoButton))
+            self.btn_reject.setEnabled(False)
+            self.btn_reject.clicked.connect(self.reject_selected_row)
+            justify_toolbar.addWidget(self.btn_reject)
+
+        elif self.current_role == "supervisor":
+            self.btn_request_justify = QPushButton("Solicitar Justificación")
+            self.btn_request_justify.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxQuestion))
+            self.btn_request_justify.clicked.connect(self.request_justify_selected_row)
+            justify_toolbar.addWidget(self.btn_request_justify)
+
+        justify_toolbar.addStretch()
+        layout.addLayout(justify_toolbar)
+
+        # ── Table ──────────────────────────────────────────────────────────
         self.table = QTableWidget()
         self.table.setColumnCount(9)
         self.table.setHorizontalHeaderLabels([
-            "Empleado", "Fecha", "Primera Entrada", "Última Salida", 
+            "Empleado", "Fecha", "Primera Entrada", "Última Salida",
             "Horas Totales", "Tardanza (Min)", "Salida Ant. (Min)", "Hs Extra (Min)", "Estado"
         ])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
+        self.table.itemSelectionChanged.connect(self._on_selection_changed)
         layout.addWidget(self.table)
+
+    def _on_selection_changed(self):
+        if self.current_role != "root":
+            return
+        row = self.table.currentRow()
+        if row < 0:
+            self.btn_approve.setEnabled(False)
+            self.btn_reject.setEnabled(False)
+            return
+        status_item = self.table.item(row, 8)
+        is_pending = status_item and status_item.text() == "PENDIENTE"
+        self.btn_approve.setEnabled(bool(is_pending))
+        self.btn_reject.setEnabled(bool(is_pending))
+
+    def _get_selected_record(self):
+        row = self.table.currentRow()
+        if row < 0:
+            QMessageBox.warning(self, "Atención", "Seleccioná una fila primero.")
+            return None
+        item = self.table.item(row, 0)
+        processed_id = item.data(Qt.ItemDataRole.UserRole) if item else None
+        if not processed_id:
+            return None
+        return self.session.query(ProcessedAttendance).filter_by(id=processed_id).first()
 
     def update_user_selector(self):
         current_data = self.user_selector.currentData()
         self.user_selector.clear()
         self.user_selector.addItem("Todos")
-        users = self.session.query(User).filter(User.is_active==True).all()
+        users = self.session.query(User).filter(User.is_active == True).all()
         idx = 0
         for i, user in enumerate(users, 1):
             display = (user.first_name or "") + " " + (user.last_name or "")
@@ -123,43 +188,46 @@ class ProcessedTab(QWidget):
         start = self.date_start.date().toPython()
         end = self.date_end.date().toPython()
         user_value = self.user_selector.currentData()
-        
-        # Consultar asistencias procesadas haciendo join con usuario
+        status_value = self.status_selector.currentText()
+
         query = self.session.query(ProcessedAttendance, User).join(
             User, ProcessedAttendance.employee_id == User.id
         )
-        
-        if user_value and user_value != None and self.user_selector.currentText() != "Todos":
+        if user_value and self.user_selector.currentText() != "Todos":
             query = query.filter(User.identifier == user_value)
+        if status_value != "Todos":
+            query = query.filter(ProcessedAttendance.status == status_value)
         if start:
             query = query.filter(ProcessedAttendance.date >= start)
         if end:
             query = query.filter(ProcessedAttendance.date <= end)
-            
+
         records = query.order_by(ProcessedAttendance.date.desc(), User.last_name).all()
 
         self.table.clearContents()
         self.table.setRowCount(len(records))
 
         for row_idx, (processed, user) in enumerate(records):
-            
             emp_name = f"{user.last_name or ''}, {user.first_name or ''}".strip(", ")
             self.table.setItem(row_idx, 0, QTableWidgetItem(emp_name))
             self.table.setItem(row_idx, 1, QTableWidgetItem(str(processed.date)))
-            
+
             f_in = processed.first_in.strftime("%H:%M:%S") if processed.first_in else "--:--:--"
             self.table.setItem(row_idx, 2, QTableWidgetItem(f_in))
-            
+
             l_out = processed.last_out.strftime("%H:%M:%S") if processed.last_out else "--:--:--"
             self.table.setItem(row_idx, 3, QTableWidgetItem(l_out))
-            
+
             self.table.setItem(row_idx, 4, QTableWidgetItem(f"{processed.total_hours} hs"))
             self.table.setItem(row_idx, 5, QTableWidgetItem(str(processed.tardiness_minutes)))
             self.table.setItem(row_idx, 6, QTableWidgetItem(str(processed.early_departure_minutes)))
             self.table.setItem(row_idx, 7, QTableWidgetItem(str(processed.overtime_minutes)))
-            self.table.setItem(row_idx, 8, QTableWidgetItem(processed.status))
-            
-            # Save the processed ID in the User column user-role data for easy retrieval
+
+            status_text = processed.status
+            if processed.status == "PENDIENTE" and processed.requested_by:
+                status_text = f"PENDIENTE ({processed.requested_by})"
+            self.table.setItem(row_idx, 8, QTableWidgetItem(status_text))
+
             self.table.item(row_idx, 0).setData(Qt.ItemDataRole.UserRole, processed.id)
 
     def process_data(self, force_all=False):
@@ -167,7 +235,7 @@ class ProcessedTab(QWidget):
         self.btn_reprocess.setEnabled(False)
         txt = "Reprocesando..." if force_all else "Procesando pendientes..."
         self.btn_process.setText(txt)
-        
+
         self.worker = EngineWorker(self.session, force_all=force_all)
         self.worker.progress.connect(self.update_progress)
         self.worker.finished.connect(self.on_processing_finished)
@@ -175,148 +243,221 @@ class ProcessedTab(QWidget):
 
     def update_progress(self, current, total):
         self.btn_process.setText(f"Procesando... {current} / {total}")
-        
+
     def on_processing_finished(self, count, error_msg):
         self.btn_process.setEnabled(True)
         self.btn_reprocess.setEnabled(True)
-        self.btn_process.setText("🚀 Procesar Pendientes")
-        
+        self.btn_process.setText("Procesar Pendientes")
         if error_msg:
-            QMessageBox.critical(self, "Error al Procesar", f"Hubo un problema al procesar los datos:\n{error_msg}")
+            QMessageBox.critical(self, "Error al Procesar", f"Hubo un problema:\n{error_msg}")
         else:
             txt = "Novedades" if count > 0 else "No había fichadas nuevas"
-            QMessageBox.information(self, "Proceso Completado", f"{txt}. Se han procesado {count} flujos diarios.")
+            QMessageBox.information(self, "Proceso Completado", f"{txt}. Se procesaron {count} flujos diarios.")
             self.load_data()
 
+    # ── Root: justificación directa ────────────────────────────────────────
     def justify_selected_row(self):
-        row = self.table.currentRow()
-        if row < 0:
-            QMessageBox.warning(self, "Atención", "Por favor selecciona una fila primero.")
+        processed = self._get_selected_record()
+        if not processed:
             return
-            
-        item = self.table.item(row, 0)
-        processed_id = item.data(Qt.ItemDataRole.UserRole)
-        
-        processed = self.session.query(ProcessedAttendance).filter_by(id=processed_id).first()
-        if not processed: return
-        
+
         if processed.status == "OK":
-            reply = QMessageBox.question(self, "Aviso", "Este registro ya está OK. ¿Deseas justificarlo de todos modos?", 
-                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            reply = QMessageBox.question(
+                self, "Aviso",
+                "Este registro ya está OK. ¿Deseás justificarlo de todos modos?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
             if reply == QMessageBox.StandardButton.No:
                 return
-        
+
+        self._open_justify_dialog(processed, direct=True)
+
+    def _open_justify_dialog(self, processed, direct: bool):
         dialog = QDialog(self)
-        dialog.setWindowTitle("Justificar Asistencia")
+        dialog.setWindowTitle("Justificar Asistencia" if direct else "Solicitar Justificación")
         layout = QVBoxLayout(dialog)
-        
         layout.addWidget(QLabel(f"Fecha: {processed.date}"))
-        
+
         te_in = QTimeEdit()
         te_in.setDisplayFormat("HH:mm")
-        if processed.first_in:
-            te_in.setTime(QTime(processed.first_in.hour, processed.first_in.minute))
-            
+        ref_in = processed.pending_first_in if not direct and processed.pending_first_in else processed.first_in
+        if ref_in:
+            te_in.setTime(QTime(ref_in.hour, ref_in.minute))
+
         te_out = QTimeEdit()
         te_out.setDisplayFormat("HH:mm")
-        if processed.last_out:
-            te_out.setTime(QTime(processed.last_out.hour, processed.last_out.minute))
-            
-        layout.addWidget(QLabel("Entrada Real / Justificada:"))
+        ref_out = processed.pending_last_out if not direct and processed.pending_last_out else processed.last_out
+        if ref_out:
+            te_out.setTime(QTime(ref_out.hour, ref_out.minute))
+
+        layout.addWidget(QLabel("Entrada justificada:"))
         layout.addWidget(te_in)
-        layout.addWidget(QLabel("Salida Real / Justificada:"))
+        layout.addWidget(QLabel("Salida justificada:"))
         layout.addWidget(te_out)
-        
-        layout.addWidget(QLabel("Razón de Justificación:"))
-        te_reason = QTextEdit(processed.justification or "")
+        layout.addWidget(QLabel("Motivo:"))
+        te_reason = QTextEdit(processed.pending_justification or processed.justification or "")
         te_reason.setMaximumHeight(80)
         layout.addWidget(te_reason)
-        
+
         btns = QHBoxLayout()
-        btn_save = QPushButton("Guardar Justificación")
+        btn_save = QPushButton("Guardar" if direct else "Enviar Solicitud")
         btn_cancel = QPushButton("Cancelar")
         btns.addWidget(btn_save)
         btns.addWidget(btn_cancel)
         layout.addLayout(btns)
-        
+
         def save():
             reason = te_reason.toPlainText().strip()
             if not reason:
-                QMessageBox.warning(dialog, "Obligatorio", "Debe explicar el motivo de la justificación.")
+                QMessageBox.warning(dialog, "Obligatorio", "Debe ingresar el motivo.")
                 return
-                
+
             qt_in = te_in.time()
             qt_out = te_out.time()
-            
-            processed.first_in = time(qt_in.hour(), qt_in.minute())
-            processed.last_out = time(qt_out.hour(), qt_out.minute())
-            
-            # Recalcular horas manualmente
-            dt_in = datetime.combine(processed.date, processed.first_in)
-            dt_out = datetime.combine(processed.date, processed.last_out)
-            if dt_out > dt_in:
-                processed.total_hours = round((dt_out - dt_in).total_seconds() / 3600.0, 2)
+            t_in = time(qt_in.hour(), qt_in.minute())
+            t_out = time(qt_out.hour(), qt_out.minute())
+
+            if direct:
+                processed.first_in = t_in
+                processed.last_out = t_out
+                dt_in = datetime.combine(processed.date, t_in)
+                dt_out = datetime.combine(processed.date, t_out)
+                processed.total_hours = round((dt_out - dt_in).total_seconds() / 3600.0, 2) if dt_out > dt_in else 0.0
+                employee = self.session.query(User).filter_by(id=processed.employee_id).first()
+                if employee and employee.shift_id:
+                    shift = self.session.query(Shift).filter_by(id=employee.shift_id).first()
+                    if shift:
+                        exp_out = datetime.combine(processed.date, shift.expected_out)
+                        if dt_out < exp_out:
+                            processed.early_departure_minutes = int((exp_out - dt_out).total_seconds() / 60)
+                            processed.overtime_minutes = 0
+                        elif dt_out > exp_out:
+                            processed.overtime_minutes = int((dt_out - exp_out).total_seconds() / 60)
+                            processed.early_departure_minutes = 0
+                        else:
+                            processed.early_departure_minutes = 0
+                            processed.overtime_minutes = 0
+                processed.status = "JUSTIFICADO"
+                processed.justification = reason
+                processed.pending_first_in = None
+                processed.pending_last_out = None
+                processed.pending_justification = None
+                processed.requested_by = None
+                processed.previous_status = None
+                self.session.commit()
+                dialog.accept()
+                QMessageBox.information(self, "Justificado", "Registro justificado correctamente.")
             else:
-                processed.total_hours = 0.0
-                
-            # Recalculate early departure and overtime based on shift if exists
-            employee = self.session.query(User).filter_by(id=processed.employee_id).first()
-            if employee and employee.shift_id:
-                shift = self.session.query(Shift).filter_by(id=employee.shift_id).first()
-                if shift:
-                    expected_out_dt = datetime.combine(processed.date, shift.expected_out)
-                    if dt_out < expected_out_dt:
-                        diff = (expected_out_dt - dt_out).total_seconds() / 60.0
-                        processed.early_departure_minutes = int(diff)
-                        processed.overtime_minutes = 0
-                    elif dt_out > expected_out_dt:
-                        diff = (dt_out - expected_out_dt).total_seconds() / 60.0
-                        processed.overtime_minutes = int(diff)
-                        processed.early_departure_minutes = 0
-                    else:
-                        processed.early_departure_minutes = 0
-                        processed.overtime_minutes = 0
-                
-            processed.status = "JUSTIFICADO"
-            processed.justification = reason
-            self.session.commit()
-            
-            dialog.accept()
-            QMessageBox.information(self, "Justificado", "El registro ha sido justificado manualmente. El motor automático no lo sobreescribirá.")
+                processed.previous_status = processed.status
+                processed.pending_first_in = t_in
+                processed.pending_last_out = t_out
+                processed.pending_justification = reason
+                processed.requested_by = self.current_username
+                processed.status = "PENDIENTE"
+                self.session.commit()
+                dialog.accept()
+                QMessageBox.information(self, "Solicitud enviada", "La solicitud quedó pendiente de aprobación.")
             self.load_data()
-            
+
         btn_save.clicked.connect(save)
         btn_cancel.clicked.connect(dialog.reject)
         dialog.exec()
 
+    # ── Supervisor: solicitar justificación ───────────────────────────────
+    def request_justify_selected_row(self):
+        processed = self._get_selected_record()
+        if not processed:
+            return
+        if processed.status == "PENDIENTE":
+            QMessageBox.warning(self, "Atención", "Este registro ya tiene una solicitud pendiente.")
+            return
+        self._open_justify_dialog(processed, direct=False)
+
+    # ── Root: aprobar solicitud pendiente ─────────────────────────────────
+    def approve_selected_row(self):
+        processed = self._get_selected_record()
+        if not processed or processed.status != "PENDIENTE":
+            return
+
+        msg = (
+            f"Empleado: {processed.employee_id}\n"
+            f"Fecha: {processed.date}\n"
+            f"Entrada solicitada: {processed.pending_first_in.strftime('%H:%M') if processed.pending_first_in else '--'}\n"
+            f"Salida solicitada: {processed.pending_last_out.strftime('%H:%M') if processed.pending_last_out else '--'}\n"
+            f"Motivo: {processed.pending_justification or ''}\n"
+            f"Solicitado por: {processed.requested_by or ''}\n\n"
+            "¿Aprobás esta justificación?"
+        )
+        reply = QMessageBox.question(self, "Aprobar Justificación", msg,
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        processed.first_in = processed.pending_first_in
+        processed.last_out = processed.pending_last_out
+        dt_in = datetime.combine(processed.date, processed.first_in) if processed.first_in else None
+        dt_out = datetime.combine(processed.date, processed.last_out) if processed.last_out else None
+        processed.total_hours = round((dt_out - dt_in).total_seconds() / 3600.0, 2) if dt_in and dt_out and dt_out > dt_in else 0.0
+
+        employee = self.session.query(User).filter_by(id=processed.employee_id).first()
+        if employee and employee.shift_id and dt_out:
+            shift = self.session.query(Shift).filter_by(id=employee.shift_id).first()
+            if shift:
+                exp_out = datetime.combine(processed.date, shift.expected_out)
+                if dt_out < exp_out:
+                    processed.early_departure_minutes = int((exp_out - dt_out).total_seconds() / 60)
+                    processed.overtime_minutes = 0
+                elif dt_out > exp_out:
+                    processed.overtime_minutes = int((dt_out - exp_out).total_seconds() / 60)
+                    processed.early_departure_minutes = 0
+                else:
+                    processed.early_departure_minutes = 0
+                    processed.overtime_minutes = 0
+
+        processed.status = "JUSTIFICADO"
+        processed.justification = processed.pending_justification
+        processed.pending_first_in = None
+        processed.pending_last_out = None
+        processed.pending_justification = None
+        processed.requested_by = None
+        processed.previous_status = None
+        self.session.commit()
+        QMessageBox.information(self, "Aprobado", "Justificación aprobada.")
+        self.load_data()
+
+    # ── Root: rechazar solicitud pendiente ────────────────────────────────
+    def reject_selected_row(self):
+        processed = self._get_selected_record()
+        if not processed or processed.status != "PENDIENTE":
+            return
+
+        reply = QMessageBox.question(
+            self, "Rechazar Solicitud",
+            f"¿Rechazás la solicitud de {processed.requested_by or 'supervisor'} para el día {processed.date}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        processed.status = processed.previous_status or "INCOMPLETO"
+        processed.pending_first_in = None
+        processed.pending_last_out = None
+        processed.pending_justification = None
+        processed.requested_by = None
+        processed.previous_status = None
+        self.session.commit()
+        QMessageBox.information(self, "Rechazado", "Solicitud rechazada. El registro volvió a su estado anterior.")
+        self.load_data()
+
+    # ── Export helpers ─────────────────────────────────────────────────────
     def _collect_export_data(self):
         data = []
         selected_rows = self.table.selectionModel().selectedRows()
-        if selected_rows:
-            row_indexes = [idx.row() for idx in selected_rows]
-        else:
-            row_indexes = list(range(self.table.rowCount()))
-
+        row_indexes = [idx.row() for idx in selected_rows] if selected_rows else list(range(self.table.rowCount()))
         for row in row_indexes:
-            empleado = self.table.item(row, 0).text() if self.table.item(row, 0) else ""
-            fecha = self.table.item(row, 1).text() if self.table.item(row, 1) else ""
-            primera_entrada = self.table.item(row, 2).text() if self.table.item(row, 2) else ""
-            ultima_salida = self.table.item(row, 3).text() if self.table.item(row, 3) else ""
-            horas_totales = self.table.item(row, 4).text() if self.table.item(row, 4) else ""
-            tardanza = self.table.item(row, 5).text() if self.table.item(row, 5) else ""
-            salida_ant = self.table.item(row, 6).text() if self.table.item(row, 6) else ""
-            hs_extra = self.table.item(row, 7).text() if self.table.item(row, 7) else ""
-            estado = self.table.item(row, 8).text() if self.table.item(row, 8) else ""
             data.append([
-                empleado,
-                fecha,
-                primera_entrada,
-                ultima_salida,
-                horas_totales,
-                tardanza,
-                salida_ant,
-                hs_extra,
-                estado,
+                self.table.item(row, c).text() if self.table.item(row, c) else ""
+                for c in range(9)
             ])
         return data
 
@@ -324,20 +465,59 @@ class ProcessedTab(QWidget):
         path, _ = QFileDialog.getSaveFileName(self, "Guardar CSV", "", "CSV Files (*.csv)")
         if not path:
             return
-        data = self._collect_export_data()
-        df = pd.DataFrame(data, columns=[
-            "Empleado", "Fecha", "Primera Entrada", "Última Salida", "Horas Totales",
-            "Tardanza (Min)", "Salida Ant. (Min)", "Hs Extra (Min)", "Estado"
-        ])
-        df.to_csv(path, index=False)
+        cols = ["Empleado", "Fecha", "Primera Entrada", "Última Salida", "Horas Totales",
+                "Tardanza (Min)", "Salida Ant. (Min)", "Hs Extra (Min)", "Estado"]
+        pd.DataFrame(self._collect_export_data(), columns=cols).to_csv(path, index=False)
 
     def export_excel(self):
         path, _ = QFileDialog.getSaveFileName(self, "Guardar Excel", "", "Excel Files (*.xlsx)")
         if not path:
             return
+        cols = ["Empleado", "Fecha", "Primera Entrada", "Última Salida", "Horas Totales",
+                "Tardanza (Min)", "Salida Ant. (Min)", "Hs Extra (Min)", "Estado"]
+        pd.DataFrame(self._collect_export_data(), columns=cols).to_excel(path, index=False)
+
+    def export_pdf(self):
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib.units import cm
+        from reportlab.lib import colors
+
+        path, _ = QFileDialog.getSaveFileName(self, "Guardar PDF", "", "PDF Files (*.pdf)")
+        if not path:
+            return
+
         data = self._collect_export_data()
-        df = pd.DataFrame(data, columns=[
-            "Empleado", "Fecha", "Primera Entrada", "Última Salida", "Horas Totales",
-            "Tardanza (Min)", "Salida Ant. (Min)", "Hs Extra (Min)", "Estado"
-        ])
-        df.to_excel(path, index=False)
+        if not data:
+            QMessageBox.information(self, "Sin datos", "No hay filas para exportar.")
+            return
+
+        headers = ["Empleado", "Fecha", "1ra Entrada", "Últ. Salida",
+                   "Hs Total", "Tard.(Min)", "Sal.Ant.(Min)", "HsEx.(Min)", "Estado"]
+
+        doc = SimpleDocTemplate(path, pagesize=landscape(A4),
+                                leftMargin=1*cm, rightMargin=1*cm,
+                                topMargin=1.5*cm, bottomMargin=1.5*cm)
+        styles = getSampleStyleSheet()
+        elements = [Paragraph("Asistencia Procesada", styles["Title"]), Spacer(1, 0.4*cm)]
+
+        col_widths = [3.8*cm, 2.2*cm, 2.2*cm, 2.2*cm, 2*cm, 2.2*cm, 2.4*cm, 2.4*cm, 2.4*cm]
+        table_data = [headers] + data
+        style_cmds = [
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E0E0E0")),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#BDBDBD")),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("ALIGN", (0, 1), (0, -1), "LEFT"),
+        ]
+        for i in range(1, len(table_data)):
+            if i % 2 == 0:
+                style_cmds.append(("BACKGROUND", (0, i), (-1, i), colors.HexColor("#F5F5F5")))
+
+        t = Table(table_data, colWidths=col_widths, repeatRows=1)
+        t.setStyle(TableStyle(style_cmds))
+        elements.append(t)
+        doc.build(elements)

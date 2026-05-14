@@ -22,7 +22,7 @@ logger = get_logger("api")
 # Limiter instances global
 limiter = Limiter(key_func=get_remote_address)
 
-from api.routers import auth, users, shifts, processed, movements, auth_users, importer, terminals
+from api.routers import auth, users, shifts, processed, movements, auth_users, importer, terminals, holidays, dashboard, reports
 
 app = FastAPI(
     title="Attendance System API",
@@ -126,6 +126,9 @@ app.include_router(shifts.router, prefix="/api/shifts", tags=["Shifts"])
 app.include_router(processed.router, prefix="/api/processed", tags=["Processed Attendance"])
 app.include_router(movements.router, prefix="/api/movements", tags=["Raw Movements"])
 app.include_router(terminals.router, prefix="/api/terminals", tags=["Device Terminals"])
+app.include_router(holidays.router, prefix="/api/holidays", tags=["Holidays"])
+app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
+app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])
 
 
 @app.get("/api/health")

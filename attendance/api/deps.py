@@ -52,3 +52,12 @@ def require_root(current_user: AuthUser = Depends(get_current_user)):
             detail="Root role required",
         )
     return current_user
+
+
+def require_supervisor_or_root(current_user: AuthUser = Depends(get_current_user)):
+    if current_user.role not in ("root", "supervisor"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Supervisor or root role required",
+        )
+    return current_user

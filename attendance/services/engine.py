@@ -8,6 +8,7 @@ from models.attendance import AttendanceLog
 from models.employee import User
 from models.shift import Shift
 from models.processed_attendance import ProcessedAttendance
+from models.holiday import Holiday
 from services.validators import AttendanceValidator, ProcessedAttendanceValidator
 
 
@@ -32,6 +33,19 @@ class AttendanceEngine:
         self.validator = AttendanceValidator(session)
         self.pa_validator = ProcessedAttendanceValidator()
         self.processed_with_errors = []
+        self._holiday_dates: set = set()
+        self._recurring_holidays: set = set()  # (month, day) tuples
+        self._load_holidays()
+
+    def _load_holidays(self) -> None:
+        for h in self.session.query(Holiday).all():
+            if h.is_recurring:
+                self._recurring_holidays.add((h.date.month, h.date.day))
+            else:
+                self._holiday_dates.add(h.date)
+
+    def _is_holiday(self, day: date) -> bool:
+        return day in self._holiday_dates or (day.month, day.day) in self._recurring_holidays
 
     def process_all(self, progress_callback=None, force_all=False) -> int:
         """
@@ -178,11 +192,16 @@ class AttendanceEngine:
             )
             if not is_valid:
                 return {'success': False, 'error': f'Validation failed: {error_msg}'}
-            
+
             # Determine status
-            status = "OK"
-            if not last_out_time:
+            if self._is_holiday(day):
+                status = "FERIADO"
+                tardiness = 0
+                early_departure = 0
+            elif not last_out_time:
                 status = "INCOMPLETO"
+            else:
+                status = "OK"
             
             # Upsert
             if not existing:

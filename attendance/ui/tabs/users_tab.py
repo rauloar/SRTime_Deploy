@@ -34,6 +34,11 @@ class UsersTab(QWidget):
         self.btn_export_excel.clicked.connect(self.export_excel)
         layout.addWidget(self.btn_export_excel)
 
+        self.btn_import_csv = QPushButton("Importar desde CSV")
+        self.btn_import_csv.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton))
+        self.btn_import_csv.clicked.connect(self.import_csv)
+        layout.addWidget(self.btn_import_csv)
+
         self.setLayout(layout)
 
         # Ajuste de columnas: las dos últimas (botones) usan ResizeToContents, el resto Stretch
@@ -250,6 +255,63 @@ class UsersTab(QWidget):
         btn_ok.clicked.connect(guardar)
         btn_cancel.clicked.connect(dialog.reject)
         dialog.exec_()
+
+    def import_csv(self):
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+        import csv
+
+        path, _ = QFileDialog.getOpenFileName(self, "Importar empleados CSV", "", "CSV Files (*.csv)")
+        if not path:
+            return
+
+        created = skipped = errors = 0
+        error_lines = []
+
+        try:
+            with open(path, newline="", encoding="utf-8-sig") as f:
+                reader = csv.DictReader(f)
+                required = {"identifier"}
+                if not required.issubset({h.lower() for h in (reader.fieldnames or [])}):
+                    QMessageBox.critical(self, "Error CSV",
+                        "El archivo debe tener al menos la columna 'identifier'.\n"
+                        "Columnas opcionales: first_name, last_name, is_active (true/false).")
+                    return
+
+                # Normalise header names to lowercase
+                norm_fields = {h.lower(): h for h in (reader.fieldnames or [])}
+
+                for line_num, row in enumerate(reader, 2):
+                    norm = {k.lower(): v.strip() for k, v in row.items()}
+                    identifier = norm.get("identifier", "").strip()
+                    if not identifier:
+                        errors += 1
+                        error_lines.append(f"Línea {line_num}: identifier vacío")
+                        continue
+                    if self.session.query(User).filter_by(identifier=identifier).first():
+                        skipped += 1
+                        continue
+                    is_active_raw = norm.get("is_active", "true").lower()
+                    is_active = is_active_raw not in ("false", "0", "no")
+                    emp = User(
+                        identifier=identifier,
+                        first_name=norm.get("first_name") or None,
+                        last_name=norm.get("last_name") or None,
+                        is_active=is_active,
+                    )
+                    self.session.add(emp)
+                    created += 1
+
+            self.session.commit()
+        except Exception as e:
+            QMessageBox.critical(self, "Error al importar", str(e))
+            return
+
+        msg = f"Importación completada.\n\nCreados: {created}\nOmitidos (ya existen): {skipped}\nErrores: {errors}"
+        if error_lines:
+            msg += "\n\n" + "\n".join(error_lines[:10])
+        QMessageBox.information(self, "Importación CSV", msg)
+        if created > 0:
+            self.load_data()
 
     def edit_user(self):
         row = self.table.currentRow()
