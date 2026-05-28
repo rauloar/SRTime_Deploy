@@ -172,7 +172,7 @@ class AttendanceEngine:
         """
         try:
             # Match IN/OUT pairs
-            punch_pairs = self._match_punch_pairs(daily_logs)
+            punch_pairs = self._match_punch_pairs(daily_logs, shift)
             
             if not punch_pairs:
                 return {'success': False, 'error': 'No valid punch pairs found'}
@@ -226,7 +226,7 @@ class AttendanceEngine:
             logger.error(f"Error in _process_daily_logs: {str(e)}", exc_info=True)
             return {'success': False, 'error': str(e)}
 
-    def _match_punch_pairs(self, daily_logs: List[AttendanceLog]) -> List[Tuple[AttendanceLog, AttendanceLog]]:
+    def _match_punch_pairs(self, daily_logs: List[AttendanceLog], shift: Optional[Shift] = None) -> List[Tuple[AttendanceLog, AttendanceLog]]:
         """
         Empareja punches IN/OUT inteligentemente.
         
@@ -268,13 +268,18 @@ class AttendanceEngine:
                     pairs.append((in_log, out_log))
         else:
             # Emparejar secuencialmente
+            is_overnight = shift and shift.is_overnight_shift
             for i in range(min(len(in_logs), len(out_logs))):
                 in_log = in_logs[i]
                 out_log = out_logs[i]
-                
-                is_valid, _ = self.validator.validate_punch_pair(in_log, out_log)
-                if is_valid:
+
+                if is_overnight:
+                    # Para turnos nocturnos el OUT puede ser menor que el IN (cruza medianoche)
                     pairs.append((in_log, out_log))
+                else:
+                    is_valid, _ = self.validator.validate_punch_pair(in_log, out_log)
+                    if is_valid:
+                        pairs.append((in_log, out_log))
         
         return pairs if pairs else [(daily_logs[0], daily_logs[-1])]
 
@@ -292,12 +297,9 @@ class AttendanceEngine:
         
         for in_log, out_log in punch_pairs:
             in_dt = self._make_datetime(day, in_log.time, shift)
+            # _make_datetime ya agrega +1 día al out cuando es overnight (is_expected_out=True)
             out_dt = self._make_datetime(day, out_log.time, shift, is_expected_out=True)
-            
-            # Si es overnight, out_dt puede estar en el siguiente día
-            if shift and shift.is_overnight_shift and out_log.time < in_log.time:
-                out_dt = out_dt + timedelta(days=1)
-            
+
             if out_dt > in_dt:
                 total_seconds += (out_dt - in_dt).total_seconds()
         

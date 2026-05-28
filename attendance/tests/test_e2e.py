@@ -254,65 +254,29 @@ def display_results(session):
         print()
 
 
-def test_overnight_detection(test_db):
-    """Test: Verificar que overnight shifts se calculan correctamente."""
-    print("🌙 TEST: Validación de Turnos Nocturnos\n")
-    
-    records = test_db.query(ProcessedAttendance).join(
-        User, ProcessedAttendance.employee_id == User.id
-    ).join(
-        Shift, User.shift_id == Shift.id
-    ).filter(Shift.is_overnight_shift == True).all()
-    
-    if not records:
-        print("  ℹ No hay registros nocturnos")
-        return True
-    
-    for record in records:
-        employee = session.query(User).filter_by(id=record.employee_id).first()
-        
-        # Verificar que last_out < first_in (característica de overnight)
-        if record.last_out and record.first_in:
-            is_overnight = record.last_out < record.first_in
-            print(f"  {employee.first_name} {employee.last_name}:")
-            print(f"    IN: {record.first_in}, OUT: {record.last_out}")
-            print(f"    ✓ Detected as overnight: {is_overnight}")
-            print(f"    Horas: {record.total_hours}")
-            print()
-    
-    return True
+def test_overnight_detection(test_db, logs_overnight):
+    """Overnight shift: horas calculadas correctamente cruzando medianoche."""
+    from services.engine import AttendanceEngine
+    engine = AttendanceEngine(test_db)
+    engine.process_all(force_all=False)
+
+    record = test_db.query(ProcessedAttendance).first()
+    assert record is not None, "El engine no generó ningún registro"
+    assert record.first_in is not None and record.last_out is not None
+    # 22:00 → 06:30 = 8.5h brutos; turno nocturno tiene break=30min → 8.0h
+    assert abs(record.total_hours - 8.0) < 0.1, f"Esperado ~8.0h, got {record.total_hours}"
 
 
-def test_multiple_entries(test_db):
-    """Test: Verificar que múltiples IN/OUT se suman correctamente."""
-    print("🔄 TEST: Múltiples Entradas/Salidas\n")
-    
-    two_days_ago = date.today() - timedelta(days=2)
-    record = test_db.query(ProcessedAttendance).filter_by(
-        date=two_days_ago
-    ).first()
-    
-    if not record:
-        print("  ℹ No hay registros con múltiples entradas/salidas")
-        return True
-    
-    print(f"  Registro: {record.date}")
-    print(f"  Primera entrada: {record.first_in}")
-    print(f"  Última salida: {record.last_out}")
-    
-    # Esperado: 08:00-12:00 (4h) + 13:00-17:00 (4h) - 1h break = 7h
-    expected_hours = 7.0
-    actual_hours = record.total_hours
-    
-    print(f"  Horas esperadas: ~{expected_hours}")
-    print(f"  Horas calculadas: {actual_hours}")
-    
-    if abs(actual_hours - expected_hours) < 0.5:
-        print(f"  ✓ Test PASSED")
-        return True
-    else:
-        print(f"  ✗ Test FAILED")
-        return False
+def test_multiple_entries(test_db, logs_multiple_entries):
+    """Múltiples pares IN/OUT: horas totales sumadas descontando el break del turno."""
+    from services.engine import AttendanceEngine
+    engine = AttendanceEngine(test_db)
+    engine.process_all(force_all=False)
+
+    record = test_db.query(ProcessedAttendance).first()
+    assert record is not None, "El engine no generó ningún registro"
+    # 08:00-12:00 (4h) + 13:00-17:00 (4h) = 8h brutos; sample_shift break=60min → 7.0h
+    assert abs(record.total_hours - 7.0) < 0.1, f"Esperado 7.0h, got {record.total_hours}"
 
 
 def main():

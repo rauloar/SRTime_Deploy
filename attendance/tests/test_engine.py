@@ -141,9 +141,8 @@ class TestAttendanceEngineOvernightShifts:
         assert record.first_in in [time(22, 0), time(6, 30)]
         assert record.last_out in [time(22, 0), time(6, 30)]
         
-        # Horas: 22:00 a 06:30 (siguiente día) = 8.5 horas - 0.5 break = 8 horas
-        # El engine detecta que es overnight y ajusta correctamente
-        assert record.total_hours >= 7.5  # Al menos 7.5 horas (hay break)
+        # 22:00 → 06:30 = 8.5h brutos; break=30min → 8.0h netas
+        assert abs(record.total_hours - 8.0) < 0.1, f"Expected 8.0h, got {record.total_hours}"
 
 
 class TestAttendanceEngineIncompleteRecords:
