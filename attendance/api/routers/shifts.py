@@ -1,9 +1,8 @@
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from datetime import time as Time
-from typing import Optional
 
 from core.logging_config import get_logger
 logger = get_logger(__name__)
@@ -16,25 +15,44 @@ from models.user import AuthUser
 
 router = APIRouter()
 
+def parse_time(t: str) -> Time:
+    try:
+        parts = t.split(":")
+        if len(parts) != 2:
+            raise ValueError
+        h, m = int(parts[0]), int(parts[1])
+        return Time(h, m)  # raises ValueError if out of range
+    except (ValueError, AttributeError):
+        raise ValueError(f"Hora inválida '{t}'. Formato esperado HH:MM (00:00–23:59).")
+
 class ShiftCreate(BaseModel):
     name: str
-    expected_in: str  # HH:MM
-    expected_out: str  # HH:MM
-    grace_period_minutes: int = 15
+    expected_in: str
+    expected_out: str
+    grace_period_minutes: int = Field(default=15, ge=0, le=120)
     is_overnight_shift: bool = False
-    break_duration_minutes: int = 0
+    break_duration_minutes: int = Field(default=0, ge=0, le=480)
+
+    @field_validator("expected_in", "expected_out")
+    @classmethod
+    def validate_time_format(cls, v: str) -> str:
+        parse_time(v)  # raises ValueError → Pydantic returns 422
+        return v
 
 class ShiftUpdate(BaseModel):
     name: Optional[str] = None
     expected_in: Optional[str] = None
     expected_out: Optional[str] = None
-    grace_period_minutes: Optional[int] = None
+    grace_period_minutes: Optional[int] = Field(default=None, ge=0, le=120)
     is_overnight_shift: Optional[bool] = None
-    break_duration_minutes: Optional[int] = None
+    break_duration_minutes: Optional[int] = Field(default=None, ge=0, le=480)
 
-def parse_time(t: str) -> Time:
-    h, m = map(int, t.split(":"))
-    return Time(h, m)
+    @field_validator("expected_in", "expected_out")
+    @classmethod
+    def validate_time_format(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            parse_time(v)
+        return v
 
 @router.get("/", response_model=List[ShiftResponse])
 def read_shifts(db: Session = Depends(get_db), current_user: AuthUser = Depends(get_current_user)):
