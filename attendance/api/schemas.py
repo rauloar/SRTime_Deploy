@@ -24,6 +24,8 @@ class ShiftBase(BaseModel):
     expected_in: time
     expected_out: time
     grace_period_minutes: int = 15
+    is_overnight_shift: bool = False
+    break_duration_minutes: int = 0
 
 class ShiftResponse(ShiftBase):
     id: int

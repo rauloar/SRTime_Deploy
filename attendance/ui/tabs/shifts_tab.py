@@ -1,5 +1,5 @@
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
-                               QTableWidget, QTableWidgetItem, QMessageBox, QHeaderView, QStyle, QInputDialog, QDialog, QLineEdit, QLabel, QTimeEdit)
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
+                               QTableWidget, QTableWidgetItem, QMessageBox, QHeaderView, QStyle, QInputDialog, QDialog, QLineEdit, QLabel, QTimeEdit, QCheckBox)
 from PySide6.QtCore import Qt, QTime
 from sqlalchemy.orm import Session
 from models.shift import Shift
@@ -29,9 +29,9 @@ class ShiftsTab(QWidget):
         shifts = self.session.query(Shift).all()
         self.table.clearContents()
         self.table.setRowCount(len(shifts))
-        self.table.setColumnCount(6)
+        self.table.setColumnCount(8)
         self.table.setHorizontalHeaderLabels([
-            "ID", "Nombre del Turno", "Entrada Esperada", "Salida Esperada", "Tolerancia (Min)","Acciones"
+            "ID", "Nombre del Turno", "Entrada Esperada", "Salida Esperada", "Tolerancia (Min)", "Nocturno", "Pausa (Min)", "Acciones"
         ])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
 
@@ -41,20 +41,22 @@ class ShiftsTab(QWidget):
             self.table.setItem(row, 2, QTableWidgetItem(shift.expected_in.strftime("%H:%M") if shift.expected_in else ""))
             self.table.setItem(row, 3, QTableWidgetItem(shift.expected_out.strftime("%H:%M") if shift.expected_out else ""))
             self.table.setItem(row, 4, QTableWidgetItem(str(shift.grace_period_minutes)))
-            
+            self.table.setItem(row, 5, QTableWidgetItem("Sí" if shift.is_overnight_shift else "No"))
+            self.table.setItem(row, 6, QTableWidgetItem(str(shift.break_duration_minutes)))
+
             btn_panel = QWidget()
             btn_layout = QHBoxLayout(btn_panel)
             btn_layout.setContentsMargins(0,0,0,0)
-            
+
             btn_edit = QPushButton("Editar")
             btn_edit.clicked.connect(lambda _, s_id=shift.id: self.edit_shift(s_id))
-            
+
             btn_del = QPushButton("Eliminar")
             btn_del.clicked.connect(lambda _, s_id=shift.id: self.delete_shift(s_id))
-            
+
             btn_layout.addWidget(btn_edit)
             btn_layout.addWidget(btn_del)
-            self.table.setCellWidget(row, 5, btn_panel)
+            self.table.setCellWidget(row, 7, btn_panel)
 
     def add_shift(self):
         dialog = QDialog(self)
@@ -67,6 +69,8 @@ class ShiftsTab(QWidget):
         te_out = QTimeEdit()
         te_out.setDisplayFormat("HH:mm")
         le_grace = QLineEdit("15")
+        cb_overnight = QCheckBox("Turno nocturno (cruza medianoche)")
+        le_break = QLineEdit("0")
 
         layout.addWidget(QLabel("Nombre del Turno (ej: Mañana):"))
         layout.addWidget(le_name)
@@ -76,6 +80,9 @@ class ShiftsTab(QWidget):
         layout.addWidget(te_out)
         layout.addWidget(QLabel("Minutos de Tolerancia (Tardanza):"))
         layout.addWidget(le_grace)
+        layout.addWidget(cb_overnight)
+        layout.addWidget(QLabel("Minutos de Pausa (se descuentan de horas trabajadas):"))
+        layout.addWidget(le_break)
 
         btns = QHBoxLayout()
         btn_ok = QPushButton("Guardar")
@@ -91,19 +98,21 @@ class ShiftsTab(QWidget):
                 return
             try:
                 grace = int(le_grace.text())
+                break_min = int(le_break.text())
             except ValueError:
-                QMessageBox.warning(self, "Error", "La tolerancia debe ser un número entero de minutos.")
+                QMessageBox.warning(self, "Error", "La tolerancia y la pausa deben ser números enteros.")
                 return
 
-            # Convert QTime to Python time
             qt_in = te_in.time()
             qt_out = te_out.time()
-            
+
             shift = Shift(
                 name=name,
                 expected_in=time(qt_in.hour(), qt_in.minute()),
                 expected_out=time(qt_out.hour(), qt_out.minute()),
-                grace_period_minutes=grace
+                grace_period_minutes=grace,
+                is_overnight_shift=cb_overnight.isChecked(),
+                break_duration_minutes=break_min,
             )
             self.session.add(shift)
             self.session.flush()
@@ -128,18 +137,21 @@ class ShiftsTab(QWidget):
         layout = QVBoxLayout(dialog)
 
         le_name = QLineEdit(shift.name)
-        
+
         te_in = QTimeEdit()
         te_in.setDisplayFormat("HH:mm")
         if shift.expected_in:
             te_in.setTime(QTime(shift.expected_in.hour, shift.expected_in.minute))
-            
+
         te_out = QTimeEdit()
         te_out.setDisplayFormat("HH:mm")
         if shift.expected_out:
             te_out.setTime(QTime(shift.expected_out.hour, shift.expected_out.minute))
-            
+
         le_grace = QLineEdit(str(shift.grace_period_minutes))
+        cb_overnight = QCheckBox("Turno nocturno (cruza medianoche)")
+        cb_overnight.setChecked(bool(shift.is_overnight_shift))
+        le_break = QLineEdit(str(shift.break_duration_minutes))
 
         layout.addWidget(QLabel("Nombre del Turno:"))
         layout.addWidget(le_name)
@@ -149,6 +161,9 @@ class ShiftsTab(QWidget):
         layout.addWidget(te_out)
         layout.addWidget(QLabel("Minutos de Tolerancia (Tardanza):"))
         layout.addWidget(le_grace)
+        layout.addWidget(cb_overnight)
+        layout.addWidget(QLabel("Minutos de Pausa (se descuentan de horas trabajadas):"))
+        layout.addWidget(le_break)
 
         btns = QHBoxLayout()
         btn_ok = QPushButton("Guardar Cambios")
@@ -164,18 +179,21 @@ class ShiftsTab(QWidget):
                 return
             try:
                 grace = int(le_grace.text())
+                break_min = int(le_break.text())
             except ValueError:
-                QMessageBox.warning(self, "Error", "La tolerancia debe ser un número entero de minutos.")
+                QMessageBox.warning(self, "Error", "La tolerancia y la pausa deben ser números enteros.")
                 return
 
             qt_in = te_in.time()
             qt_out = te_out.time()
-            
+
             shift.name = name
             shift.expected_in = time(qt_in.hour(), qt_in.minute())
             shift.expected_out = time(qt_out.hour(), qt_out.minute())
             shift.grace_period_minutes = grace
-            
+            shift.is_overnight_shift = cb_overnight.isChecked()
+            shift.break_duration_minutes = break_min
+
             self.session.commit()
             dialog.accept()
             self.load_data()

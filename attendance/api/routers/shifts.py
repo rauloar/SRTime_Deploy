@@ -21,12 +21,16 @@ class ShiftCreate(BaseModel):
     expected_in: str  # HH:MM
     expected_out: str  # HH:MM
     grace_period_minutes: int = 15
+    is_overnight_shift: bool = False
+    break_duration_minutes: int = 0
 
 class ShiftUpdate(BaseModel):
     name: Optional[str] = None
     expected_in: Optional[str] = None
     expected_out: Optional[str] = None
     grace_period_minutes: Optional[int] = None
+    is_overnight_shift: Optional[bool] = None
+    break_duration_minutes: Optional[int] = None
 
 def parse_time(t: str) -> Time:
     h, m = map(int, t.split(":"))
@@ -49,7 +53,9 @@ def create_shift(data: ShiftCreate, db: Session = Depends(get_db), current_user:
         name=data.name,
         expected_in=parse_time(data.expected_in),
         expected_out=parse_time(data.expected_out),
-        grace_period_minutes=data.grace_period_minutes
+        grace_period_minutes=data.grace_period_minutes,
+        is_overnight_shift=data.is_overnight_shift,
+        break_duration_minutes=data.break_duration_minutes,
     )
     db.add(shift)
     db.flush()
@@ -71,6 +77,8 @@ def update_shift(shift_id: int, data: ShiftUpdate, db: Session = Depends(get_db)
     if data.expected_in is not None: shift.expected_in = parse_time(data.expected_in)
     if data.expected_out is not None: shift.expected_out = parse_time(data.expected_out)
     if data.grace_period_minutes is not None: shift.grace_period_minutes = data.grace_period_minutes
+    if data.is_overnight_shift is not None: shift.is_overnight_shift = data.is_overnight_shift
+    if data.break_duration_minutes is not None: shift.break_duration_minutes = data.break_duration_minutes
     db.commit(); db.refresh(shift)
     logger.info(f"Shift updated: {shift.name}", extra={"user": current_user.username, "action": "update_shift", "detail": shift.name})
     return shift
