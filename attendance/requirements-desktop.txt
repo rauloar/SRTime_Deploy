@@ -1,0 +1,21 @@
+# ── SRTime — Desktop Requirements (Windows) ─────────────────────────
+# App de escritorio PySide6 + utilidades Windows + empaquetado PyInstaller.
+# Solo para Windows. Incluye la base compartida.
+
+-r requirements-base.txt
+
+# UI de escritorio
+PySide6==6.10.2
+PySide6_Addons==6.10.2
+PySide6_Essentials==6.10.2
+shiboken6==6.10.2
+
+# Utilidades Windows
+pywin32==311
+pywin32-ctypes==0.2.3
+
+# Build / empaquetado (Windows)
+pyinstaller==6.19.0
+pyinstaller-hooks-contrib==2026.1
+pefile==2024.8.26
+altgraph==0.17.5

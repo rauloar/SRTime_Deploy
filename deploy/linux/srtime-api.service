@@ -1,5 +1,5 @@
 [Unit]
-Description=SRTime API (FastAPI + Gunicorn)
+Description=SRTime API (FastAPI + Uvicorn, binario Nuitka)
 After=network.target postgresql.service
 Wants=postgresql.service
 
@@ -8,10 +8,11 @@ Type=exec
 User=__APP_USER__
 Group=__APP_USER__
 WorkingDirectory=__APP_DIR__/api
+# .env unificado: SRTIME_ENV_FILE lo lee el binario; EnvironmentFile lo inyecta
+# al entorno del proceso. La API toma host/port/workers del propio .env.
+Environment=SRTIME_ENV_FILE=__APP_DIR__/config/.env
 EnvironmentFile=__APP_DIR__/config/.env
-ExecStart=__APP_DIR__/api/run_api \
-    --workers 4 \
-    --bind 127.0.0.1:8000
+ExecStart=__APP_DIR__/api/run_api
 Restart=always
 RestartSec=5
 

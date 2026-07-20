@@ -1,0 +1,22 @@
+# ── SRTime — Web / API Requirements (servidor Linux) ────────────────
+# Para el backend FastAPI compilado con Nuitka y el deploy en servidor.
+# NO incluye dependencias de escritorio (PySide6/pywin32) ni de empaquetado
+# Windows (pyinstaller). Incluye la base compartida.
+
+-r requirements-base.txt
+
+# Framework web / ASGI
+fastapi==0.115.12
+uvicorn[standard]==0.34.0
+gunicorn==23.0.0
+
+# Autenticación / tokens (solo API)
+python-jose[cryptography]==3.4.0
+PyJWT==2.10.1
+python-multipart==0.0.20
+
+# Migraciones
+alembic==1.18.4
+
+# Rate limiting
+slowapi==0.1.9

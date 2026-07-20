@@ -1,3 +1,4 @@
+import os
 from core.database import engine, Base
 from models import user, attendance
 from models.employee import User
@@ -74,11 +75,15 @@ def init_database():
     session.execute(text("UPDATE attendance_log SET is_processed = FALSE WHERE is_processed IS NULL"))
     session.commit()
 
+    # Password inicial del admin: configurable por entorno para deploys (sin
+    # default hardcodeado en producción). Siempre se exige cambiarlo al login.
+    initial_admin_password = os.environ.get("SRTIME_ADMIN_PASSWORD", "admin")
+
     admin = session.query(AuthUser).filter_by(username="admin").first()
     if not admin:
         admin = AuthUser(
             username="admin",
-            password_hash=hash_password("admin"),
+            password_hash=hash_password(initial_admin_password),
             role="root",
             must_change_password=True,
         )

@@ -9,6 +9,7 @@ dist/
 pyzk/
 deploy/dist/
 deploy/build/
+SRCopilot/
 
 # ── Virtual Environments ─────────────────────────────────────
 env/
@@ -39,9 +40,12 @@ htmlcov/
 *~
 
 # ── Environment variables ────────────────────────────────────
+# .env.* cubre .env.production, .env.staging, .env.development, etc.
+# Los .example se re-incluyen (son templates seguros para commitear).
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
+!.env.*.example
 
 # ── Logs ──────────────────────────────────────────────────────
 *.log
@@ -62,6 +66,9 @@ _git_status.txt
 
 # ── Credenciales y archivos sensibles locales ─────────────────
 CREDENCIALES.txt
+*.pem
+*.key
+*.crt
 
 # ── Node.js / Next.js (frontend) ─────────────────────────────
 attendance/web/node_modules/
