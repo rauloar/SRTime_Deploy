@@ -4,7 +4,7 @@ import { useAuth } from "../context/AuthContext"
 import axios from "axios"
 import { RefreshCw, Wrench, X, Play, RotateCcw } from "lucide-react"
 import Pagination from "./Pagination"
-import * as XLSX from "xlsx"
+import { downloadFromApi } from "../utils/download"
 
 interface ProcessedRecord {
   id: number; employee_id: number; date: string;
@@ -136,23 +136,11 @@ export default function ProcessedTab() {
     URL.revokeObjectURL(url)
   }
 
-  function exportExcel() {
-    const rows = filtered.map(r => ({
-      Empleado: nameOf(r.employee_id),
-      Fecha: r.date,
-      "Primera Entrada": r.first_in || "",
-      "Última Salida": r.last_out || "",
-      "Horas Totales": r.total_hours,
-      "Tardanza (Min)": r.tardiness_minutes,
-      "Salida Ant. (Min)": r.early_departure_minutes,
-      "Hs Extra (Min)": r.overtime_minutes,
-      Estado: r.status,
-      Justificación: r.justification || "",
-    }))
-    const ws = XLSX.utils.json_to_sheet(rows)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, "Asistencia Procesada")
-    XLSX.writeFile(wb, "asistencia_procesada.xlsx")
+  async function exportExcel() {
+    await downloadFromApi(api, "/api/processed/export", "asistencia_procesada.xlsx", {
+      date_start: dateStart,
+      date_end: dateEnd,
+    })
   }
 
   useEffect(() => {

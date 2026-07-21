@@ -27,10 +27,7 @@ if %errorLevel% neq 0 (
 
 set "APP_DIR=%~dp0"
 set "API_EXE=%APP_DIR%api\run_api.exe"
-set "WEB_JS=%APP_DIR%web\server.js"
-
-:: Obtener ruta de NodeJS
-for /f "delims=" %%I in ('where node') do set "NODE_EXE=%%I"
+set "WEB_INDEX=%APP_DIR%web\index.html"
 
 if not exist "%API_EXE%" (
     echo [ERROR] No se encontro el binario de la API en: %API_EXE%
@@ -38,8 +35,8 @@ if not exist "%API_EXE%" (
     exit /b 1
 )
 
-if not exist "%WEB_JS%" (
-    echo [ERROR] No se encontro el frontend NextJS en: %WEB_JS%
+if not exist "%WEB_INDEX%" (
+    echo [ERROR] No se encontro el frontend estatico en: %WEB_INDEX%
     pause
     exit /b 1
 )
@@ -55,18 +52,17 @@ echo [2/3] Instalando SRTimeAPI Service...
 nssm install SRTimeAPI "%API_EXE%"
 nssm set SRTimeAPI AppDirectory "%APP_DIR%api"
 nssm set SRTimeAPI Description "SRTime FastAPI Backend Service"
+nssm set SRTimeAPI AppEnvironmentExtra "SRTIME_ENV_FILE=%APP_DIR%config\.env" "SRTIME_WEB_DIR=%APP_DIR%web"
 nssm start SRTimeAPI
 
-echo [3/3] Instalando SRTimeWeb Service...
-nssm install SRTimeWeb "%NODE_EXE%" "%WEB_JS%"
-nssm set SRTimeWeb AppDirectory "%APP_DIR%web"
-nssm set SRTimeWeb Description "SRTime Next.js Web Frontend"
-nssm start SRTimeWeb
+echo [3/3] Eliminando servicio web Node legacy si existe...
+nssm stop SRTimeWeb >nul 2>&1
+nssm remove SRTimeWeb confirm >nul 2>&1
 
 echo.
 echo ========================================================
 echo   ✅ Setup Completado
 echo ========================================================
-echo Los servicios de Windows "SRTimeAPI" y "SRTimeWeb" han sido instalados e iniciados.
+echo El servicio de Windows "SRTimeAPI" sirve API y frontend estatico.
 echo Puedes manejarlos usando el comando: services.msc
 pause

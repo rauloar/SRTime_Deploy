@@ -10,9 +10,23 @@ from api.deps import get_db, get_current_user
 from models.user import AuthUser
 from models.attendance import AttendanceLog
 from models.employee import User as EmployeeModel
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
+from services.export_helpers import build_excel_workbook, streaming_excel_response
 
 router = APIRouter()
+
+
+def _filtered_query(db, date_start=None, date_end=None, identifier=None):
+    query = db.query(AttendanceLog, EmployeeModel).outerjoin(
+        EmployeeModel, AttendanceLog.employee_id == EmployeeModel.id
+    )
+    if date_start:
+        query = query.filter(AttendanceLog.date >= date_start)
+    if date_end:
+        query = query.filter(AttendanceLog.date <= date_end)
+    if identifier:
+        query = query.filter(AttendanceLog.raw_identifier == identifier)
+    return query
 
 class MovementResponse(BaseModel):
     id: int
@@ -24,8 +38,7 @@ class MovementResponse(BaseModel):
     time: Optional[str] = None
     mark_type: Optional[int] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 @router.get("/", response_model=List[MovementResponse])
 def read_movements(
@@ -37,16 +50,7 @@ def read_movements(
     db: Session = Depends(get_db),
     current_user: AuthUser = Depends(get_current_user)
 ):
-    query = db.query(AttendanceLog, EmployeeModel).outerjoin(
-        EmployeeModel, AttendanceLog.employee_id == EmployeeModel.id
-    )
-
-    if date_start:
-        query = query.filter(AttendanceLog.date >= date_start)
-    if date_end:
-        query = query.filter(AttendanceLog.date <= date_end)
-    if identifier:
-        query = query.filter(AttendanceLog.raw_identifier == identifier)
+    query = _filtered_query(db, date_start, date_end, identifier)
 
     rows = query.order_by(AttendanceLog.date.desc(), AttendanceLog.time.desc()).offset(skip).limit(limit).all()
 
@@ -63,3 +67,30 @@ def read_movements(
             mark_type=log.mark_type,
         ))
     return results
+
+
+@router.get("/export")
+def export_movements(
+    date_start: Optional[date] = Query(None),
+    date_end: Optional[date] = Query(None),
+    identifier: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: AuthUser = Depends(get_current_user),
+):
+    rows = _filtered_query(db, date_start, date_end, identifier).order_by(
+        AttendanceLog.date.desc(), AttendanceLog.time.desc()
+    ).all()
+    data = [[
+        log.raw_identifier,
+        f"{emp.last_name or ''}, {emp.first_name or ''}".strip(", ") if emp else "",
+        log.date,
+        log.time.strftime("%H:%M:%S") if log.time else "",
+        "ENTRADA" if log.mark_type == 0 else "SALIDA" if log.mark_type == 1 else "",
+    ] for log, emp in rows]
+    workbook = build_excel_workbook(
+        "Movimientos",
+        ["Identificador", "Nombre", "Fecha", "Hora", "Movimiento"],
+        data,
+        title="Movimientos de asistencia",
+    )
+    return streaming_excel_response(workbook, "movimientos.xlsx")

@@ -14,7 +14,7 @@ from sqlalchemy.pool import StaticPool
 from core.database import Base
 from api.main_api import app
 from api.deps import get_db
-from api.security import create_access_token, get_password_hash
+from core.security import create_access_token, hash_password as get_password_hash
 from models.user import AuthUser
 from models.employee import User as Employee
 from models.shift import Shift
@@ -284,8 +284,8 @@ class TestApproveJustify:
         assert body["pending_justification"] is None
         assert body["requested_by"] is None
         assert body["previous_status"] is None
-        # 08:00 → 17:00 = 9.0 horas
-        assert abs(body["total_hours"] - 9.0) < 0.1
+        # 08:00 → 17:00 menos 60 min de descanso = 8.0 horas netas
+        assert abs(body["total_hours"] - 8.0) < 0.1
 
         api_db.delete(api_db.query(ProcessedAttendance).get(rec.id))
         api_db.commit()

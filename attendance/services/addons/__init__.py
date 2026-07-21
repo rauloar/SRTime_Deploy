@@ -2,11 +2,9 @@
 import os
 import importlib
 import importlib.util
+from functools import lru_cache
 
-from .base_driver import BiometricDriver
-from .base_parser import AttendanceParser
-
-
+@lru_cache(maxsize=1)
 def get_available_addons():
     """
     Escanea subcarpetas de addons buscando __manifest__.py.
@@ -73,8 +71,14 @@ def get_available_parsers():
     result = {}
     for name, info in addons.items():
         result[name] = {
-            "class": info.get("driver_class") or info.get("parser_class"),
+            # Compatibilidad: para importaciones de archivo la clase debe ser
+            # siempre el parser. Un addon "both" también tiene driver, pero no
+            # implementa parse_line().
+            "class": info.get("parser_class"),
+            "driver_class": info.get("driver_class"),
+            "parser_class": info.get("parser_class"),
             "is_driver": info["is_driver"],
+            "is_parser": info["is_parser"],
             "connection_fields": info.get("connection_fields"),
         }
     return result
@@ -82,13 +86,17 @@ def get_available_parsers():
 
 def get_addon_info(display_name: str):
     """Retorna info de un addon específico por nombre."""
-    parsers = get_available_parsers()
-    return parsers.get(display_name, None)
+    return get_available_addons().get(display_name)
 
 
 def get_parser_instance(display_name: str):
-    """Instancia un driver o parser por nombre."""
+    """Instancia exclusivamente el parser de archivo de un addon."""
     info = get_addon_info(display_name)
-    if info and info.get("class"):
-        return info["class"]()
+    if info and info.get("parser_class"):
+        return info["parser_class"]()
     return None
+
+
+def clear_addon_cache() -> None:
+    """Invalida el registry para desarrollo/instalación de addons."""
+    get_available_addons.cache_clear()

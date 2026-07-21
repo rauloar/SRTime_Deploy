@@ -1,7 +1,9 @@
 from collections import defaultdict
-from datetime import datetime, date, timedelta, time as Time
+from datetime import date, timedelta
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 import logging
+import threading
 from typing import Optional, List, Dict, Tuple
 
 from models.attendance import AttendanceLog
@@ -10,31 +12,25 @@ from models.shift import Shift
 from models.processed_attendance import ProcessedAttendance
 from models.holiday import Holiday
 from services.validators import AttendanceValidator, ProcessedAttendanceValidator
+from services.metrics import MetricsCalculator
 
 
 logger = logging.getLogger(__name__)
+_sqlite_processing_lock = threading.Lock()
+
+
+class ProcessingAlreadyRunning(RuntimeError):
+    pass
 
 
 class AttendanceEngine:
-    """
-    Motor de procesamiento de asistencia.
-    Convierte raw logs en ProcessedAttendance con cálculos de horas, tardanza, etc.
-    
-    Mejoras:
-    - Soporte para turnos nocturnos (overnight shifts)
-    - Matching inteligente de pares IN/OUT (no solo primero/último)
-    - Validación robusta de datos
-    - Manejo de excepciones con rollback
-    - Logging detallado
-    """
-    
     def __init__(self, session: Session):
         self.session = session
         self.validator = AttendanceValidator(session)
         self.pa_validator = ProcessedAttendanceValidator()
         self.processed_with_errors = []
         self._holiday_dates: set = set()
-        self._recurring_holidays: set = set()  # (month, day) tuples
+        self._recurring_holidays: set = set()
         self._load_holidays()
 
     def _load_holidays(self) -> None:
@@ -48,6 +44,28 @@ class AttendanceEngine:
         return day in self._holiday_dates or (day.month, day.day) in self._recurring_holidays
 
     def process_all(self, progress_callback=None, force_all=False) -> int:
+        is_postgres = self.session.bind.dialect.name == "postgresql"
+        acquired = False
+        try:
+            if is_postgres:
+                acquired = bool(self.session.execute(
+                    text("SELECT pg_try_advisory_lock(:key)"), {"key": 535254494545}
+                ).scalar())
+            else:
+                acquired = _sqlite_processing_lock.acquire(blocking=False)
+            if not acquired:
+                raise ProcessingAlreadyRunning("Ya existe un procesamiento de asistencia en curso")
+            return self._process_all(progress_callback, force_all)
+        finally:
+            if acquired:
+                if is_postgres:
+                    self.session.execute(
+                        text("SELECT pg_advisory_unlock(:key)"), {"key": 535254494545}
+                    )
+                else:
+                    _sqlite_processing_lock.release()
+
+    def _process_all(self, progress_callback=None, force_all=False) -> int:
         """
         Procesa logs de asistencia sin procesar.
         
@@ -74,7 +92,7 @@ class AttendanceEngine:
                 logger.info("No attendance logs to process")
                 return 0
 
-            # Validar logs antes de procesar
+            # Validar logs antes de procesar. Los inválidos no entran al motor.
             validation_result = self.validator.validate_batch(logs)
             if validation_result['invalid_count'] > 0:
                 logger.warning(
@@ -85,11 +103,67 @@ class AttendanceEngine:
             if validation_result['duplicate_count'] > 0:
                 logger.warning(f"Found {validation_result['duplicate_count']} duplicate logs")
 
-            # Group by (employee_id, date)
+            valid_logs = [log for log in logs if self.validator.validate_log_entry(log)[0]]
+            self.processed_with_errors.extend(
+                {
+                    "employee_id": item["employee_id"],
+                    "date": None,
+                    "error": item["error"],
+                    "log_id": item["log_id"],
+                }
+                for item in validation_result["invalid_logs"]
+            )
+            employee_ids = {log.employee_id for log in valid_logs if log.employee_id}
+            employees = {
+                employee.id: employee
+                for employee in self.session.query(User).filter(User.id.in_(employee_ids)).all()
+            }
+            shift_ids = {employee.shift_id for employee in employees.values() if employee.shift_id}
+            shifts = {
+                shift.id: shift
+                for shift in self.session.query(Shift).filter(Shift.id.in_(shift_ids)).all()
+            }
+
+            # Group by (employee_id, work_date). Un OUT de un turno nocturno
+            # pertenece a la jornada iniciada el día anterior.
             grouped_logs = defaultdict(list)
-            for log in logs:
-                if log.employee_id:
-                    grouped_logs[(log.employee_id, log.date)].append(log)
+            overnight_start_days = {
+                (log.employee_id, log.date)
+                for log in valid_logs
+                if (
+                    (employee := employees.get(log.employee_id))
+                    and (shift := shifts.get(employee.shift_id))
+                    and shift.is_overnight_shift
+                    and log.time >= shift.expected_in
+                )
+            }
+            for log in valid_logs:
+                employee = employees.get(log.employee_id)
+                if not employee:
+                    continue
+                shift = shifts.get(employee.shift_id)
+                work_day = log.date
+                if (
+                    shift
+                    and shift.is_overnight_shift
+                    and log.time < shift.expected_in
+                    and (log.mark_type == 1 or log.time <= shift.expected_out)
+                    and (log.employee_id, log.date) not in overnight_start_days
+                ):
+                    work_day = log.date - timedelta(days=1)
+                grouped_logs[(log.employee_id, work_day)].append(log)
+
+            existing_by_key = {}
+            if grouped_logs:
+                days = [key[1] for key in grouped_logs]
+                existing_rows = self.session.query(ProcessedAttendance).filter(
+                    ProcessedAttendance.employee_id.in_(employee_ids),
+                    ProcessedAttendance.date >= min(days),
+                    ProcessedAttendance.date <= max(days),
+                ).all()
+                existing_by_key = {
+                    (row.employee_id, row.date): row for row in existing_rows
+                }
 
             processed_count = 0
             total_days = len(grouped_logs)
@@ -100,15 +174,13 @@ class AttendanceEngine:
                     continue
 
                 try:
-                    employee = self.session.query(User).filter_by(id=emp_id).first()
+                    employee = employees.get(emp_id)
                     if not employee: 
                         logger.warning(f"Employee {emp_id} not found, skipping")
                         continue
                     
                     # Check if already manually justified
-                    existing = self.session.query(ProcessedAttendance).filter_by(
-                        employee_id=emp_id, date=day
-                    ).first()
+                    existing = existing_by_key.get((emp_id, day))
                     
                     if existing and existing.status == "JUSTIFICADO":
                         processed_count += 1
@@ -116,9 +188,7 @@ class AttendanceEngine:
                             progress_callback(processed_count, total_days)
                         continue
                     
-                    shift = (self.session.query(Shift)
-                            .filter_by(id=employee.shift_id)
-                            .first() if employee.shift_id else None)
+                    shift = shifts.get(employee.shift_id)
                     
                     # Process this day
                     result = self._process_daily_logs(daily_logs, day, emp_id, employee, shift, existing)
@@ -171,7 +241,22 @@ class AttendanceEngine:
             {'success': bool, 'error': str or None}
         """
         try:
-            # Match IN/OUT pairs
+            daily_logs = sorted(daily_logs, key=lambda log: (log.date, log.time, log.id or 0))
+
+            # Una única marcación es un resultado válido pero incompleto.
+            if len(daily_logs) == 1:
+                first_in_time = daily_logs[0].time
+                last_out_time = None
+                total_hours = 0.0
+                tardiness, early_departure, overtime = MetricsCalculator.calculate_metrics(
+                    day, first_in_time, None, shift
+                )
+                status = "FERIADO" if self._is_holiday(day) else "INCOMPLETO"
+                return self._save_processed(
+                    daily_logs, day, emp_id, existing, first_in_time, last_out_time,
+                    total_hours, tardiness, early_departure, overtime, status,
+                )
+
             punch_pairs = self._match_punch_pairs(daily_logs, shift)
             
             if not punch_pairs:
@@ -181,8 +266,8 @@ class AttendanceEngine:
             first_in_time = punch_pairs[0][0].time
             last_out_time = punch_pairs[-1][1].time
             
-            total_hours = self._calculate_total_hours(punch_pairs, day, shift)
-            tardiness, early_departure, overtime = self._calculate_metrics(
+            total_hours = MetricsCalculator.calculate_total_hours(punch_pairs, day, shift)
+            tardiness, early_departure, overtime = MetricsCalculator.calculate_metrics(
                 day, first_in_time, last_out_time, shift
             )
             
@@ -193,16 +278,31 @@ class AttendanceEngine:
             if not is_valid:
                 return {'success': False, 'error': f'Validation failed: {error_msg}'}
 
-            # Determine status
+            # Determine status. Un punch sin pareja conserva la jornada como
+            # incompleta aun si existieron pares válidos.
+            has_unmatched = len(punch_pairs) * 2 < len(daily_logs)
             if self._is_holiday(day):
                 status = "FERIADO"
                 tardiness = 0
                 early_departure = 0
-            elif not last_out_time:
+            elif has_unmatched:
                 status = "INCOMPLETO"
             else:
                 status = "OK"
             
+            return self._save_processed(
+                daily_logs, day, emp_id, existing, first_in_time, last_out_time,
+                total_hours, tardiness, early_departure, overtime, status,
+            )
+
+        except Exception as e:
+            logger.error(f"Error in _process_daily_logs: {str(e)}", exc_info=True)
+            return {'success': False, 'error': str(e)}
+
+    def _save_processed(
+        self, daily_logs, day, emp_id, existing, first_in_time, last_out_time,
+        total_hours, tardiness, early_departure, overtime, status,
+    ) -> Dict:
             # Upsert
             if not existing:
                 existing = ProcessedAttendance(employee_id=emp_id, date=day)
@@ -221,10 +321,6 @@ class AttendanceEngine:
                 log.is_processed = True
             
             return {'success': True, 'error': None}
-        
-        except Exception as e:
-            logger.error(f"Error in _process_daily_logs: {str(e)}", exc_info=True)
-            return {'success': False, 'error': str(e)}
 
     def _match_punch_pairs(self, daily_logs: List[AttendanceLog], shift: Optional[Shift] = None) -> List[Tuple[AttendanceLog, AttendanceLog]]:
         """
@@ -238,149 +334,35 @@ class AttendanceEngine:
         Returns:
             Lista de tuplas (in_log, out_log)
         """
-        if len(daily_logs) < 2:
-            return []
-        
+        same_day_overnight = bool(
+            shift
+            and shift.is_overnight_shift
+            and len({log.date for log in daily_logs}) == 1
+            and any(log.time >= shift.expected_in for log in daily_logs)
+        )
+
+        def chronological_key(log):
+            adjusted_date = log.date
+            if same_day_overnight and log.time < shift.expected_in:
+                adjusted_date += timedelta(days=1)
+            return adjusted_date, log.time, log.id or 0
+
+        ordered = sorted(daily_logs, key=chronological_key)
+        mark_types = {log.mark_type for log in ordered}
         pairs = []
-        
-        # Intentar usar mark_type si existe
-        in_logs = []
-        out_logs = []
-        
-        for log in daily_logs:
-            # Asumir: mark_type 0 = IN, 1 = OUT (típico en sistemas de asistencia)
-            # Si no existe mark_type, asumir alternado
-            if log.mark_type == 0 or log.mark_type is None:
-                in_logs.append(log)
-            else:
-                out_logs.append(log)
-        
-        # Si no hay diferenciación clara, usar heurística alternada
-        if not in_logs and not out_logs:
-            # Todos tienen mark_type igual o no usar mark_type
-            for i in range(0, len(daily_logs) - 1, 2):
-                in_log = daily_logs[i]
-                out_log = daily_logs[i + 1]
-                
-                # Validar pareja
-                is_valid, _ = self.validator.validate_punch_pair(in_log, out_log)
-                if is_valid:
-                    pairs.append((in_log, out_log))
-        else:
-            # Emparejar secuencialmente
-            is_overnight = shift and shift.is_overnight_shift
-            for i in range(min(len(in_logs), len(out_logs))):
-                in_log = in_logs[i]
-                out_log = out_logs[i]
 
-                if is_overnight:
-                    # Para turnos nocturnos el OUT puede ser menor que el IN (cruza medianoche)
-                    pairs.append((in_log, out_log))
-                else:
-                    is_valid, _ = self.validator.validate_punch_pair(in_log, out_log)
-                    if is_valid:
-                        pairs.append((in_log, out_log))
-        
-        return pairs if pairs else [(daily_logs[0], daily_logs[-1])]
+        if 0 in mark_types and 1 in mark_types:
+            pending_in = None
+            for log in ordered:
+                if log.mark_type == 0:
+                    pending_in = log
+                elif log.mark_type == 1 and pending_in is not None:
+                    pairs.append((pending_in, log))
+                    pending_in = None
+            return pairs
 
-    def _calculate_total_hours(
-        self,
-        punch_pairs: List[Tuple[AttendanceLog, AttendanceLog]],
-        day: date,
-        shift: Optional[Shift]
-    ) -> float:
-        """
-        Calcula horas totales trabajadas desde los pares IN/OUT.
-        Maneja turnos nocturnos.
-        """
-        total_seconds = 0
-        
-        for in_log, out_log in punch_pairs:
-            in_dt = self._make_datetime(day, in_log.time, shift)
-            # _make_datetime ya agrega +1 día al out cuando es overnight (is_expected_out=True)
-            out_dt = self._make_datetime(day, out_log.time, shift, is_expected_out=True)
-
-            if out_dt > in_dt:
-                total_seconds += (out_dt - in_dt).total_seconds()
-        
-        # Restar break si existe
-        total_hours = total_seconds / 3600.0
-        if shift and shift.break_duration_minutes:
-            total_hours -= shift.break_duration_minutes / 60.0
-        
-        return max(0, total_hours)  # No negativos
-
-    def _calculate_metrics(
-        self,
-        day: date,
-        first_in_time: Time,
-        last_out_time: Optional[Time],
-        shift: Optional[Shift]
-    ) -> Tuple[int, int, int]:
-        """
-        Calcula tardanza, salida temprana y overtime.
-        
-        Returns:
-            (tardiness_minutes, early_departure_minutes, overtime_minutes)
-        """
-        tardiness = 0
-        early_departure = 0
-        overtime = 0
-        
-        if not shift or not first_in_time:
-            return tardiness, early_departure, overtime
-        
-        # Tardanza
-        expected_in_dt = self._make_datetime(day, shift.expected_in, shift)
-        actual_in_dt = self._make_datetime(day, first_in_time, shift)
-        
-        diff_minutes = (actual_in_dt - expected_in_dt).total_seconds() / 60.0
-        if diff_minutes > shift.grace_period_minutes:
-            tardiness = int(diff_minutes)
-        
-        # Salida temprana y overtime
-        if last_out_time:
-            expected_out_dt = self._make_datetime(day, shift.expected_out, shift, is_expected_out=True)
-            actual_out_dt = self._make_datetime(day, last_out_time, shift, is_expected_out=True)
-            
-            # Manejar overnight
-            if shift.is_overnight_shift and last_out_time < shift.expected_out:
-                actual_out_dt = actual_out_dt + timedelta(days=1)
-            
-            diff = (actual_out_dt - expected_out_dt).total_seconds() / 60.0
-            
-            if diff < 0:  # Salida temprana
-                early_departure = int(-diff)
-            elif diff > 0:  # Overtime
-                overtime = int(diff)
-        
-        return tardiness, early_departure, overtime
-
-    def _make_datetime(
-        self,
-        day: date,
-        t: Time,
-        shift: Optional[Shift] = None,
-        is_expected_out: bool = False
-    ) -> datetime:
-        """
-        Crea un datetime, manejando turnos nocturnos.
-        
-        Args:
-            day: Fecha base
-            t: Hora
-            shift: Turno (para detectar overnight)
-            is_expected_out: Si es hora de salida esperada
-        
-        Returns:
-            datetime ajustado para overnight si es necesario
-        """
-        dt = datetime.combine(day, t)
-        
-        # Si es turno overnight y es salida, podría ser próximo día
-        if shift and shift.is_overnight_shift and is_expected_out:
-            if t < shift.expected_in:  # Ej: expected_in 22:00, expected_out 06:00
-                dt = dt + timedelta(days=1)
-        
-        return dt
-
+        # Dispositivos sin dirección confiable (p.ej. Hikvision básico):
+        # alternar cronológicamente IN/OUT.
+        for index in range(0, len(ordered) - 1, 2):
+            pairs.append((ordered[index], ordered[index + 1]))
+        return pairs

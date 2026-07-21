@@ -1,5 +1,5 @@
 #!/bin/bash
-sudo systemctl start srtime-api srtime-web
+sudo systemctl start srtime-api
 echo "✅ SRTime Web iniciado"
 echo ""
-sudo systemctl status srtime-api srtime-web --no-pager -l
+sudo systemctl status srtime-api --no-pager -l

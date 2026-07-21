@@ -1,8 +1,10 @@
 "use client"
-import { createContext, useContext, useState, useEffect, ReactNode } from "react"
+import { createContext, useCallback, useContext, useState, useEffect, ReactNode } from "react"
 import axios, { AxiosInstance } from "axios"
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+const API = process.env.NEXT_PUBLIC_API_URL || ""
+
+const apiClient = axios.create({ baseURL: API, withCredentials: true })
 
 interface AuthCtx {
   token: string | null
@@ -24,53 +26,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<string | null>(null)
   const [mustChangePassword, setMustChangePassword] = useState(false)
 
-  const api = axios.create({ baseURL: API })
-  api.interceptors.request.use((config) => {
-    const t = localStorage.getItem("srtime_token")
-    if (t) config.headers.Authorization = `Bearer ${t}`
-    return config
-  })
-  api.interceptors.response.use(
-    r => r,
-    err => {
-      if (err.response?.status === 401) logout()
-      return Promise.reject(err)
-    }
-  )
+  const api = apiClient
 
-  async function refreshProfile() {
+  const refreshProfile = useCallback(async () => {
     const me = await api.get("/api/auth/me")
     setRole(me.data.role)
     setMustChangePassword(Boolean(me.data.must_change_password))
     localStorage.setItem("srtime_role", me.data.role || "viewer")
     localStorage.setItem("srtime_must_change_password", me.data.must_change_password ? "1" : "0")
-  }
+  }, [api])
 
   useEffect(() => {
-    const t = localStorage.getItem("srtime_token")
     const u = localStorage.getItem("srtime_user")
     const r = localStorage.getItem("srtime_role")
     const m = localStorage.getItem("srtime_must_change_password")
-    if (t) {
-      setToken(t)
+    if (u) {
+      setToken("cookie")
       setUsername(u)
       setRole(r)
       setMustChangePassword(m === "1")
       refreshProfile().catch(() => logout())
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [refreshProfile])
 
   async function login(user: string, pass: string) {
     const formData = new FormData()
     formData.append("username", user)
     formData.append("password", pass)
-    const res = await axios.post(`${API}/api/auth/token`, formData)
-    const t = res.data.access_token
-    setToken(t)
+    const res = await axios.post(`${API}/api/auth/token`, formData, { withCredentials: true })
+    setToken("cookie")
     setUsername(user)
     setMustChangePassword(Boolean(res.data.must_change_password))
-    localStorage.setItem("srtime_token", t)
     localStorage.setItem("srtime_user", user)
     localStorage.setItem("srtime_must_change_password", res.data.must_change_password ? "1" : "0")
     await refreshProfile()
@@ -84,11 +71,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   function logout() {
+    void api.post("/api/auth/logout").catch(() => undefined)
     setToken(null)
     setUsername(null)
     setRole(null)
     setMustChangePassword(false)
-    localStorage.removeItem("srtime_token")
     localStorage.removeItem("srtime_user")
     localStorage.removeItem("srtime_role")
     localStorage.removeItem("srtime_must_change_password")

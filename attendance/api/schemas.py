@@ -1,5 +1,5 @@
 from typing import Optional, List
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import date, time
 
 # --- USERS ---
@@ -15,8 +15,7 @@ class UserCreate(UserBase):
 
 class UserResponse(UserBase):
     id: int
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # --- SHIFTS ---
 class ShiftBase(BaseModel):
@@ -29,8 +28,7 @@ class ShiftBase(BaseModel):
 
 class ShiftResponse(ShiftBase):
     id: int
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # --- PROCESSED LOGS ---
 class ProcessedAttendanceResponse(BaseModel):
@@ -51,8 +49,7 @@ class ProcessedAttendanceResponse(BaseModel):
     pending_justification: Optional[str] = None
     requested_by: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # --- HOLIDAYS ---
 class HolidayBase(BaseModel):
@@ -69,8 +66,7 @@ class HolidayUpdate(BaseModel):
 
 class HolidayResponse(HolidayBase):
     id: int
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # --- BULK IMPORT ---
 class UserBulkImportRow(BaseModel):
@@ -94,8 +90,7 @@ class AuthUserResponse(BaseModel):
     is_active: bool
     must_change_password: bool
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AuthUserCreate(BaseModel):

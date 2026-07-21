@@ -5,6 +5,13 @@ from datetime import date, time, datetime
 from services.addons.base_driver import BiometricDriver
 
 
+def _required(params: dict, name: str, label: str) -> str:
+    value = str(params.get(name) or "").strip()
+    if not value:
+        raise ValueError(f"{label} es obligatorio")
+    return value
+
+
 class SundialDriver(BiometricDriver):
     """
     Driver para terminales Sundial ERTeckno vía TecknoComm.exe.
@@ -19,12 +26,12 @@ class SundialDriver(BiometricDriver):
     display_name = "Sundial ERTeckno"
 
     connection_fields = [
-        {"name": "tecknocomm_exe",  "label": "Ruta a TecknoComm.exe",             "type": "text",   "default": r"C:\TecknoComm\TecknoComm.exe"},
-        {"name": "output_file",     "label": "Ruta a TM-MR001.Txt",               "type": "text",   "default": r"C:\TecknoComm\TM-MR001.Txt"},
-        {"name": "db_password",     "label": "Contraseña BD (P:)",                "type": "text",   "default": "TecknoComm"},
-        {"name": "db_user",         "label": "Usuario (U:)",                      "type": "text",   "default": "admin"},
-        {"name": "db_client",       "label": "Cliente (C:)",                      "type": "text",   "default": "admin"},
-        {"name": "terminals",       "label": "N° terminales a sync (ej: 1,2,3)",  "type": "text",   "default": "1"},
+        {"name": "tecknocomm_exe",  "label": "Ruta a TecknoComm.exe",             "type": "text",   "default": "", "required": True},
+        {"name": "output_file",     "label": "Ruta a TM-MR001.Txt",               "type": "text",   "default": "", "required": True},
+        {"name": "db_password",     "label": "Contraseña BD (P:)",                "type": "password", "default": "", "required": True},
+        {"name": "db_user",         "label": "Usuario (U:)",                      "type": "text",   "default": "", "required": True},
+        {"name": "db_client",       "label": "Cliente (C:)",                      "type": "text",   "default": "", "required": True},
+        {"name": "terminals",       "label": "N° terminales a sync (ej: 1,2,3)",  "type": "text",   "default": "", "required": True},
         {"name": "timeout",         "label": "Timeout por terminal (segundos)",   "type": "number", "default": "120"},
     ]
 
@@ -35,18 +42,18 @@ class SundialDriver(BiometricDriver):
     # ── connect: llama a TecknoComm.exe para generar TM-MR001.Txt ───────────
     def connect(self, params: dict):
         self._params = params
-        exe  = params.get("tecknocomm_exe", r"C:\TecknoComm\TecknoComm.exe")
-        self._output_file = params.get("output_file", r"C:\TecknoComm\TM-MR001.Txt")
+        exe = _required(params, "tecknocomm_exe", "La ruta a TecknoComm.exe")
+        self._output_file = _required(params, "output_file", "La ruta de salida")
 
         if not os.path.isfile(exe):
             raise Exception(f"No se encontró TecknoComm.exe en: {exe}")
 
-        pwd     = params.get("db_password", "TecknoComm")
-        user    = params.get("db_user",     "admin")
-        client  = params.get("db_client",   "admin")
+        pwd     = _required(params, "db_password", "La contraseña de TecknoComm")
+        user    = _required(params, "db_user", "El usuario de TecknoComm")
+        client  = _required(params, "db_client", "El cliente de TecknoComm")
         timeout = int(params.get("timeout", 120))
 
-        terminals_raw = params.get("terminals", "1")
+        terminals_raw = _required(params, "terminals", "La lista de terminales")
         terminal_ids  = [t.strip() for t in terminals_raw.split(",") if t.strip()]
 
         exe_dir = os.path.dirname(exe)
@@ -84,19 +91,22 @@ class SundialDriver(BiometricDriver):
 
     # ── test_connection: verifica que el exe existe y puede correr ───────────
     def test_connection(self, params: dict) -> dict:
-        exe = params.get("tecknocomm_exe", r"C:\TecknoComm\TecknoComm.exe")
+        try:
+            exe = _required(params, "tecknocomm_exe", "La ruta a TecknoComm.exe")
+            pwd = _required(params, "db_password", "La contraseña de TecknoComm")
+            user = _required(params, "db_user", "El usuario de TecknoComm")
+            client = _required(params, "db_client", "El cliente de TecknoComm")
+            terminals_raw = _required(params, "terminals", "La lista de terminales")
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
         if not os.path.isfile(exe):
             return {"status": "error", "message": f"No se encontró: {exe}"}
 
-        pwd    = params.get("db_password", "TecknoComm")
-        user   = params.get("db_user",     "admin")
-        client = params.get("db_client",   "admin")
         timeout = int(params.get("timeout", 30))
         exe_dir = os.path.dirname(exe)
 
-        terminals_raw = params.get("terminals", "1")
         terminal_ids  = [t.strip() for t in terminals_raw.split(",") if t.strip()]
-        term_id = terminal_ids[0] if terminal_ids else "1"
+        term_id = terminal_ids[0]
 
         # A:Pointer solo lee el puntero sin descargar registros — prueba de conectividad
         arg = f"P:{pwd};U:{user};C:{client};R:{term_id};A:Pointer"
@@ -120,14 +130,14 @@ class SundialDriver(BiometricDriver):
 
     # ── sync_time: sincroniza fecha/hora de las terminales con el sistema ────
     def sync_time(self, params: dict) -> bool:
-        exe     = params.get("tecknocomm_exe", r"C:\TecknoComm\TecknoComm.exe")
-        pwd     = params.get("db_password", "TecknoComm")
-        user    = params.get("db_user",     "admin")
-        client  = params.get("db_client",   "admin")
+        exe     = _required(params, "tecknocomm_exe", "La ruta a TecknoComm.exe")
+        pwd     = _required(params, "db_password", "La contraseña de TecknoComm")
+        user    = _required(params, "db_user", "El usuario de TecknoComm")
+        client  = _required(params, "db_client", "El cliente de TecknoComm")
         timeout = int(params.get("timeout", 60))
         exe_dir = os.path.dirname(exe)
 
-        terminals_raw = params.get("terminals", "1")
+        terminals_raw = _required(params, "terminals", "La lista de terminales")
         terminal_ids  = [t.strip() for t in terminals_raw.split(",") if t.strip()]
 
         ok = True

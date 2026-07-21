@@ -1,65 +1,44 @@
-from datetime import datetime
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Any, Optional
 
-from api.deps import get_db, get_current_user
+from api.deps import get_db, get_current_user, get_terminal_or_404, ok_response, require_root, require_supervisor_or_root
 from models.user import AuthUser
 from models.terminal import DeviceTerminal
 from core.logging_config import get_logger
+from services.constants import DEFAULT_ZKTECO_PORT
+from services.terminals import (
+    SECRET_FIELDS,
+    TerminalOperationError,
+    merge_connection_params,
+    public_connection_params,
+    sync_time as service_sync_time,
+    test_connection as service_test_connection,
+)
 
 logger = get_logger(__name__)
 
 router = APIRouter()
 
 
-# ── Schemas ──────────────────────────────────────────────────
-
 class TerminalCreate(BaseModel):
     name: str
     driver_name: str
-    ip: str
-    port: int = 4370
-    password: str = "0"
+    ip: Optional[str] = None
+    port: Optional[int] = DEFAULT_ZKTECO_PORT
+    password: Optional[str] = None
+    connection_params: Optional[dict[str, Any]] = None
+    is_active: bool = True
 
 class TerminalUpdate(BaseModel):
     name: Optional[str] = None
     ip: Optional[str] = None
     port: Optional[int] = None
     password: Optional[str] = None
+    connection_params: Optional[dict[str, Any]] = None
     is_active: Optional[bool] = None
 
-
-# ── Helpers ──────────────────────────────────────────────────
-
-def _get_terminal(terminal_id: int, db: Session) -> DeviceTerminal:
-    terminal = db.query(DeviceTerminal).filter(DeviceTerminal.id == terminal_id).first()
-    if not terminal:
-        raise HTTPException(status_code=404, detail="Terminal no encontrada")
-    return terminal
-
-
-def _get_driver_instance(terminal: DeviceTerminal):
-    """Instancia el driver correcto según driver_name de la terminal."""
-    import services.addons
-    info = services.addons.get_addon_info(terminal.driver_name)
-    if not info or not info.get("is_driver"):
-        raise HTTPException(status_code=400, detail=f"Driver '{terminal.driver_name}' no encontrado")
-    return info["class"]()
-
-
-def _get_connection_params(terminal: DeviceTerminal) -> dict:
-    """Construye los params de conexión desde la BD."""
-    return {
-        "ip": terminal.ip,
-        "port": str(terminal.port),
-        "password": terminal.password or "0",
-    }
-
-
-# ── CRUD ─────────────────────────────────────────────────────
 
 @router.get("/")
 def list_terminals(
@@ -75,7 +54,11 @@ def list_terminals(
                 "driver_name": t.driver_name,
                 "ip": t.ip,
                 "port": t.port,
-                "password": t.password,
+                "connection_params": public_connection_params(t),
+                "has_password": bool(
+                    any((t.connection_params or {}).get(key) for key in SECRET_FIELDS)
+                    or t.password
+                ),
                 "serial_number": t.serial_number,
                 "is_active": t.is_active,
                 "last_sync": str(t.last_sync) if t.last_sync else None,
@@ -90,21 +73,30 @@ def list_terminals(
 def create_terminal(
     payload: TerminalCreate,
     db: Session = Depends(get_db),
-    current_user: AuthUser = Depends(get_current_user),
+    current_user: AuthUser = Depends(require_supervisor_or_root),
 ):
     terminal = DeviceTerminal(
         name=payload.name,
         driver_name=payload.driver_name,
         ip=payload.ip,
         port=payload.port,
-        password=payload.password,
+        password=None,
+        is_active=payload.is_active,
+    )
+    terminal.connection_params = merge_connection_params(
+        terminal,
+        payload.connection_params or {
+            "ip": payload.ip,
+            "port": str(payload.port) if payload.port is not None else None,
+            "password": payload.password,
+        },
     )
     db.add(terminal)
     db.commit()
     db.refresh(terminal)
     logger.info(f"Terminal created: {terminal.name} ({terminal.ip}:{terminal.port})",
                 extra={"user": current_user.username, "action": "terminal_create"})
-    return {"ok": True, "id": terminal.id}
+    return ok_response({"id": terminal.id})
 
 
 @router.put("/{terminal_id}")
@@ -112,84 +104,68 @@ def update_terminal(
     terminal_id: int,
     payload: TerminalUpdate,
     db: Session = Depends(get_db),
-    current_user: AuthUser = Depends(get_current_user),
+    current_user: AuthUser = Depends(require_supervisor_or_root),
 ):
-    terminal = _get_terminal(terminal_id, db)
-    if payload.name is not None:
-        terminal.name = payload.name
-    if payload.ip is not None:
-        terminal.ip = payload.ip
-    if payload.port is not None:
-        terminal.port = payload.port
-    if payload.password is not None:
-        terminal.password = payload.password
-    if payload.is_active is not None:
-        terminal.is_active = payload.is_active
+    terminal = get_terminal_or_404(terminal_id, db)
+    data = payload.model_dump(exclude={"connection_params"}, exclude_none=True)
+    for key, value in data.items():
+        setattr(terminal, key, value)
+    if payload.connection_params is not None:
+        terminal.connection_params = merge_connection_params(terminal, payload.connection_params)
     db.commit()
     logger.info(f"Terminal updated: {terminal.name}",
                 extra={"user": current_user.username, "action": "terminal_update"})
-    return {"ok": True}
+    return ok_response()
 
 
 @router.delete("/{terminal_id}")
 def delete_terminal(
     terminal_id: int,
     db: Session = Depends(get_db),
-    current_user: AuthUser = Depends(get_current_user),
+    current_user: AuthUser = Depends(require_root),
 ):
-    terminal = _get_terminal(terminal_id, db)
+    terminal = get_terminal_or_404(terminal_id, db)
     name = terminal.name
     db.delete(terminal)
     db.commit()
     logger.info(f"Terminal deleted: {name}",
                 extra={"user": current_user.username, "action": "terminal_delete"})
-    return {"ok": True}
+    return ok_response()
 
-
-# ── Acciones (leen IP/puerto de la BD) ───────────────────────
 
 @router.post("/{terminal_id}/test")
 def test_terminal(
     terminal_id: int,
     db: Session = Depends(get_db),
-    current_user: AuthUser = Depends(get_current_user),
+    current_user: AuthUser = Depends(require_supervisor_or_root),
 ):
-    terminal = _get_terminal(terminal_id, db)
-    driver = _get_driver_instance(terminal)
-    params = _get_connection_params(terminal)
+    terminal = get_terminal_or_404(terminal_id, db)
 
     try:
-        result = driver.test_connection(params)
-
-        # Guardar serial number en primer test exitoso
+        result = service_test_connection(terminal)
         sn = result.get("serial_number") or result.get("mac")
         if sn and not terminal.serial_number:
             terminal.serial_number = sn
             db.commit()
-
         logger.info(f"Terminal test OK: {terminal.name} ({terminal.ip})",
                     extra={"user": current_user.username, "action": "terminal_test"})
         return result
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except (TerminalOperationError, OSError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/{terminal_id}/sync")
 def sync_terminal_time(
     terminal_id: int,
     db: Session = Depends(get_db),
-    current_user: AuthUser = Depends(get_current_user),
+    current_user: AuthUser = Depends(require_supervisor_or_root),
 ):
-    terminal = _get_terminal(terminal_id, db)
-    driver = _get_driver_instance(terminal)
-    params = _get_connection_params(terminal)
+    terminal = get_terminal_or_404(terminal_id, db)
 
     try:
-        ok = driver.sync_time(params)
+        ok = service_sync_time(terminal)
         logger.info(f"Terminal sync: {terminal.name}",
                     extra={"user": current_user.username, "action": "terminal_sync"})
-        return {"ok": ok}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
+        return ok_response({"ok": ok})
+    except (TerminalOperationError, OSError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

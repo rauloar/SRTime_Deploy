@@ -4,7 +4,7 @@ import { useAuth } from "../context/AuthContext"
 import axios from "axios"
 import { Plus, RefreshCw, Pencil, Trash2, X, Search } from "lucide-react"
 import Pagination from "./Pagination"
-import * as XLSX from "xlsx"
+import { downloadFromApi } from "../utils/download"
 
 interface User { id: number; identifier: string; first_name: string | null; last_name: string | null; is_active: boolean; shift_id: number | null }
 interface Shift { id: number; name: string }
@@ -83,18 +83,8 @@ export default function UsersTab() {
     URL.revokeObjectURL(url)
   }
 
-  function exportExcel() {
-    const rows = filtered.map(u => ({
-      Identificador: u.identifier,
-      Nombre: u.first_name || "",
-      Apellido: u.last_name || "",
-      Turno: shiftName(u.shift_id),
-      Activo: u.is_active ? "Si" : "No",
-    }))
-    const ws = XLSX.utils.json_to_sheet(rows)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, "Empleados")
-    XLSX.writeFile(wb, "empleados.xlsx")
+  async function exportExcel() {
+    await downloadFromApi(api, "/api/users/export", "empleados.xlsx")
   }
 
   function openAdd() { setCurrent(EMPTY); setError(""); setModal("add") }

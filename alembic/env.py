@@ -49,7 +49,10 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    url = config.get_main_option("sqlalchemy.url")
+    # Misma fuente de configuración que runtime; evita generar SQL SQLite
+    # accidentalmente para un despliegue PostgreSQL.
+    from core.database import DATABASE_URL
+    url = DATABASE_URL
     context.configure(
         url=url,
         target_metadata=target_metadata,

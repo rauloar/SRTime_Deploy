@@ -7,7 +7,7 @@ from datetime import time as Time
 from core.logging_config import get_logger
 logger = get_logger(__name__)
 
-from api.deps import get_db, get_current_user
+from api.deps import get_db, get_current_user, require_root, require_supervisor_or_root
 from api.schemas import ShiftResponse
 from models.shift import Shift
 from models.employee import User
@@ -66,7 +66,7 @@ def read_shift(shift_id: int, db: Session = Depends(get_db), current_user: AuthU
     return shift
 
 @router.post("/", response_model=ShiftResponse)
-def create_shift(data: ShiftCreate, db: Session = Depends(get_db), current_user: AuthUser = Depends(get_current_user)):
+def create_shift(data: ShiftCreate, db: Session = Depends(get_db), current_user: AuthUser = Depends(require_supervisor_or_root)):
     shift = Shift(
         name=data.name,
         expected_in=parse_time(data.expected_in),
@@ -87,7 +87,7 @@ def create_shift(data: ShiftCreate, db: Session = Depends(get_db), current_user:
     return shift
 
 @router.put("/{shift_id}", response_model=ShiftResponse)
-def update_shift(shift_id: int, data: ShiftUpdate, db: Session = Depends(get_db), current_user: AuthUser = Depends(get_current_user)):
+def update_shift(shift_id: int, data: ShiftUpdate, db: Session = Depends(get_db), current_user: AuthUser = Depends(require_supervisor_or_root)):
     shift = db.query(Shift).filter(Shift.id == shift_id).first()
     if not shift:
         raise HTTPException(status_code=404, detail="Shift not found")
@@ -102,7 +102,7 @@ def update_shift(shift_id: int, data: ShiftUpdate, db: Session = Depends(get_db)
     return shift
 
 @router.delete("/{shift_id}")
-def delete_shift(shift_id: int, db: Session = Depends(get_db), current_user: AuthUser = Depends(get_current_user)):
+def delete_shift(shift_id: int, db: Session = Depends(get_db), current_user: AuthUser = Depends(require_root)):
     shift = db.query(Shift).filter(Shift.id == shift_id).first()
     if not shift:
         raise HTTPException(status_code=404, detail="Shift not found")

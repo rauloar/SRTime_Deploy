@@ -31,10 +31,6 @@ def init_database():
     # create_all is idempotent: only creates missing tables, never drops existing ones.
     Base.metadata.create_all(bind=engine)
 
-    if not _should_initialize_on_startup():
-        logger.debug("Database already initialized, skipping bootstrap")
-        return
-
     logger.info("Initializing database schema...")
     session = Session(bind=engine)
 
@@ -46,6 +42,9 @@ def init_database():
     if "must_change_password" not in auth_cols:
         session.execute(text("ALTER TABLE auth_user ADD COLUMN must_change_password BOOLEAN"))
         session.commit()
+    if "token_version" not in auth_cols:
+        session.execute(text("ALTER TABLE auth_user ADD COLUMN token_version INTEGER DEFAULT 0 NOT NULL"))
+        session.commit()
 
     users_cols = {c["name"] for c in inspect(engine).get_columns("users")}
     if "shift_id" not in users_cols:
@@ -55,6 +54,12 @@ def init_database():
     attendance_cols = {c["name"] for c in inspect(engine).get_columns("attendance_log")}
     if "is_processed" not in attendance_cols:
         session.execute(text("ALTER TABLE attendance_log ADD COLUMN is_processed BOOLEAN"))
+        session.commit()
+
+    terminal_cols = {c["name"] for c in inspect(engine).get_columns("device_terminal")}
+    if "connection_params" not in terminal_cols:
+        column_type = "JSONB" if engine.url.get_backend_name() == "postgresql" else "JSON"
+        session.execute(text(f"ALTER TABLE device_terminal ADD COLUMN connection_params {column_type}"))
         session.commit()
 
     pa_cols = {c["name"] for c in inspect(engine).get_columns("processed_attendance")}
@@ -72,15 +77,23 @@ def init_database():
     session.execute(text("UPDATE auth_user SET role = 'viewer' WHERE role IS NULL OR role = ''"))
     session.execute(text("UPDATE auth_user SET must_change_password = FALSE WHERE must_change_password IS NULL"))
     session.execute(text("UPDATE auth_user SET is_active = TRUE WHERE is_active IS NULL"))
+    session.execute(text("UPDATE auth_user SET token_version = 0 WHERE token_version IS NULL"))
     session.execute(text("UPDATE attendance_log SET is_processed = FALSE WHERE is_processed IS NULL"))
+    session.execute(text(
+        "DELETE FROM attendance_log "
+        "WHERE raw_identifier = '' AND date IS NULL AND time IS NULL AND mark_type IS NULL"
+    ))
     session.commit()
 
     # Password inicial del admin: configurable por entorno para deploys (sin
     # default hardcodeado en producción). Siempre se exige cambiarlo al login.
-    initial_admin_password = os.environ.get("SRTIME_ADMIN_PASSWORD", "admin")
-
+    initial_admin_password = os.environ.get("SRTIME_ADMIN_PASSWORD")
     admin = session.query(AuthUser).filter_by(username="admin").first()
     if not admin:
+        if not initial_admin_password:
+            if engine.url.get_backend_name() == "postgresql":
+                raise RuntimeError("SRTIME_ADMIN_PASSWORD is required for PostgreSQL bootstrap")
+            initial_admin_password = "admin"  # Sólo desarrollo SQLite de primer uso.
         admin = AuthUser(
             username="admin",
             password_hash=hash_password(initial_admin_password),
@@ -93,7 +106,9 @@ def init_database():
         changed = False
         admin_hash = str(getattr(admin, "password_hash", "") or "")
         if not admin_hash:
-            setattr(admin, "password_hash", hash_password("admin"))
+            if not initial_admin_password:
+                raise RuntimeError("SRTIME_ADMIN_PASSWORD is required to repair the admin account")
+            setattr(admin, "password_hash", hash_password(initial_admin_password))
             changed = True
         role_value = getattr(admin, "role", None)
         if not role_value or role_value == "admin":

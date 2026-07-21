@@ -6,7 +6,7 @@ from datetime import date
 from core.logging_config import get_logger
 logger = get_logger(__name__)
 
-from api.deps import get_db, get_current_user
+from api.deps import get_db, get_current_user, require_root, require_supervisor_or_root
 from api.schemas import HolidayCreate, HolidayUpdate, HolidayResponse
 from models.holiday import Holiday
 from models.user import AuthUser
@@ -26,7 +26,7 @@ def list_holidays(
 def create_holiday(
     body: HolidayCreate,
     db: Session = Depends(get_db),
-    current_user: AuthUser = Depends(get_current_user)
+    current_user: AuthUser = Depends(require_supervisor_or_root)
 ):
     if db.query(Holiday).filter_by(date=body.date).first():
         raise HTTPException(status_code=400, detail="A holiday already exists on that date")
@@ -43,7 +43,7 @@ def update_holiday(
     holiday_id: int,
     body: HolidayUpdate,
     db: Session = Depends(get_db),
-    current_user: AuthUser = Depends(get_current_user)
+    current_user: AuthUser = Depends(require_supervisor_or_root)
 ):
     h = db.query(Holiday).filter_by(id=holiday_id).first()
     if not h:
@@ -61,7 +61,7 @@ def update_holiday(
 def delete_holiday(
     holiday_id: int,
     db: Session = Depends(get_db),
-    current_user: AuthUser = Depends(get_current_user)
+    current_user: AuthUser = Depends(require_root)
 ):
     h = db.query(Holiday).filter_by(id=holiday_id).first()
     if not h:

@@ -5,8 +5,8 @@ manifest = {
     "driver_class": "ZKTecoDriver",
     "parser_class": "ZKTecoParser",
     "connection_fields": [
-        {"name": "ip", "label": "Dirección IP", "type": "text", "default": "192.168.1.201"},
+        {"name": "ip", "label": "Dirección IP", "type": "text", "default": "", "required": True},
         {"name": "port", "label": "Puerto", "type": "number", "default": "4370"},
-        {"name": "password", "label": "Contraseña Com (0=Sin Clave)", "type": "text", "default": "0"},
+        {"name": "password", "label": "Contraseña Com (vacío=sin clave)", "type": "password", "default": ""},
     ],
 }

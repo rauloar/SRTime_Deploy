@@ -79,6 +79,11 @@ attendance/web/.cache/
 # ── Application logs directory ────────────────────────────────
 attendance/logs/
 
+# ── Datos biométricos/reales de importación ───────────────────
+# Usar exclusivamente attendance/tests/fixtures/tm_mr001_mock.txt en tests.
+TM-MR001.txt
+TM-MR001.Txt
+
 # ── Legacy / generated docs ──────────────────────────────────
 CLEANUP_EXECUTED.md
 test_results.html

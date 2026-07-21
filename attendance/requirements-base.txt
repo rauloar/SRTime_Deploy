@@ -10,9 +10,10 @@ greenlet==3.3.2
 # Seguridad / hashing
 bcrypt==5.0.0
 passlib[bcrypt]==1.7.4
+cryptography==49.0.0
 
 # Configuración
-python-dotenv==1.0.1
+python-dotenv==1.2.2
 
 # Datos / reportes (Excel + PDF)
 pandas==3.0.1
@@ -20,7 +21,7 @@ numpy==2.4.2
 openpyxl==3.1.5
 et_xmlfile==2.0.0
 reportlab==4.4.10
-pillow==12.1.1
+pillow==12.3.0
 
 # Utilidades de fecha/codificación
 python-dateutil==2.9.0.post0
@@ -32,3 +33,4 @@ packaging==26.0
 
 # Drivers biométricos (lectura de terminales ZKTeco)
 pyzk
+requests==2.34.2

@@ -80,8 +80,8 @@ export default function AuthUsersTab() {
         return
       }
       if (modal === "add") {
-        if (!current.password || current.password.length < 6) {
-          setError("La contraseña debe tener al menos 6 caracteres")
+        if (!current.password || current.password.length < 12) {
+          setError("La contraseña debe tener al menos 12 caracteres")
           return
         }
         await api.post("/api/auth-users/", {

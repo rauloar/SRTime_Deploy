@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react"
 import { useAuth } from "../context/AuthContext"
 import axios from "axios"
-import { Upload, RefreshCw, Activity, CheckCircle2 } from "lucide-react"
+import { Upload, RefreshCw } from "lucide-react"
 
 function getErrorMessage(error: unknown, fallback: string) {
   if (axios.isAxiosError(error)) {
@@ -15,6 +15,7 @@ function getErrorMessage(error: unknown, fallback: string) {
 interface ParserInfo {
   name: string
   is_driver: boolean
+  is_parser: boolean
 }
 
 interface TerminalInfo {
@@ -47,7 +48,7 @@ export default function ImportTab() {
         
         const list = resParsers.data.parsers || []
         setParsers(list)
-        const fileList = list.filter((p: any) => !p.is_driver)
+        const fileList = (list as ParserInfo[]).filter(p => p.is_parser)
         if (fileList.length > 0) setSelectedParser(fileList[0].name)
 
         const termList = resTerminals.data.terminals || []
@@ -66,11 +67,45 @@ export default function ImportTab() {
   function switchTab(tab: "file" | "device") {
     setActiveTab(tab)
     if (tab === "file") {
-      const list = parsers.filter(p => !p.is_driver)
+      const list = parsers.filter(p => p.is_parser)
       if (list.length > 0) setSelectedParser(list[0].name)
     } else {
       const activeTerms = terminals.filter(t => t.is_active)
       if (activeTerms.length > 0) setSelectedTerminal(activeTerms[0].id)
+    }
+  }
+
+  async function testConnection() {
+    if (!selectedTerminal) return
+    setRunning(true); setError(""); setLogs([])
+    try {
+      const res = await api.post(`/api/terminals/${selectedTerminal}/test`)
+      setStatus("Conexión exitosa")
+      setLogs([
+        `Modelo: ${res.data.model || "N/D"}`,
+        `Firma: ${res.data.firmware || "N/D"}`,
+        `Número de Serie: ${res.data.serial_number || "N/D"}`,
+        `MAC: ${res.data.mac || "N/D"}`,
+        `Hora Reloj: ${res.data.time || "N/D"}`
+      ])
+    } catch (e: unknown) {
+      setError(getErrorMessage(e, "Error al probar la conexión con el dispositivo"))
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  async function syncTime() {
+    if (!selectedTerminal) return
+    setRunning(true); setError(""); setLogs([])
+    try {
+      await api.post(`/api/terminals/${selectedTerminal}/sync`)
+      setStatus("Hora sincronizada")
+      setLogs(["Sincronización completada"])
+    } catch (e: unknown) {
+      setError(getErrorMessage(e, "Error al sincronizar la hora del dispositivo"))
+    } finally {
+      setRunning(false)
     }
   }
 
@@ -79,11 +114,11 @@ export default function ImportTab() {
       if (!selectedTerminal) return
       setRunning(true); setError(""); setLogs([])
       try {
-        const res = await api.post(`/api/import/device/${selectedTerminal}`)
+        const res = await api.post(`/api/import/terminal/${selectedTerminal}/pull-logs`)
         setStatus(`Logs: ${res.data.total} | Nuevos: ${res.data.nuevos} | Duplicados: ${res.data.duplicados}`)
         setLogs((res.data.logs || []) as string[])
       } catch (e: unknown) {
-        setError(getErrorMessage(e, "Error conectando al dispositivo"))
+        setError(getErrorMessage(e, "Error al descargar logs del dispositivo"))
       } finally {
         setRunning(false)
       }
@@ -160,9 +195,15 @@ export default function ImportTab() {
             </select>
 
             {terminals.length === 0 ? (
-               <span style={{ opacity: 0.6, fontSize: 12 }}>⚠️ No hay terminales configuradas. Dirígete a la pestaña "Terminales".</span>
+               <span style={{ opacity: 0.6, fontSize: 12 }}>⚠️ No hay terminales configuradas. Dirígete a la pestaña &quot;Terminales&quot;.</span>
             ) : (
                 <div style={{ display: "flex", gap: 5, marginLeft: 10 }}>
+                  <button className="btn" onClick={testConnection} disabled={running || !selectedTerminal}>
+                    Probar Conexión
+                  </button>
+                  <button className="btn" onClick={syncTime} disabled={running || !selectedTerminal}>
+                    Sincronizar Hora
+                  </button>
                   <button className="btn btn-primary" onClick={runImport} disabled={running || !selectedTerminal}>
                     <RefreshCw size={14} /> {running ? "Conectando..." : "Descargar Memorias"}
                   </button>

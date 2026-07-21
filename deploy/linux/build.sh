@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# SRTime — Pipeline de build Linux (Nuitka API + Next.js standalone)
+# SRTime — Pipeline de build Linux (Nuitka API + Next.js static export)
 # ==============================================================================
 # Produce un artefacto distribuible SIN código fuente Python:
 #   deploy/dist/linux/srtime-web-linux-<version>.tar.gz
@@ -22,7 +22,7 @@ DIST_DIR="$PROJ_DIR/deploy/dist/linux"
 BUILD_DIR="$PROJ_DIR/deploy/build/linux"
 STAGE="$DIST_DIR/srtime"
 PYTHON="${PYTHON:-python3}"
-NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-/api}"
+NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL-}"
 
 # Versión: VERSION explícita > git describe > fecha
 if [ -z "${VERSION:-}" ]; then
@@ -58,15 +58,22 @@ cd "$PROJ_DIR/attendance"
     --include-package=fastapi \
     --include-package=sqlalchemy \
     --include-package=passlib \
-    --include-package=jose \
+    --include-package=jwt \
+    --include-package=cryptography \
     --include-package=dotenv \
     --include-package=alembic \
     --include-package=bcrypt \
     "$PROJ_DIR/deploy/run_api.py"
 
-# ── 2. Compilar el frontend Next.js (standalone) ──────────────────────────────
+# ── 2. Compilar el frontend Next.js (export estático) ─────────────────────────
 echo "→ [2/5] Compilando frontend Next.js (NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL)..."
 cd "$PROJ_DIR/attendance/web"
+# Instalar dependencias de Node (reproducible si hay lockfile)
+if [ -f package-lock.json ]; then
+    npm ci
+else
+    npm install
+fi
 NEXT_PUBLIC_API_URL="$NEXT_PUBLIC_API_URL" npm run build
 
 # ── 3. Ensamblar el staging (solo binarios + config) ──────────────────────────
@@ -74,15 +81,11 @@ echo "→ [3/5] Ensamblando artefacto..."
 mkdir -p "$STAGE/api" "$STAGE/web" "$STAGE/config"
 
 cp -r "$BUILD_DIR/run_api.dist/." "$STAGE/api/"
-cp -r .next/standalone/. "$STAGE/web/"
-mkdir -p "$STAGE/web/.next"
-cp -r .next/static "$STAGE/web/.next/static"
-[ -d public ] && cp -r public "$STAGE/web/public" || true
+cp -r out/. "$STAGE/web/"
 
 # Config + instalador (sin fuente)
 cp "$PROJ_DIR/deploy/.env.production.example"      "$STAGE/config/.env.example"
 cp "$PROJ_DIR/deploy/linux/srtime-api.service"     "$STAGE/config/"
-cp "$PROJ_DIR/deploy/linux/srtime-web.service"     "$STAGE/config/"
 cp "$PROJ_DIR/deploy/linux/srtime-nginx.conf"      "$STAGE/config/"
 cp "$PROJ_DIR/deploy/linux/install.sh"             "$STAGE/install.sh"
 chmod +x "$STAGE/install.sh"

@@ -3,31 +3,38 @@ import os
 import sys
 import time
 import uuid
+from contextlib import asynccontextmanager
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from core.logging_config import setup_logging, get_logger, request_id_ctx
+from core.limiter import limiter
 
 # Initialize logging BEFORE importing routers
 setup_logging()
 logger = get_logger("api")
 
-# Limiter instances global
-limiter = Limiter(key_func=get_remote_address)
-
 from api.routers import auth, users, shifts, processed, movements, auth_users, importer, terminals, holidays, dashboard, reports
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    logger.info("SRTime API started", extra={"action": "startup"})
+    yield
+    logger.info("SRTime API stopped", extra={"action": "shutdown"})
 
 app = FastAPI(
     title="Attendance System API",
     description="SRTime REST API — Attendance Management",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 app.state.limiter = limiter
@@ -82,8 +89,14 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
-        response.headers["X-XSS-Protection"] = "1; mode=block"
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+            "script-src 'self' 'unsafe-inline'; connect-src 'self'"
+        )
+        if request.url.scheme == "https":
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         return response
 
 app.add_middleware(RequestLoggingMiddleware)
@@ -92,26 +105,15 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 # ── CORS Policy Configuration ────────────────────────────────
 
-_cors_env = os.getenv("CORS_ORIGINS", "")
-origins = (
-    json.loads(_cors_env)
-    if _cors_env
-    else [
-        "http://localhost",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://192.168.1.35:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ]
-)
+_cors_env = os.getenv("CORS_ORIGINS", "[]")
+origins = json.loads(_cors_env)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
     expose_headers=["X-Request-ID"],
 )
 
@@ -137,6 +139,12 @@ def health_check():
     return {"status": "ok", "message": "Attendance Web Backend running correctly"}
 
 
-@app.on_event("startup")
-async def on_startup():
-    logger.info("SRTime API started", extra={"action": "startup"})
+# Next.js se exporta como archivos estáticos. FastAPI los sirve desde el
+# directorio configurado o desde web/out en desarrollo. El mount se registra
+# al final para no interceptar rutas /api.
+_default_web_dir = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web", "out"
+)
+_web_dir = os.getenv("SRTIME_WEB_DIR", _default_web_dir)
+if os.path.isdir(_web_dir):
+    app.mount("/", StaticFiles(directory=_web_dir, html=True), name="web")

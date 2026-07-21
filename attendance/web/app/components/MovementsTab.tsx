@@ -3,12 +3,27 @@ import { useState, useEffect, useCallback, useMemo } from "react"
 import { useAuth } from "../context/AuthContext"
 import { Search, RefreshCw, LogIn, LogOut } from "lucide-react"
 import Pagination from "./Pagination"
-import * as XLSX from "xlsx"
+import { downloadFromApi } from "../utils/download"
 
 interface Movement {
   id: number; raw_identifier: string; employee_id: number | null
   first_name: string | null; last_name: string | null
   date: string; time: string | null; mark_type: number | null
+}
+
+interface MovementGroup {
+  identifier: string
+  name: string
+  date: string
+  movements: Movement[]
+}
+
+interface GroupedMovement {
+  identifier: string
+  name: string
+  date: string
+  inTime: string
+  outTime: string
 }
 
 function today() { return new Date().toISOString().slice(0, 10) }
@@ -46,34 +61,34 @@ export default function MovementsTab() {
 
   const groupedMovements = useMemo(() => {
     if (viewMode !== "horizontal") return []
-    const map = new Map<string, any>()
+    const map = new Map<string, MovementGroup>()
     
     filtered.forEach(m => {
       const key = `${m.raw_identifier}_${m.date}`
       if (!map.has(key)) {
         map.set(key, { identifier: m.raw_identifier, name: nameOf(m), date: m.date, movements: [] })
       }
-      map.get(key).movements.push(m)
+      map.get(key)?.movements.push(m)
     })
     
     return Array.from(map.values()).map(g => {
-      g.movements.sort((a: any, b: any) => (a.time || "").localeCompare(b.time || ""))
+      g.movements.sort((a, b) => (a.time || "").localeCompare(b.time || ""))
       let inTime = ""
       let outTime = ""
-      const ins = g.movements.filter((m: any) => m.mark_type === 0)
-      const outs = g.movements.filter((m: any) => m.mark_type === 1)
+      const ins = g.movements.filter(m => m.mark_type === 0)
+      const outs = g.movements.filter(m => m.mark_type === 1)
       
       if (ins.length && outs.length) {
-        inTime = ins[0].time
-        outTime = outs[outs.length - 1].time
+        inTime = ins[0].time || ""
+        outTime = outs[outs.length - 1].time || ""
       } else if (g.movements.length >= 2) {
-        inTime = g.movements[0].time
-        outTime = g.movements[g.movements.length - 1].time
+        inTime = g.movements[0].time || ""
+        outTime = g.movements[g.movements.length - 1].time || ""
       } else if (g.movements.length === 1) {
         const m = g.movements[0]
-        if (m.mark_type === 0) inTime = m.time
-        else if (m.mark_type === 1) outTime = m.time
-        else inTime = m.time
+        if (m.mark_type === 0) inTime = m.time || ""
+        else if (m.mark_type === 1) outTime = m.time || ""
+        else inTime = m.time || ""
       }
       
       return {
@@ -86,7 +101,8 @@ export default function MovementsTab() {
     })
   }, [filtered, viewMode])
 
-  const paginated = (viewMode === "vertical" ? filtered : groupedMovements).slice((page - 1) * pageSize, page * pageSize)
+  const verticalPage = filtered.slice((page - 1) * pageSize, page * pageSize)
+  const horizontalPage: GroupedMovement[] = groupedMovements.slice((page - 1) * pageSize, page * pageSize)
 
   function exportCsv() {
     let rows = []
@@ -125,29 +141,11 @@ export default function MovementsTab() {
     URL.revokeObjectURL(url)
   }
 
-  function exportExcel() {
-    let rows = []
-    if (viewMode === "vertical") {
-      rows = filtered.map(m => ({
-        Identificador: m.raw_identifier,
-        Nombre: nameOf(m),
-        Fecha: m.date,
-        Hora: m.time || "",
-        Movimiento: m.mark_type === 0 ? "ENTRADA" : m.mark_type === 1 ? "SALIDA" : "",
-      }))
-    } else {
-      rows = groupedMovements.map(g => ({
-        Identificador: g.identifier,
-        Nombre: g.name,
-        Fecha: g.date,
-        Entrada: g.inTime,
-        Salida: g.outTime,
-      }))
-    }
-    const ws = XLSX.utils.json_to_sheet(rows)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, "Movimientos")
-    XLSX.writeFile(wb, "movimientos.xlsx")
+  async function exportExcel() {
+    await downloadFromApi(api, "/api/movements/export", "movimientos.xlsx", {
+      date_start: dateStart,
+      date_end: dateEnd,
+    })
   }
 
   const markLabel = (t: number | null) => {
@@ -164,7 +162,7 @@ export default function MovementsTab() {
         <label>Hasta:</label>
         <input type="date" value={dateEnd} onChange={e => setDateEnd(e.target.value)} />
         <label>Vista:</label>
-        <select value={viewMode} onChange={e => { setViewMode(e.target.value as any); setPage(1); }} style={{ padding: "4px 8px", borderRadius: 4, border: "1px solid var(--border-color)", background: "var(--bg-color)", color: "var(--text-color)" }}>
+        <select value={viewMode} onChange={e => { setViewMode(e.target.value as "vertical" | "horizontal"); setPage(1); }} style={{ padding: "4px 8px", borderRadius: 4, border: "1px solid var(--border-color)", background: "var(--bg-color)", color: "var(--text-color)" }}>
           <option value="vertical">Vertical</option>
           <option value="horizontal">Horizontal</option>
         </select>
@@ -192,10 +190,10 @@ export default function MovementsTab() {
                 )}
               </thead>
               <tbody>
-                {paginated.length === 0 && (
+                {(viewMode === "vertical" ? verticalPage : horizontalPage).length === 0 && (
                   <tr><td colSpan={5} style={{ textAlign: "center", opacity: 0.5, padding: 20 }}>Sin movimientos en el rango seleccionado</td></tr>
                 )}
-                {viewMode === "vertical" ? paginated.map((m: any) => (
+                {viewMode === "vertical" ? verticalPage.map(m => (
                   <tr key={m.id}>
                     <td><code style={{ fontSize: 12 }}>{m.raw_identifier}</code></td>
                     <td>{nameOf(m)}</td>
@@ -203,7 +201,7 @@ export default function MovementsTab() {
                     <td>{m.time || "--:--"}</td>
                     <td>{markLabel(m.mark_type)}</td>
                   </tr>
-                )) : paginated.map((g: any, idx: number) => (
+                )) : horizontalPage.map((g, idx) => (
                   <tr key={idx}>
                     <td><code style={{ fontSize: 12 }}>{g.identifier}</code></td>
                     <td>{g.name}</td>

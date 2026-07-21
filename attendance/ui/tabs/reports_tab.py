@@ -7,13 +7,12 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from sqlalchemy.orm import Session
 from datetime import date
-import calendar
 
+from services.reports import aggregate_monthly, build_monthly_pdf, get_month_name
+from services.constants import MONTH_NAMES
+from services.export_helpers import build_excel_workbook
 
-_MONTHS = [
-    "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
-    "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
-]
+_MONTHS = MONTH_NAMES[1:]
 
 _COLS = [
     "Empleado", "Días con registro", "Días OK",
@@ -95,46 +94,12 @@ class ReportsTab(QWidget):
             self.cb_employee.addItem(f"{emp.identifier} — {name}", emp.id)
 
     def _generate(self):
-        from models.employee import User
-        from models.processed_attendance import ProcessedAttendance
-
         month = self.cb_month.currentIndex() + 1
         year = self.sp_year.value()
-        _, last_day = calendar.monthrange(year, month)
-        d_start = date(year, month, 1)
-        d_end = date(year, month, last_day)
-
         emp_filter_id = self.cb_employee.currentData()
 
-        query = self.session.query(ProcessedAttendance, User).join(
-            User, ProcessedAttendance.employee_id == User.id
-        ).filter(
-            ProcessedAttendance.date >= d_start,
-            ProcessedAttendance.date <= d_end
-        )
-        if emp_filter_id:
-            query = query.filter(User.id == emp_filter_id)
-
-        rows = query.order_by(User.last_name, User.first_name, ProcessedAttendance.date).all()
-
-        # Aggregate by employee
-        from collections import defaultdict
-        agg = defaultdict(lambda: {
-            "name": "", "total": 0, "ok": 0, "inc": 0, "jus": 0,
-            "tard": 0, "ot": 0, "hours": 0.0
-        })
-        for pa, emp in rows:
-            eid = emp.id
-            agg[eid]["name"] = f"{emp.last_name or ''}, {emp.first_name or ''}".strip(", ") or emp.identifier
-            agg[eid]["total"] += 1
-            agg[eid]["ok"] += pa.status == "OK"
-            agg[eid]["inc"] += pa.status == "INCOMPLETO"
-            agg[eid]["jus"] += pa.status == "JUSTIFICADO"
-            agg[eid]["tard"] += pa.tardiness_minutes or 0
-            agg[eid]["ot"] += pa.overtime_minutes or 0
-            agg[eid]["hours"] += pa.total_hours or 0.0
-
-        self._records = list(agg.values())
+        records = aggregate_monthly(self.session, year, month, emp_filter_id)
+        self._records = records
 
         self.table.clearContents()
         self.table.setRowCount(len(self._records))
@@ -142,11 +107,11 @@ class ReportsTab(QWidget):
             self.table.setItem(row, 0, QTableWidgetItem(rec["name"]))
             self.table.setItem(row, 1, QTableWidgetItem(str(rec["total"])))
             self.table.setItem(row, 2, QTableWidgetItem(str(rec["ok"])))
-            self.table.setItem(row, 3, QTableWidgetItem(str(rec["inc"])))
-            self.table.setItem(row, 4, QTableWidgetItem(str(rec["jus"])))
-            self.table.setItem(row, 5, QTableWidgetItem(str(rec["tard"])))
-            self.table.setItem(row, 6, QTableWidgetItem(str(rec["ot"])))
-            self.table.setItem(row, 7, QTableWidgetItem(f"{rec['hours']:.2f}"))
+            self.table.setItem(row, 3, QTableWidgetItem(str(rec["incomplete"])))
+            self.table.setItem(row, 4, QTableWidgetItem(str(rec["justified"])))
+            self.table.setItem(row, 5, QTableWidgetItem(str(rec["tardiness_minutes"])))
+            self.table.setItem(row, 6, QTableWidgetItem(str(rec["overtime_minutes"])))
+            self.table.setItem(row, 7, QTableWidgetItem(f"{rec['total_hours']:.2f}"))
 
         self.btn_export.setEnabled(bool(self._records))
         self.btn_export_pdf.setEnabled(bool(self._records))
@@ -162,51 +127,16 @@ class ReportsTab(QWidget):
         if not path:
             return
 
-        import openpyxl
-        from openpyxl.styles import Font, Alignment, PatternFill
-        from openpyxl.utils import get_column_letter
-
         month = self.cb_month.currentText()
         year = self.sp_year.value()
-
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = f"Reporte {month} {year}"
-
-        header_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
-        bold = Font(bold=True)
-        center = Alignment(horizontal="center", vertical="center")
-
-        # Title
-        ws.merge_cells("A1:H1")
-        title_cell = ws["A1"]
-        title_cell.value = f"Reporte de Asistencia — {month} {year}"
-        title_cell.font = Font(bold=True, size=13)
-        title_cell.alignment = center
-        ws.row_dimensions[1].height = 22
-
-        # Headers
-        for col, header in enumerate(_COLS, 1):
-            cell = ws.cell(row=2, column=col, value=header)
-            cell.font = bold
-            cell.fill = header_fill
-            cell.alignment = center
-
-        # Data
-        for row_idx, rec in enumerate(self._records, 3):
-            values = [
-                rec["name"], rec["total"], rec["ok"], rec["inc"],
-                rec["jus"], rec["tard"], rec["ot"], f"{rec['hours']:.2f}"
-            ]
-            for col_idx, val in enumerate(values, 1):
-                cell = ws.cell(row=row_idx, column=col_idx, value=val)
-                cell.alignment = Alignment(vertical="top")
-
-        # Column widths
-        for col in ws.columns:
-            max_len = max((len(str(c.value)) for c in col if c.value), default=10)
-            ws.column_dimensions[get_column_letter(col[0].column)].width = max(14, max_len + 2)
-
+        data_rows = [
+            [r["name"], r["total"], r["ok"], r["incomplete"],
+             r["justified"], r["tardiness_minutes"],
+             r["overtime_minutes"], r["total_hours"]]
+            for r in self._records
+        ]
+        title = f"Reporte de Asistencia — {month} {year}"
+        wb = build_excel_workbook(f"Reporte {month} {year}", _COLS, data_rows, title=title)
         wb.save(path)
         QMessageBox.information(self, "Exportado", f"Reporte guardado en:\n{path}")
 
@@ -218,57 +148,7 @@ class ReportsTab(QWidget):
         if not path:
             return
 
-        from reportlab.lib.pagesizes import A4, landscape
-        from reportlab.lib import colors
-        from reportlab.lib.units import cm
-        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-        from reportlab.lib.styles import getSampleStyleSheet
-
         month = self.cb_month.currentText()
         year = self.sp_year.value()
-
-        doc = SimpleDocTemplate(path, pagesize=landscape(A4),
-                                leftMargin=1.5*cm, rightMargin=1.5*cm,
-                                topMargin=1.5*cm, bottomMargin=1.5*cm)
-        styles = getSampleStyleSheet()
-        elements = []
-
-        elements.append(Paragraph(f"Reporte de Asistencia — {month} {year}", styles["Title"]))
-        elements.append(Spacer(1, 0.4*cm))
-
-        headers = [
-            "Empleado", "Días\nregistro", "Días\nOK",
-            "Días\nincompleto", "Días\njustificado",
-            "Min.\ntardanza", "Min.\nhoras extra", "Horas\ntrabajadas"
-        ]
-        table_data = [headers]
-        for rec in self._records:
-            table_data.append([
-                rec["name"],
-                str(rec["total"]),
-                str(rec["ok"]),
-                str(rec["inc"]),
-                str(rec["jus"]),
-                str(rec["tard"]),
-                str(rec["ot"]),
-                f"{rec['hours']:.2f}",
-            ])
-
-        col_widths = [6*cm, 2*cm, 2*cm, 2.5*cm, 2.5*cm, 2.5*cm, 2.5*cm, 2.5*cm]
-        tbl = Table(table_data, colWidths=col_widths, repeatRows=1)
-        tbl.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#D9D9D9")),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 8),
-            ("ALIGN", (1, 0), (-1, -1), "CENTER"),
-            ("ALIGN", (0, 0), (0, -1), "LEFT"),
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F5F5F5")]),
-            ("TOPPADDING", (0, 0), (-1, -1), 4),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        ]))
-        elements.append(tbl)
-
-        doc.build(elements)
+        build_monthly_pdf(self._records, month, year, path)
         QMessageBox.information(self, "Exportado", f"Reporte PDF guardado en:\n{path}")

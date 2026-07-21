@@ -8,7 +8,7 @@ class BiometricDriver:
     display_name = "Controlador de Dispositivo"
     
     # Define la UI dinámica para las credenciales
-    # Ejemplo: [{"name": "ip", "label": "IP del Reloj", "default": "192.168.1.201"}]
+    # Ejemplo: [{"name": "ip", "label": "IP del Reloj", "default": "", "required": True}]
     connection_fields = []
 
     def connect(self, params: dict):

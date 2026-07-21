@@ -32,8 +32,8 @@ PYTHONPATH=$APP_DIR/attendance alembic upgrade head 2>/dev/null || echo "   (sin
 
 # Restart
 echo "[4/4] Reiniciando servicios..."
-sudo systemctl restart srtime-api srtime-web
+sudo systemctl restart srtime-api
 
 echo ""
 echo "✅ SRTime Web actualizado"
-sudo systemctl status srtime-api srtime-web --no-pager -l
+sudo systemctl status srtime-api --no-pager -l

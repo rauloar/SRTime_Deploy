@@ -72,8 +72,8 @@ export default function Home() {
 
   async function handleChangePassword() {
     setPasswordError("")
-    if (newPassword.length < 6) {
-      setPasswordError("La contraseña debe tener al menos 6 caracteres")
+    if (newPassword.length < 12) {
+      setPasswordError("La contraseña debe tener al menos 12 caracteres")
       return
     }
     if (newPassword !== confirmPassword) {

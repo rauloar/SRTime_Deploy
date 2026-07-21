@@ -34,15 +34,29 @@ echo "  Staging: $STAGING_DIR"
 echo "=================================================="
 
 # ── 1. Dependencias de build (OS-aware) ───────────────────────────────────────
+# patchelf es requerido por Nuitka --standalone en Linux. OJO: la versión 0.18.0
+# tiene un bug y Nuitka la rechaza; si aparece, se hace downgrade a 0.17.2.
 echo "→ [1/4] Instalando toolchain de compilación..."
 if command -v pacman >/dev/null 2>&1; then
-    sudo pacman -Sy --noconfirm --needed base-devel python python-pip nodejs npm git openssl >/dev/null
+    sudo pacman -Sy --noconfirm --needed base-devel python python-pip nodejs npm git openssl patchelf >/dev/null
 elif command -v apt-get >/dev/null 2>&1; then
     export DEBIAN_FRONTEND=noninteractive
     sudo apt-get update -qq
-    sudo apt-get install -y -qq build-essential python3 python3-venv python3-pip nodejs npm git openssl >/dev/null
+    sudo apt-get install -y -qq build-essential python3 python3-venv python3-pip nodejs npm git openssl patchelf >/dev/null
 else
     echo "✗ Gestor de paquetes no soportado (pacman/apt)"; exit 1
+fi
+
+# Guard: patchelf 0.18.0 es buggy para Nuitka → downgrade a 0.17.2.
+if patchelf --version 2>/dev/null | grep -q '0\.18\.0'; then
+    echo "→ patchelf 0.18.0 detectado (incompatible con Nuitka) — bajando a 0.17.2..."
+    if command -v pacman >/dev/null 2>&1; then
+        curl -fsSL -o /tmp/patchelf-0.17.2.pkg.tar.zst \
+            "https://archive.archlinux.org/packages/p/patchelf/patchelf-0.17.2-1-x86_64.pkg.tar.zst"
+        sudo pacman -U --noconfirm /tmp/patchelf-0.17.2.pkg.tar.zst >/dev/null
+    else
+        echo "⚠ Instalá manualmente patchelf != 0.18.0 (0.17.2 o >= 0.18.2)."
+    fi
 fi
 
 # ── 2. Clonar / actualizar la fuente vía deploy key ───────────────────────────

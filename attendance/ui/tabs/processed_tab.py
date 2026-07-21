@@ -7,6 +7,8 @@ from models.processed_attendance import ProcessedAttendance
 from models.employee import User
 from models.shift import Shift
 from services.engine import AttendanceEngine
+from services.justification import JustificationService
+from services.metrics import MetricsCalculator
 from datetime import datetime, time
 import pandas as pd
 
@@ -318,43 +320,13 @@ class ProcessedTab(QWidget):
             t_out = time(qt_out.hour(), qt_out.minute())
 
             if direct:
-                processed.first_in = t_in
-                processed.last_out = t_out
-                dt_in = datetime.combine(processed.date, t_in)
-                dt_out = datetime.combine(processed.date, t_out)
-                processed.total_hours = round((dt_out - dt_in).total_seconds() / 3600.0, 2) if dt_out > dt_in else 0.0
-                employee = self.session.query(User).filter_by(id=processed.employee_id).first()
-                if employee and employee.shift_id:
-                    shift = self.session.query(Shift).filter_by(id=employee.shift_id).first()
-                    if shift:
-                        exp_out = datetime.combine(processed.date, shift.expected_out)
-                        if dt_out < exp_out:
-                            processed.early_departure_minutes = int((exp_out - dt_out).total_seconds() / 60)
-                            processed.overtime_minutes = 0
-                        elif dt_out > exp_out:
-                            processed.overtime_minutes = int((dt_out - exp_out).total_seconds() / 60)
-                            processed.early_departure_minutes = 0
-                        else:
-                            processed.early_departure_minutes = 0
-                            processed.overtime_minutes = 0
-                processed.status = "JUSTIFICADO"
-                processed.justification = reason
-                processed.pending_first_in = None
-                processed.pending_last_out = None
-                processed.pending_justification = None
-                processed.requested_by = None
-                processed.previous_status = None
-                self.session.commit()
+                svc = JustificationService(self.session)
+                svc.apply_direct(processed, t_in, t_out, reason)
                 dialog.accept()
                 QMessageBox.information(self, "Justificado", "Registro justificado correctamente.")
             else:
-                processed.previous_status = processed.status
-                processed.pending_first_in = t_in
-                processed.pending_last_out = t_out
-                processed.pending_justification = reason
-                processed.requested_by = self.current_username
-                processed.status = "PENDIENTE"
-                self.session.commit()
+                svc = JustificationService(self.session)
+                svc.request(processed, t_in, t_out, reason, self.current_username)
                 dialog.accept()
                 QMessageBox.information(self, "Solicitud enviada", "La solicitud quedó pendiente de aprobación.")
             self.load_data()
@@ -393,35 +365,8 @@ class ProcessedTab(QWidget):
         if reply != QMessageBox.StandardButton.Yes:
             return
 
-        processed.first_in = processed.pending_first_in
-        processed.last_out = processed.pending_last_out
-        dt_in = datetime.combine(processed.date, processed.first_in) if processed.first_in else None
-        dt_out = datetime.combine(processed.date, processed.last_out) if processed.last_out else None
-        processed.total_hours = round((dt_out - dt_in).total_seconds() / 3600.0, 2) if dt_in and dt_out and dt_out > dt_in else 0.0
-
-        employee = self.session.query(User).filter_by(id=processed.employee_id).first()
-        if employee and employee.shift_id and dt_out:
-            shift = self.session.query(Shift).filter_by(id=employee.shift_id).first()
-            if shift:
-                exp_out = datetime.combine(processed.date, shift.expected_out)
-                if dt_out < exp_out:
-                    processed.early_departure_minutes = int((exp_out - dt_out).total_seconds() / 60)
-                    processed.overtime_minutes = 0
-                elif dt_out > exp_out:
-                    processed.overtime_minutes = int((dt_out - exp_out).total_seconds() / 60)
-                    processed.early_departure_minutes = 0
-                else:
-                    processed.early_departure_minutes = 0
-                    processed.overtime_minutes = 0
-
-        processed.status = "JUSTIFICADO"
-        processed.justification = processed.pending_justification
-        processed.pending_first_in = None
-        processed.pending_last_out = None
-        processed.pending_justification = None
-        processed.requested_by = None
-        processed.previous_status = None
-        self.session.commit()
+        svc = JustificationService(self.session)
+        svc.approve(processed)
         QMessageBox.information(self, "Aprobado", "Justificación aprobada.")
         self.load_data()
 
@@ -439,13 +384,8 @@ class ProcessedTab(QWidget):
         if reply != QMessageBox.StandardButton.Yes:
             return
 
-        processed.status = processed.previous_status or "INCOMPLETO"
-        processed.pending_first_in = None
-        processed.pending_last_out = None
-        processed.pending_justification = None
-        processed.requested_by = None
-        processed.previous_status = None
-        self.session.commit()
+        svc = JustificationService(self.session)
+        svc.reject(processed)
         QMessageBox.information(self, "Rechazado", "Solicitud rechazada. El registro volvió a su estado anterior.")
         self.load_data()
 

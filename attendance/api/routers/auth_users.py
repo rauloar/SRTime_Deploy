@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from api.deps import get_db, require_root
 from api.schemas import AuthUserResponse, AuthUserCreate, AuthUserUpdate
-from api.security import get_password_hash
+from core.security import hash_password as get_password_hash, validate_password
 from models.user import AuthUser
 
 router = APIRouter()
@@ -33,8 +33,10 @@ def create_auth_user(
     username = body.username.strip()
     if not username:
         raise HTTPException(status_code=400, detail="Username is required")
-    if len(body.password) < 6:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    try:
+        validate_password(body.password)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     role = body.role.strip().lower()
     if role not in ALLOWED_ROLES:
         raise HTTPException(status_code=400, detail="Invalid role")
@@ -87,10 +89,13 @@ def update_auth_user(
         setattr(rec, "is_active", body.is_active)
 
     if body.password:
-        if len(body.password) < 6:
-            raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+        try:
+            validate_password(body.password)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         setattr(rec, "password_hash", get_password_hash(body.password))
         setattr(rec, "must_change_password", False)
+        setattr(rec, "token_version", int(rec.token_version or 0) + 1)
 
     db.commit()
     db.refresh(rec)

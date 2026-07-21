@@ -190,7 +190,7 @@ AAABAAEAICAAAAAAIADaCQAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAgAAAAIAgGAAAAc3p69AAACaFJ
                         p1 = new_pass.text()
                         p2 = confirm_pass.text()
                         if len(p1) < 6:
-                            QMessageBox.warning(dlg, "Error", "La contraseña debe tener al menos 6 caracteres.")
+                            QMessageBox.warning(dlg, "Error", "La contraseña debe tener al menos 12 caracteres.")
                             return
                         if p1 != p2:
                             QMessageBox.warning(dlg, "Error", "Las contraseñas no coinciden.")

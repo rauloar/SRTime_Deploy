@@ -1,5 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime
-from datetime import datetime
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, func
 from core.database import Base
 
 class AuthUser(Base):
@@ -11,4 +10,5 @@ class AuthUser(Base):
     role = Column(String(20), nullable=False, default="viewer")
     must_change_password = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    token_version = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=func.now())

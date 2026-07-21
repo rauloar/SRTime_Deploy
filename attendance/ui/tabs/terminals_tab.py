@@ -20,10 +20,6 @@ class TerminalDialog(QDialog):
         layout = QFormLayout(self)
         
         self.name_edit = QLineEdit(terminal.name if terminal else "")
-        self.ip_edit = QLineEdit(terminal.ip if terminal else "192.168.1.201")
-        self.port_edit = QLineEdit(str(terminal.port) if terminal else "4370")
-        self.password_edit = QLineEdit(terminal.password if terminal else "0")
-        
         self.active_check = QCheckBox()
         self.active_check.setChecked(terminal.is_active if terminal is not None else True)
 
@@ -42,9 +38,11 @@ class TerminalDialog(QDialog):
 
         layout.addRow("Ubicación / Nombre:", self.name_edit)
         layout.addRow("Tecnología (Driver):", self.driver_combo)
-        layout.addRow("Dirección IP / Host:", self.ip_edit)
-        layout.addRow("Puerto Red:", self.port_edit)
-        layout.addRow("Contraseña / ComKey:", self.password_edit)
+        self.connection_form = QFormLayout()
+        self.connection_edits = {}
+        layout.addRow(self.connection_form)
+        self.driver_combo.currentTextChanged.connect(self._build_connection_fields)
+        self._build_connection_fields(self.driver_combo.currentText())
         layout.addRow("Equipo Activo:", self.active_check)
 
         btn_layout = QHBoxLayout()
@@ -59,13 +57,43 @@ class TerminalDialog(QDialog):
         
         layout.addRow("", btn_layout)
 
+    def _build_connection_fields(self, driver_name):
+        while self.connection_form.rowCount():
+            self.connection_form.removeRow(0)
+        self.connection_edits = {}
+
+        info = services.addons.get_addon_info(driver_name) or {}
+        if self.terminal and self.terminal.driver_name == driver_name:
+            from services.terminals import get_connection_params
+            stored = get_connection_params(self.terminal)
+        else:
+            stored = {}
+
+        for field in info.get("connection_fields") or []:
+            name = field["name"]
+            is_secret = field.get("type") == "password" or name in {"password", "db_password"}
+            value = "" if is_secret and self.terminal else str(stored.get(name, field.get("default", "")))
+            edit = QLineEdit(value)
+            if is_secret:
+                edit.setEchoMode(QLineEdit.EchoMode.Password)
+                if self.terminal:
+                    edit.setPlaceholderText("Dejar vacío para conservar")
+            self.connection_edits[name] = edit
+            self.connection_form.addRow(f"{field.get('label', name)}:", edit)
+
     def get_data(self):
+        params = {
+            name: edit.text().strip()
+            for name, edit in self.connection_edits.items()
+            if edit.text().strip() or name not in {"password", "db_password"}
+        }
         return {
             "name": self.name_edit.text().strip(),
             "driver_name": self.driver_combo.currentText(),
-            "ip": self.ip_edit.text().strip(),
-            "port": int(self.port_edit.text().strip() or "4370"),
-            "password": self.password_edit.text().strip() or "0",
+            "ip": params.get("ip"),
+            "port": int(params["port"]) if params.get("port") else None,
+            "password": params.get("password"),
+            "connection_params": params,
             "is_active": self.active_check.isChecked()
         }
 
@@ -105,8 +133,9 @@ class TerminalsTab(QWidget):
 
     def get_driver_instance(self, driver_name):
         info = services.addons.get_addon_info(driver_name)
-        if not info or not info.get("is_driver"): return None
-        return info["class"]()
+        if not info or not info.get("driver_class"):
+            return None
+        return info["driver_class"]()
 
     def load_data(self):
         self.table.setRowCount(0)
@@ -165,11 +194,8 @@ class TerminalsTab(QWidget):
         if not terminal: return
         try:
             QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-            driver = self.get_driver_instance(terminal.driver_name)
-            if not driver: raise Exception("Driver no encontrado")
-            
-            params = {"ip": terminal.ip, "port": str(terminal.port), "password": terminal.password}
-            res = driver.test_connection(params)
+            from services.terminals import test_connection
+            res = test_connection(terminal)
             
             sn = res.get('serial_number') or res.get('mac')
             if sn and not terminal.serial_number:
@@ -187,12 +213,8 @@ class TerminalsTab(QWidget):
         if not terminal: return
         try:
             QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-            driver = self.get_driver_instance(terminal.driver_name)
-            if not driver: raise Exception("Driver no encontrado")
-            
-            params = {"ip": terminal.ip, "port": str(terminal.port), "password": terminal.password}
-            ok = driver.sync_time(params)
-            from datetime import datetime
+            from services.terminals import sync_time
+            ok = sync_time(terminal)
             
             if ok:
                 QMessageBox.information(self, "Reloj Seteado", f"Hora emparejada con éxito.")
@@ -207,10 +229,14 @@ class TerminalsTab(QWidget):
         dlg = TerminalDialog(self)
         if dlg.exec_():
             data = dlg.get_data()
-            if not data["name"] or not data["ip"]:
-                QMessageBox.warning(self, "Faltan Camos", "Nombre e IP son obligatorios.")
+            if not data["name"]:
+                QMessageBox.warning(self, "Faltan campos", "El nombre es obligatorio.")
                 return
-            t = DeviceTerminal(**data)
+            params = data.pop("connection_params")
+            data.pop("password", None)
+            t = DeviceTerminal(**data, password=None)
+            from services.terminals import merge_connection_params
+            t.connection_params = merge_connection_params(t, params)
             self.session.add(t)
             self.session.commit()
             self.load_data()
@@ -225,8 +251,11 @@ class TerminalsTab(QWidget):
             t.driver_name = data["driver_name"]
             t.ip = data["ip"]
             t.port = data["port"]
-            t.password = data["password"]
+            if data["password"]:
+                t.password = data["password"]
             t.is_active = data["is_active"]
+            from services.terminals import merge_connection_params
+            t.connection_params = merge_connection_params(t, data["connection_params"])
             self.session.commit()
             self.load_data()
 

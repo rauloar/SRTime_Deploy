@@ -11,7 +11,8 @@ interface Terminal {
   driver_name: string;
   ip: string;
   port: number;
-  password?: string;
+  connection_params: Record<string, string | number | boolean>;
+  has_password?: boolean;
   serial_number?: string;
   is_active: boolean;
   last_sync?: string;
@@ -20,9 +21,25 @@ interface Terminal {
 interface ParserInfo {
   name: string
   is_driver: boolean
+  connection_fields: ConnectionField[]
 }
 
-const EMPTY_TERMINAL = { name: "", driver_name: "", ip: "192.168.1.201", port: 4370, password: "0", is_active: true }
+interface ConnectionField {
+  name: string
+  label: string
+  type: "text" | "number" | "password"
+  default?: string
+}
+
+interface TerminalForm {
+  id?: number
+  name: string
+  driver_name: string
+  connection_params: Record<string, string | number | boolean>
+  is_active: boolean
+}
+
+const EMPTY_TERMINAL: TerminalForm = { name: "", driver_name: "", connection_params: {}, is_active: true }
 
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
@@ -53,7 +70,7 @@ export default function TerminalsTab() {
   const [parsers, setParsers]     = useState<ParserInfo[]>([])
   const [loading, setLoading]   = useState(true)
   const [modal, setModal]       = useState<"add" | "edit" | null>(null)
-  const [current, setCurrent]   = useState<any>(EMPTY_TERMINAL)
+  const [current, setCurrent]   = useState<TerminalForm>(EMPTY_TERMINAL)
   const [saving, setSaving]     = useState(false)
   const [error, setError]       = useState("")
   const [page, setPage]         = useState(1)
@@ -72,7 +89,7 @@ export default function TerminalsTab() {
       setTerminals(termRes.data.terminals || [])
       
       const pList = parserRes.data.parsers || []
-      setParsers(pList.filter((p: any) => p.is_driver))
+      setParsers((pList as ParserInfo[]).filter(p => p.is_driver))
     } catch (e) {
       console.error(e)
     } finally {
@@ -85,26 +102,34 @@ export default function TerminalsTab() {
   const paginated = terminals.slice((page - 1) * pageSize, page * pageSize)
 
   function openAdd() { 
-    setCurrent({ ...EMPTY_TERMINAL, driver_name: parsers.length > 0 ? parsers[0].name : "ZKTeco" })
+    const selected = parsers[0]
+    const defaults = Object.fromEntries(
+      (selected?.connection_fields || []).map(field => [field.name, field.default || ""])
+    )
+    setCurrent({ ...EMPTY_TERMINAL, driver_name: selected?.name || "", connection_params: defaults })
     setError(""); setModal("add") 
   }
   function openEdit(t: Terminal) {
-    setCurrent({ ...t, password: t.password || "0" })
+    setCurrent({
+      id: t.id,
+      name: t.name,
+      driver_name: t.driver_name,
+      connection_params: { ...(t.connection_params || {}) },
+      is_active: t.is_active,
+    })
     setError(""); setModal("edit")
   }
 
   async function handleSave() {
     if (!current.name?.trim()) { setError("El nombre de la terminal es obligatorio."); return }
-    if (!current.ip?.trim()) { setError("La dirección IP es obligatoria."); return }
-    
     setSaving(true); setError("")
     try {
       const payload = { 
         name: current.name, 
         driver_name: current.driver_name,
-        ip: current.ip, 
-        port: Number(current.port), 
-        password: current.password,
+        ip: String(current.connection_params.ip || "") || null,
+        port: current.connection_params.port ? Number(current.connection_params.port) : null,
+        connection_params: current.connection_params,
         is_active: current.is_active
       }
       
@@ -161,41 +186,47 @@ export default function TerminalsTab() {
       {(modal === "add" || modal === "edit") && (
         <Modal title={modal === "add" ? "Registrar Terminal" : "Editar Terminal"} onClose={() => setModal(null)}>
           <Field label="Ubicación / Nombre:">
-            <input placeholder="Ej: Puerta Principal" value={current.name} onChange={e => setCurrent((p: any) => ({ ...p, name: e.target.value }))} />
+            <input placeholder="Ej: Puerta Principal" value={current.name} onChange={e => setCurrent(p => ({ ...p, name: e.target.value }))} />
           </Field>
           
           {modal === "add" && (
             <Field label="Tecnología (Driver):">
-              <select value={current.driver_name} onChange={e => setCurrent((p: any) => ({ ...p, driver_name: e.target.value }))}>
+              <select value={current.driver_name} onChange={e => {
+                const selected = parsers.find(parser => parser.name === e.target.value)
+                setCurrent(p => ({
+                  ...p,
+                  driver_name: e.target.value,
+                  connection_params: Object.fromEntries(
+                    (selected?.connection_fields || []).map(field => [field.name, field.default || ""])
+                  ),
+                }))
+              }}>
                 <option value="" disabled>Seleccione marca</option>
                 {parsers.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
               </select>
             </Field>
           )}
 
-          <div style={{ display: "flex", gap: 10 }}>
-            <div style={{ flex: 2 }}>
-              <Field label="Dirección IP / Host:">
-                <input value={current.ip} onChange={e => setCurrent((p: any) => ({ ...p, ip: e.target.value }))} />
-              </Field>
-            </div>
-            <div style={{ flex: 1 }}>
-              <Field label="Puerto:">
-                <input type="number" value={current.port} onChange={e => setCurrent((p: any) => ({ ...p, port: Number(e.target.value) }))} />
-              </Field>
-            </div>
-          </div>
-
-          <Field label="Contraseña (ComKey):">
-            <input value={current.password} onChange={e => setCurrent((p: any) => ({ ...p, password: e.target.value }))} />
-          </Field>
+          {(parsers.find(parser => parser.name === current.driver_name)?.connection_fields || []).map(field => (
+            <Field key={field.name} label={field.label}>
+              <input
+                type={field.type}
+                placeholder={field.type === "password" && modal === "edit" ? "Dejar vacío para conservar" : undefined}
+                value={String(current.connection_params[field.name] ?? "")}
+                onChange={e => setCurrent(p => ({
+                  ...p,
+                  connection_params: { ...p.connection_params, [field.name]: e.target.value },
+                }))}
+              />
+            </Field>
+          ))}
           
           <div className="form-group" style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 10 }}>
             <input 
               type="checkbox" 
               id="is_active" 
               checked={current.is_active} 
-              onChange={e => setCurrent((p: any) => ({ ...p, is_active: e.target.checked }))} 
+              onChange={e => setCurrent(p => ({ ...p, is_active: e.target.checked }))}
               style={{ width: "auto" }}
             />
             <label htmlFor="is_active" style={{ margin: 0, cursor: "pointer" }}>Terminal Activa</label>
@@ -240,7 +271,7 @@ export default function TerminalsTab() {
                     <td style={{ display: "flex", alignItems: "center", gap: 5 }}>
                       <Fingerprint size={14} opacity={0.6}/> {t.driver_name}
                     </td>
-                    <td>{t.ip}:{t.port}</td>
+                    <td>{String(t.connection_params?.ip || t.ip || "—")}:{String(t.connection_params?.port || t.port || "—")}</td>
                     <td style={{ fontFamily: "monospace", opacity: 0.8 }}>{t.serial_number || "—"}</td>
                     <td style={{ fontSize: 13, color: "var(--text-secondary)" }}>
                       {t.last_sync ? new Date(t.last_sync).toLocaleString() : "Nunca"}

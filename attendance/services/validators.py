@@ -48,12 +48,6 @@ class AttendanceValidator:
         if log.date > today:
             return False, f"Attendance log date in future: {log.date}"
         
-        # Validar que no sea muy antigua (más de 1 año)
-        from datetime import timedelta
-        one_year_ago = today - timedelta(days=365)
-        if log.date < one_year_ago:
-            return False, f"Attendance log too old: {log.date}"
-        
         return True, None
     
     def detect_duplicate_logs(self, logs: List[AttendanceLog]) -> List[AttendanceLog]:

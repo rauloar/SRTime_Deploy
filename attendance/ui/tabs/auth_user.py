@@ -121,8 +121,8 @@ class AuthUserTab(QWidget):
             if not password:
                 QMessageBox.warning(dialog, "Error", "La contraseña es obligatoria.")
                 return
-            if len(password) < 6:
-                QMessageBox.warning(dialog, "Error", "La contraseña debe tener al menos 6 caracteres.")
+            if len(password) < 12:
+                QMessageBox.warning(dialog, "Error", "La contraseña debe tener al menos 12 caracteres.")
                 return
             if self.session.query(AuthUser).filter_by(username=username).first():
                 QMessageBox.warning(dialog, "Error", "Ese usuario ya existe.")
@@ -207,8 +207,8 @@ class AuthUserTab(QWidget):
 
             new_pass = le_pass.text()
             if new_pass:
-                if len(new_pass) < 6:
-                    QMessageBox.warning(dialog, "Error", "La contraseña debe tener al menos 6 caracteres.")
+                if len(new_pass) < 12:
+                    QMessageBox.warning(dialog, "Error", "La contraseña debe tener al menos 12 caracteres.")
                     return
                 user.password_hash = hash_password(new_pass)
 

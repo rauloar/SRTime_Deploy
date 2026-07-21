@@ -1,5 +1,4 @@
-from sqlalchemy import Column, Integer, String, Date, Time, DateTime, ForeignKey, UniqueConstraint, Boolean
-from datetime import datetime
+from sqlalchemy import Column, Integer, String, Date, Time, DateTime, ForeignKey, UniqueConstraint, Boolean, func
 from core.database import Base
 
 class AttendanceLog(Base):
@@ -14,7 +13,7 @@ class AttendanceLog(Base):
     flags = Column(String(7))
     source_file = Column(String)
     is_processed = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=func.now())
 
     __table_args__ = (
         UniqueConstraint("raw_identifier", "date", "time", "mark_type"),

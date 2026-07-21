@@ -7,9 +7,9 @@ class ZKTecoDriver(BiometricDriver):
     display_name = "ZKTeco"
 
     connection_fields = [
-        {"name": "ip", "label": "Dirección IP", "type": "text", "default": "192.168.1.201"},
+        {"name": "ip", "label": "Dirección IP", "type": "text", "default": "", "required": True},
         {"name": "port", "label": "Puerto", "type": "number", "default": "4370"},
-        {"name": "password", "label": "Contraseña Com (0=Sin Clave)", "type": "text", "default": "0"},
+        {"name": "password", "label": "Contraseña Com (vacío=sin clave)", "type": "password", "default": ""},
     ]
 
     def __init__(self):
@@ -20,9 +20,11 @@ class ZKTecoDriver(BiometricDriver):
         try:
             from zk import ZK
 
-            ip = params.get("ip", "192.168.1.201")
+            ip = str(params.get("ip") or "").strip()
+            if not ip:
+                raise ValueError("La dirección IP de la terminal es obligatoria")
             port = int(params.get("port", 4370))
-            password = int(params.get("password", 0))
+            password = int(params.get("password") or 0)
 
             self.zk = ZK(ip, port=port, timeout=5, password=password, force_udp=False, ommit_ping=False)
             self.conn = self.zk.connect()
@@ -45,7 +47,7 @@ class ZKTecoDriver(BiometricDriver):
 
                 mark_type = int(att.status)
                 if mark_type not in (0, 1):
-                    pass
+                    mark_type = 0
 
                 flags = "0100100"
 

@@ -2,11 +2,11 @@
 # ==============================================================================
 # SRTime — Instalador OS-aware desde artefacto compilado (sin código fuente)
 # ==============================================================================
-# Instala un tarball ya construido (binario Nuitka + Next.js standalone) en un
+# Instala un tarball ya construido (binario Nuitka + frontend estático) en un
 # servidor Linux. NO clona el repo, NO compila, NO requiere Python ni código
 # fuente. Pensado para entrega a cliente.
 #
-# Requisitos del SO que instala automáticamente: postgresql, nginx, nodejs.
+# Requisitos del SO que instala automáticamente: postgresql y nginx.
 # Soporta gestores de paquetes: pacman (Arch/Manjaro) y apt (Debian/Ubuntu).
 #
 # Uso:
@@ -53,21 +53,49 @@ cat <<EOF
   DB_USER     : $DB_USER
 EOF
 
-# ── 1. Detección de gestor de paquetes e instalación de dependencias ──────────
-log "[1/7] Instalando dependencias del sistema (postgresql, nginx, nodejs)..."
+# ── 1. Análisis del sistema: detectar e instalar SOLO lo que falta ────────────
+log "[1/7] Analizando el sistema..."
+
+# Detección del gestor de paquetes (universal, sin asumir distro/IP/equipo).
 if command -v pacman >/dev/null 2>&1; then
     PKG_MGR=pacman
-    pacman -Sy --noconfirm --needed postgresql nginx nodejs openssl >/dev/null
+    PKG_REFRESH() { pacman -Sy --noconfirm >/dev/null; }
+    PKG_INSTALL() { pacman -S --noconfirm --needed "$@" >/dev/null; }
 elif command -v apt-get >/dev/null 2>&1; then
     PKG_MGR=apt
     export DEBIAN_FRONTEND=noninteractive
-    apt-get update -qq
-    apt-get install -y -qq postgresql nginx nodejs openssl >/dev/null
+    PKG_REFRESH() { apt-get update -qq; }
+    PKG_INSTALL() { apt-get install -y -qq "$@" >/dev/null; }
 else
     die "Gestor de paquetes no soportado (se esperaba pacman o apt-get)."
 fi
-ok "Dependencias instaladas vía $PKG_MGR"
-command -v node >/dev/null 2>&1 || die "node no quedó disponible tras instalar."
+ok "SO: $(. /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-Linux}") — gestor: $PKG_MGR"
+
+# Componentes requeridos:  binario_a_chequear : paquete_pacman : paquete_apt
+COMPONENTS=(
+    "psql:postgresql:postgresql"
+    "nginx:nginx:nginx"
+    "openssl:openssl:openssl"
+)
+TO_INSTALL=()
+echo "  Componentes:"
+for spec in "${COMPONENTS[@]}"; do
+    IFS=: read -r bin pac apt <<<"$spec"
+    if command -v "$bin" >/dev/null 2>&1; then
+        printf '    \033[1;32m✔\033[0m %-8s presente (%s)\n' "$bin" "$(command -v "$bin")"
+    else
+        printf '    \033[1;33m•\033[0m %-8s falta → se instalará\n' "$bin"
+        [ "$PKG_MGR" = pacman ] && TO_INSTALL+=("$pac") || TO_INSTALL+=("$apt")
+    fi
+done
+
+if [ ${#TO_INSTALL[@]} -gt 0 ]; then
+    ok "Instalando lo faltante: ${TO_INSTALL[*]}"
+    PKG_REFRESH
+    PKG_INSTALL "${TO_INSTALL[@]}"
+else
+    ok "Todas las dependencias ya estaban presentes — nada que instalar."
+fi
 
 # ── 2. PostgreSQL: inicializar cluster (Arch), arrancar, crear rol + DB ───────
 log "[2/7] Configurando PostgreSQL..."
@@ -103,7 +131,7 @@ tar -xzf "$TARBALL" -C "$APP_DIR" --strip-components=1
 chmod +x "$APP_DIR/api/run_api"
 chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 [ -f "$APP_DIR/api/run_api" ] || die "El tarball no contiene api/run_api."
-[ -f "$APP_DIR/web/server.js" ] || die "El tarball no contiene web/server.js."
+[ -f "$APP_DIR/web/index.html" ] || die "El tarball no contiene web/index.html."
 ok "Artefacto extraído"
 
 # ── 4. Generar .env único con secretos (chmod 600) ────────────────────────────
@@ -111,6 +139,7 @@ log "[4/7] Generando configuración con secretos..."
 install -d -o "$APP_USER" -g "$APP_USER" "$APP_DIR/config"
 ENV_FILE="$APP_DIR/config/.env"
 SECRET_KEY="$(openssl rand -hex 32)"
+TERMINAL_CREDENTIAL_KEY="$(openssl rand -hex 32)"
 cat > "$ENV_FILE" <<EOF
 DB_ENGINE=postgres
 DB_HOST=localhost
@@ -119,11 +148,15 @@ DB_USER=$DB_USER
 DB_PASS=$DB_PASS
 DB_NAME=$DB_NAME
 SECRET_KEY=$SECRET_KEY
+TERMINAL_CREDENTIAL_KEY=$TERMINAL_CREDENTIAL_KEY
 API_HOST=127.0.0.1
 API_PORT=8000
 API_WORKERS=4
+SRTIME_WEB_DIR=$APP_DIR/web
+COOKIE_SECURE=false
+ACCESS_TOKEN_EXPIRE_MINUTES=60
+MAX_IMPORT_SIZE_BYTES=10485760
 CORS_ORIGINS=["http://$SERVER_NAME"]
-NEXT_PUBLIC_API_URL=/api
 LOG_LEVEL=INFO
 LOG_FORMAT=json
 LOG_DIR=/var/log/srtime
@@ -145,14 +178,14 @@ ok "Base inicializada"
 
 # ── 6. Servicios systemd ──────────────────────────────────────────────────────
 log "[6/7] Instalando servicios systemd..."
-for SERVICE in srtime-api srtime-web; do
-    sed -e "s|__APP_USER__|$APP_USER|g" \
-        -e "s|__APP_DIR__|$APP_DIR|g" \
-        "$APP_DIR/config/$SERVICE.service" > "/etc/systemd/system/$SERVICE.service"
-    ok "$SERVICE.service instalado"
-done
+SERVICE=srtime-api
+sed -e "s|__APP_USER__|$APP_USER|g" \
+    -e "s|__APP_DIR__|$APP_DIR|g" \
+    "$APP_DIR/config/$SERVICE.service" > "/etc/systemd/system/$SERVICE.service"
+ok "$SERVICE.service instalado"
 systemctl daemon-reload
-systemctl enable --now srtime-api srtime-web >/dev/null 2>&1 || true
+systemctl disable --now srtime-web >/dev/null 2>&1 || true
+systemctl enable --now srtime-api >/dev/null 2>&1 || true
 
 # ── 7. Reverse proxy nginx ────────────────────────────────────────────────────
 log "[7/7] Configurando reverse proxy nginx..."
@@ -181,7 +214,7 @@ cat <<EOF
 
   Verificación:
     curl -fsS http://localhost/api/health
-    systemctl status srtime-api srtime-web nginx
+    systemctl status srtime-api nginx
 
   ⚠ Guardá estas credenciales: no se vuelven a mostrar.
 EOF

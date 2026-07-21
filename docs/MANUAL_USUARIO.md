@@ -1,101 +1,47 @@
-# SRTime — Manual de Usuario
+# Manual de Usuario Final: Ingesta de Asistencia SRTime
 
-SRTime es el sistema de control de asistencias. Se usa desde el navegador, en la
-dirección que le indique su administrador (por ejemplo `http://192.168.1.44/`).
-
----
-
-## 1. Ingreso al sistema
-
-1. Abra el navegador y vaya a la dirección del servidor.
-2. Ingrese **usuario** y **contraseña**.
-3. En el **primer ingreso** el sistema le pedirá **cambiar la contraseña** por una
-   nueva. Elija una contraseña segura y guárdela.
-
-### Roles
-| Rol | Permisos |
-|-----|----------|
-| **root** | Acceso total: usuarios, configuración, aprobaciones |
-| **supervisor** | Operación diaria; puede **solicitar** justificaciones |
-| **viewer** | Solo consulta |
+Este manual describe el funcionamiento diario para importar las marcas de asistencia de los empleados.
 
 ---
 
-## 2. Panel principal (Dashboard)
+## 1. Importación Desde Archivo (.TXT)
+Utilice este método si descarga las marcas de asistencia desde un puerto USB de la terminal o si dispone de un archivo plano provisto externamente.
 
-Al ingresar verá un resumen del estado de asistencias del día: presentes,
-ausentes, tarde e incompletos. Es el punto de partida para la operación diaria.
+### Paso a Paso:
+1. Abra la aplicación de **SRTime** y diríjase a la pestaña **Importar**.
+2. Asegúrese de estar posicionado en la pestaña **Desde Archivo**.
+3. Haga clic en **Buscar Archivo** y seleccione el archivo `.txt` con los fichajes.
+4. Elija el formato en el selector de formatos si no corresponde al estándar predeterminado de SRTime.
+5. Haga clic en **Importar TXT**.
+6. En la caja inferior de logs verá el progreso detallado en tiempo real. Al finalizar la carga, el sistema informará la cantidad de registros nuevos procesados y los duplicados omitidos.
 
----
-
-## 3. Empleados
-
-Alta, edición y baja de empleados. Cada empleado puede tener asignado un **turno**.
-Se puede **importar** y **exportar** el padrón de empleados.
-
----
-
-## 4. Turnos
-
-Definición de horarios de trabajo: hora de entrada y salida, tolerancias,
-duración del break y **turnos nocturnos** (que cruzan la medianoche). El turno
-asignado a cada empleado determina cómo se calculan sus horas.
+El archivo original no se renombra, vacía ni elimina. Puede volver a importarlo: la base de
+datos detectará y omitirá las marcas ya existentes.
 
 ---
 
-## 5. Feriados
+## 2. Descarga Directa Desde Red (Equipos Biométricos)
+Utilice este método si las terminales de fichada de la empresa se encuentran conectadas a la red LAN de la empresa o mediante un túnel VPN.
 
-Carga del calendario de feriados, con opción de **recurrencia anual**. Los
-feriados se consideran automáticamente al procesar la asistencia.
-
----
-
-## 6. Terminales
-
-Registro de los relojes biométricos (terminales ZKTeco). Desde aquí se gestionan
-los dispositivos desde los que se importan las marcaciones.
-
----
-
-## 7. Importar marcaciones
-
-Carga de los registros de entrada/salida provenientes de las terminales. Una vez
-importados, el sistema los **procesa** contra los turnos para calcular asistencia
-y horas trabajadas.
+### Paso a Paso:
+1. En la pestaña **Importar**, seleccione la sub-pestaña **Desde Red Física** (en la interfaz web) o **Desde Terminal** (en la interfaz de Windows).
+2. En el menú desplegable, elija el equipo al cual desea conectarse (ej: *Recepción*).
+3. **Prueba de Conectividad (Recomendado)**:
+   - Haga clic en **Probar Conexión**.
+   - El sistema intentará dialogar con el reloj. Si la comunicación es exitosa, se desplegará una ventana informativa que muestra el *Modelo, Dirección MAC, Número de serie, versión de Firmware y la hora local del dispositivo*.
+4. **Descargar Asistencias**:
+   - Haga clic en **Descargar Memorias**.
+   - El sistema descargará todos los fichajes almacenados en la memoria del hardware de forma autónoma. Comparará contra la base de datos para no duplicar marcas previas e ingresará automáticamente las nuevas filas junto con cualquier empleado nuevo detectado.
+5. **Sincronizar Reloj Interno (Opcional)**:
+   - Si advierte que el reloj físico de la oficina tiene un desfasaje, haga clic en el botón **Sincronizar Hora**. Esto colocará el hardware en la hora exacta sincronizada del servidor.
 
 ---
 
-## 8. Asistencias procesadas
+## 3. Guía de Errores Comunes
 
-Listado del resultado del procesamiento por empleado y fecha, con su **estado**:
-
-| Estado | Significado |
-|--------|-------------|
-| PRESENTE | Jornada completa y correcta |
-| TARDE | Ingreso fuera de tolerancia |
-| AUSENTE | Sin marcaciones |
-| INCOMPLETO | Falta una marcación (p. ej. entró pero no salió) |
-| PENDIENTE | Justificación solicitada, a la espera de aprobación |
-
-### Justificaciones (flujo de aprobación)
-1. El **supervisor** solicita justificar un registro (estado → **PENDIENTE**).
-2. El **root** **aprueba** o **rechaza** la solicitud.
-3. Al aprobarse, el registro toma el estado justificado; al rechazarse, vuelve a
-   su estado anterior.
-
----
-
-## 9. Reportes
-
-Generación de reportes de asistencia exportables en **Excel** y **PDF**
-(horizontal A4). Permiten filtrar por período y empleado para entregar o archivar.
-
----
-
-## 10. Recomendaciones
-
-- Cambie su contraseña inicial y no la comparta.
-- Importe las marcaciones con regularidad para mantener el tablero al día.
-- Ante un estado **INCOMPLETO** inesperado, verifique las marcaciones de la
-  terminal antes de justificar.
-- Si no puede ingresar, contacte a su administrador (rol root).
+* **Error: "No se pudo conectar al dispositivo"**
+  - El reloj puede estar apagado, desconectado de la corriente, o no tener acceso a la red local. Póngase en contacto con el administrador de sistemas para verificar la conexión IP.
+* **Todos los registros aparecen como "Duplicados"**
+  - Esto es correcto y normal. Significa que los datos que está intentando descargar ya fueron ingresados al sistema con anterioridad, evitando duplicidad de información.
+* **El archivo cargado es inválido**
+  - Verifique que la extensión del archivo sea estrictamente `.txt` y que el formato coincida con el parser que seleccionó.
