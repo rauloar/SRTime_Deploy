@@ -55,12 +55,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     formData.append("username", user)
     formData.append("password", pass)
     const res = await axios.post(`${API}/api/auth/token`, formData, { withCredentials: true })
+    // Do not render the application until the cookie has been verified and the
+    // complete profile is available. This avoids a half-authenticated UI.
+    const me = await api.get("/api/auth/me")
+    try {
+      localStorage.setItem("srtime_user", user)
+      localStorage.setItem("srtime_role", me.data.role || "viewer")
+      localStorage.setItem("srtime_must_change_password", me.data.must_change_password ? "1" : "0")
+    } catch {
+      // The session cookie remains valid when browser storage is unavailable.
+    }
     setToken("cookie")
     setUsername(user)
-    setMustChangePassword(Boolean(res.data.must_change_password))
-    localStorage.setItem("srtime_user", user)
-    localStorage.setItem("srtime_must_change_password", res.data.must_change_password ? "1" : "0")
-    await refreshProfile()
+    setRole(me.data.role || "viewer")
+    setMustChangePassword(Boolean(me.data.must_change_password ?? res.data.must_change_password))
   }
 
   async function changePassword(newPassword: string, currentPassword?: string) {

@@ -27,15 +27,16 @@ def _should_initialize_on_startup() -> bool:
 
     return not Path(db_file).exists()
 
-def init_database():
+def init_database(target_engine=None, defer_admin_setup: bool = False):
+    db_engine = target_engine or engine
     # create_all is idempotent: only creates missing tables, never drops existing ones.
-    Base.metadata.create_all(bind=engine)
+    Base.metadata.create_all(bind=db_engine)
 
     logger.info("Initializing database schema...")
-    session = Session(bind=engine)
+    session = Session(bind=db_engine)
 
     # Backward-compatible bootstrap for existing databases.
-    auth_cols = {c["name"] for c in inspect(engine).get_columns("auth_user")}
+    auth_cols = {c["name"] for c in inspect(db_engine).get_columns("auth_user")}
     if "role" not in auth_cols:
         session.execute(text("ALTER TABLE auth_user ADD COLUMN role VARCHAR(20)"))
         session.commit()
@@ -46,23 +47,23 @@ def init_database():
         session.execute(text("ALTER TABLE auth_user ADD COLUMN token_version INTEGER DEFAULT 0 NOT NULL"))
         session.commit()
 
-    users_cols = {c["name"] for c in inspect(engine).get_columns("users")}
+    users_cols = {c["name"] for c in inspect(db_engine).get_columns("users")}
     if "shift_id" not in users_cols:
         session.execute(text("ALTER TABLE users ADD COLUMN shift_id INTEGER"))
         session.commit()
 
-    attendance_cols = {c["name"] for c in inspect(engine).get_columns("attendance_log")}
+    attendance_cols = {c["name"] for c in inspect(db_engine).get_columns("attendance_log")}
     if "is_processed" not in attendance_cols:
         session.execute(text("ALTER TABLE attendance_log ADD COLUMN is_processed BOOLEAN"))
         session.commit()
 
-    terminal_cols = {c["name"] for c in inspect(engine).get_columns("device_terminal")}
+    terminal_cols = {c["name"] for c in inspect(db_engine).get_columns("device_terminal")}
     if "connection_params" not in terminal_cols:
-        column_type = "JSONB" if engine.url.get_backend_name() == "postgresql" else "JSON"
+        column_type = "JSONB" if db_engine.url.get_backend_name() == "postgresql" else "JSON"
         session.execute(text(f"ALTER TABLE device_terminal ADD COLUMN connection_params {column_type}"))
         session.commit()
 
-    pa_cols = {c["name"] for c in inspect(engine).get_columns("processed_attendance")}
+    pa_cols = {c["name"] for c in inspect(db_engine).get_columns("processed_attendance")}
     for col_def in [
         ("previous_status", "VARCHAR(20)"),
         ("pending_first_in", "TIME"),
@@ -90,10 +91,16 @@ def init_database():
     initial_admin_password = os.environ.get("SRTIME_ADMIN_PASSWORD")
     admin = session.query(AuthUser).filter_by(username="admin").first()
     if not admin:
+        if defer_admin_setup:
+            logger.info("Admin creation deferred until web setup")
+            session.close()
+            return
         if not initial_admin_password:
-            if engine.url.get_backend_name() == "postgresql":
-                raise RuntimeError("SRTIME_ADMIN_PASSWORD is required for PostgreSQL bootstrap")
-            initial_admin_password = "admin"  # Sólo desarrollo SQLite de primer uso.
+            if os.getenv("SRTIME_DEFER_ADMIN_SETUP", "").lower() in ("1", "true", "yes", "on"):
+                logger.info("Admin creation deferred until web setup")
+                session.close()
+                return
+            raise RuntimeError("SRTIME_ADMIN_PASSWORD is required for non-web database bootstrap")
         admin = AuthUser(
             username="admin",
             password_hash=hash_password(initial_admin_password),

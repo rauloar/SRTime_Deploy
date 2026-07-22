@@ -26,6 +26,8 @@ interface GroupedMovement {
   outTime: string
 }
 
+type SortKey = "identifier" | "name" | "date" | "time" | "movement" | "entry" | "exit"
+
 function today() { return new Date().toISOString().slice(0, 10) }
 function daysAgo(n: number) { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10) }
 
@@ -39,6 +41,8 @@ export default function MovementsTab() {
   const [page, setPage]           = useState(1)
   const [pageSize, setPageSize]   = useState(50)
   const [viewMode, setViewMode]   = useState<"vertical" | "horizontal">("vertical")
+  const [sortKey, setSortKey]     = useState<SortKey>("date")
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc")
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -47,7 +51,7 @@ export default function MovementsTab() {
   }, [api, dateStart, dateEnd])
 
   useEffect(() => { load() }, [load])
-  useEffect(() => { setPage(1) }, [empFilter, dateStart, dateEnd])
+  useEffect(() => { setPage(1) }, [empFilter, dateStart, dateEnd, sortKey, sortDirection])
 
   const nameOf = (mov: Movement) => {
     if (mov.last_name || mov.first_name) return `${mov.last_name || ""}, ${mov.first_name || ""}`.replace(/^,\s*/, "")
@@ -55,8 +59,11 @@ export default function MovementsTab() {
   }
 
   const filtered = movements.filter(m => {
-    if (!empFilter) return true
-    return (nameOf(m) + m.raw_identifier).toLowerCase().includes(empFilter.toLowerCase())
+    const search = empFilter.trim().toLocaleLowerCase()
+    if (!search) return true
+    const movement = m.mark_type === 0 ? "entrada" : m.mark_type === 1 ? "salida" : ""
+    return [nameOf(m), m.raw_identifier, m.date, m.time || "", movement]
+      .join(" ").toLocaleLowerCase().includes(search)
   })
 
   const groupedMovements = useMemo(() => {
@@ -101,8 +108,29 @@ export default function MovementsTab() {
     })
   }, [filtered, viewMode])
 
-  const verticalPage = filtered.slice((page - 1) * pageSize, page * pageSize)
-  const horizontalPage: GroupedMovement[] = groupedMovements.slice((page - 1) * pageSize, page * pageSize)
+  const sortedVertical = useMemo(() => [...filtered].sort((a, b) => {
+    const aValue = sortKey === "identifier" ? a.raw_identifier : sortKey === "name" ? nameOf(a) : sortKey === "date" ? a.date : sortKey === "time" ? a.time || "" : sortKey === "movement" ? String(a.mark_type ?? 9) : a.date
+    const bValue = sortKey === "identifier" ? b.raw_identifier : sortKey === "name" ? nameOf(b) : sortKey === "date" ? b.date : sortKey === "time" ? b.time || "" : sortKey === "movement" ? String(b.mark_type ?? 9) : b.date
+    return aValue.localeCompare(bValue) * (sortDirection === "asc" ? 1 : -1)
+  }), [filtered, sortKey, sortDirection])
+  const sortedHorizontal = useMemo(() => [...groupedMovements].sort((a, b) => {
+    const aValue = sortKey === "identifier" ? a.identifier : sortKey === "name" ? a.name : sortKey === "date" ? a.date : sortKey === "entry" ? a.inTime : sortKey === "exit" ? a.outTime : a.date
+    const bValue = sortKey === "identifier" ? b.identifier : sortKey === "name" ? b.name : sortKey === "date" ? b.date : sortKey === "entry" ? b.inTime : sortKey === "exit" ? b.outTime : b.date
+    return aValue.localeCompare(bValue) * (sortDirection === "asc" ? 1 : -1)
+  }), [groupedMovements, sortKey, sortDirection])
+
+  const verticalPage = sortedVertical.slice((page - 1) * pageSize, page * pageSize)
+  const horizontalPage: GroupedMovement[] = sortedHorizontal.slice((page - 1) * pageSize, page * pageSize)
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) setSortDirection(direction => direction === "asc" ? "desc" : "asc")
+    else { setSortKey(key); setSortDirection("asc") }
+  }
+
+  function SortHeader({ label, column }: { label: string; column: SortKey }) {
+    const active = sortKey === column
+    return <th><button className="table-sort-button" onClick={() => toggleSort(column)}>{label}<span aria-hidden="true">{active ? (sortDirection === "asc" ? " ▲" : " ▼") : " ↕"}</span></button></th>
+  }
 
   function exportCsv() {
     let rows = []
@@ -162,13 +190,13 @@ export default function MovementsTab() {
         <label>Hasta:</label>
         <input type="date" value={dateEnd} onChange={e => setDateEnd(e.target.value)} />
         <label>Vista:</label>
-        <select value={viewMode} onChange={e => { setViewMode(e.target.value as "vertical" | "horizontal"); setPage(1); }} style={{ padding: "4px 8px", borderRadius: 4, border: "1px solid var(--border-color)", background: "var(--bg-color)", color: "var(--text-color)" }}>
+        <select value={viewMode} onChange={e => { setViewMode(e.target.value as "vertical" | "horizontal"); setSortKey("date"); setSortDirection("asc"); setPage(1); }} style={{ padding: "4px 8px", borderRadius: 4, border: "1px solid var(--border-color)", background: "var(--bg-color)", color: "var(--text-color)" }}>
           <option value="vertical">Vertical</option>
           <option value="horizontal">Horizontal</option>
         </select>
         <Search size={15} color="var(--text-muted)" style={{marginLeft: 10}}/>
         <input type="text" value={empFilter} onChange={e => setEmpFilter(e.target.value)}
-          placeholder="Nombre o ID..." style={{ width: 150 }} />
+          placeholder="Nombre, ID, fecha, hora o movimiento..." aria-label="Buscar movimientos" style={{ width: 230 }} />
         <button className="btn" onClick={exportCsv}>Exportar CSV</button>
         <button className="btn" onClick={exportExcel}>Exportar Excel</button>
         <button className="btn" onClick={load} disabled={loading}><RefreshCw size={14} /> Actualizar</button>
@@ -181,11 +209,11 @@ export default function MovementsTab() {
               <thead>
                 {viewMode === "vertical" ? (
                   <tr>
-                    <th>Identificador</th><th>Nombre</th><th>Fecha</th><th>Hora</th><th>Movimiento</th>
+                    <SortHeader label="Identificador" column="identifier" /><SortHeader label="Nombre" column="name" /><SortHeader label="Fecha" column="date" /><SortHeader label="Hora" column="time" /><SortHeader label="Movimiento" column="movement" />
                   </tr>
                 ) : (
                   <tr>
-                    <th>Identificador</th><th>Nombre</th><th>Fecha</th><th>Entrada</th><th>Salida</th>
+                    <SortHeader label="Identificador" column="identifier" /><SortHeader label="Nombre" column="name" /><SortHeader label="Fecha" column="date" /><SortHeader label="Entrada" column="entry" /><SortHeader label="Salida" column="exit" />
                   </tr>
                 )}
               </thead>
@@ -213,7 +241,7 @@ export default function MovementsTab() {
               </tbody>
             </table>
           </div>
-          <Pagination total={viewMode === "vertical" ? filtered.length : groupedMovements.length} page={page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={setPageSize} />
+          <Pagination total={viewMode === "vertical" ? sortedVertical.length : sortedHorizontal.length} page={page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={setPageSize} />
         </>
       )}
     </div>

@@ -1,8 +1,11 @@
 "use client"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import Image from "next/image"
 import { useAuth } from "../context/AuthContext"
-import { Lock, User, AlertCircle, LogIn } from "lucide-react"
+import axios from "axios"
+import { Database, Lock, User, AlertCircle, LogIn } from "lucide-react"
+
+const API = process.env.NEXT_PUBLIC_API_URL || ""
 
 export default function LoginPage() {
   const { login } = useAuth()
@@ -10,6 +13,28 @@ export default function LoginPage() {
   const [password, setPassword] = useState("")
   const [error, setError]   = useState("")
   const [loading, setLoading] = useState(false)
+  const [setupRequired, setSetupRequired] = useState<boolean | null>(null)
+  const [dbHost, setDbHost] = useState("localhost")
+  const [dbPort, setDbPort] = useState("5432")
+  const [dbUser, setDbUser] = useState("postgres")
+  const [dbPassword, setDbPassword] = useState("")
+  const [dbName, setDbName] = useState("srtime_qa")
+  const [databaseCreated, setDatabaseCreated] = useState(false)
+  const [adminPassword, setAdminPassword] = useState("")
+  const [confirmAdminPassword, setConfirmAdminPassword] = useState("")
+  const passwordsMismatch = confirmAdminPassword.length > 0 && adminPassword !== confirmAdminPassword
+  const passwordsMatch = adminPassword.length > 0 && confirmAdminPassword.length > 0 && adminPassword === confirmAdminPassword
+
+  useEffect(() => {
+    axios.get(`${API}/api/setup/status`)
+      .then(res => {
+        setSetupRequired(Boolean(res.data.setup_required))
+        setDatabaseCreated(Boolean(res.data.configured && res.data.setup_required))
+      })
+      // A failed status check must never expose the login form as if setup had
+      // completed; the operator needs the installer/retry path instead.
+      .catch(() => setSetupRequired(true))
+  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -23,11 +48,50 @@ export default function LoginPage() {
     }
   }
 
+  async function handleCreateDatabase(e: React.FormEvent) {
+    e.preventDefault()
+    setLoading(true); setError("")
+    try {
+      await axios.post(`${API}/api/setup/database`, {
+        db_host: dbHost, db_port: Number(dbPort), db_user: dbUser,
+        db_password: dbPassword, db_name: dbName,
+      })
+      setDatabaseCreated(true)
+    } catch (err) {
+      if (axios.isAxiosError(err)) {
+        setError(err.response?.data?.detail || "No se pudo configurar PostgreSQL")
+      } else {
+        setError("No se pudo configurar PostgreSQL")
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleCreateAdmin(e: React.FormEvent) {
+    e.preventDefault()
+    if (adminPassword !== confirmAdminPassword) {
+      setError("Las contraseñas de administrador no coinciden")
+      return
+    }
+    setLoading(true); setError("")
+    try {
+      await axios.post(`${API}/api/setup/admin`, {
+        admin_password: adminPassword,
+        confirm_admin_password: confirmAdminPassword,
+      })
+      await login("admin", adminPassword)
+    } catch (err) {
+      if (axios.isAxiosError(err)) setError(err.response?.data?.detail || "No se pudo crear o verificar el administrador")
+      else setError("No se pudo crear o verificar el administrador")
+    } finally { setLoading(false) }
+  }
+
   return (
-    <div className="login-page">
-      <div className="login-box">
+    <div className={`login-page${setupRequired ? " setup-page" : ""}`}>
+      <div className={`login-box${setupRequired ? " setup-login-box" : ""}`}>
         {/* Logo */}
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 28 }}>
+        <div className={`login-brand${setupRequired ? " login-brand-compact" : ""}`} style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 28 }}>
           <Image
             src="/img/sr_logo.png"
             alt="SRTime Logo"
@@ -41,7 +105,41 @@ export default function LoginPage() {
           </p>
         </div>
 
-        <form onSubmit={handleSubmit}>
+        {setupRequired && <div className="setup-form">
+          <div style={{ display: "flex", gap: 8, alignItems: "center", color: "var(--primary)", marginBottom: 16, fontWeight: 600 }}>
+            <Database size={17} /> Configuración inicial
+          </div>
+          <p style={{ color: "var(--text-secondary)", fontSize: 13, marginBottom: 16 }}>
+            Primero creá o conectá la base de datos. Luego definí el usuario inicial de SRTime.
+          </p>
+          <form onSubmit={handleCreateDatabase}>
+            <div className="form-group"><label>Servidor PostgreSQL</label><input value={dbHost} onChange={e => setDbHost(e.target.value)} required disabled={databaseCreated} /></div>
+            <div className="form-group"><label>Puerto</label><input type="number" value={dbPort} onChange={e => setDbPort(e.target.value)} required disabled={databaseCreated} /></div>
+            <div className="form-group"><label>Usuario PostgreSQL</label><input value={dbUser} onChange={e => setDbUser(e.target.value)} required disabled={databaseCreated} /></div>
+            <div className="form-group"><label>Contraseña PostgreSQL</label><input type="password" value={dbPassword} onChange={e => setDbPassword(e.target.value)} required disabled={databaseCreated} /></div>
+            <div className="form-group"><label>Base de datos</label><input value={dbName} onChange={e => setDbName(e.target.value)} required disabled={databaseCreated} pattern="[A-Za-z_][A-Za-z0-9_]*" /></div>
+            <button type="submit" className="btn btn-primary" style={{ width: "100%", justifyContent: "center", height: 40 }} disabled={loading || databaseCreated}>{loading ? "Creando..." : "Crear base de datos"}</button>
+          </form>
+          <form onSubmit={handleCreateAdmin} style={{ borderTop: "1px solid var(--border)", marginTop: 20, paddingTop: 16, opacity: databaseCreated ? 1 : .55 }}>
+          <div className="form-group">
+            <label>Usuario inicial de SRTime</label>
+            <input value="admin" disabled aria-label="Usuario inicial de SRTime" />
+            <p style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 5 }}>Disponible luego de crear la base de datos.</p>
+          </div>
+          <div className="form-group"><label>Contraseña para el usuario admin</label><input type="password" value={adminPassword} onChange={e => setAdminPassword(e.target.value)} required disabled={!databaseCreated} minLength={8} /></div>
+          <div className="form-group"><label>Confirmar contraseña</label><input type="password" value={confirmAdminPassword} onChange={e => setConfirmAdminPassword(e.target.value)} required disabled={!databaseCreated} minLength={8} /></div>
+          {passwordsMismatch && <p className="password-match-message password-match-error">Las contraseñas no coinciden.</p>}
+          {passwordsMatch && <p className="password-match-message password-match-ok">Las contraseñas coinciden.</p>}
+          <div className="setup-actions">
+            {error && <div style={{ display: "flex", alignItems: "center", gap: 7, color: "var(--status-error)", fontSize: 13, marginBottom: 12 }}><AlertCircle size={14} /> {error}</div>}
+            <button type="submit" className="btn btn-primary" style={{ width: "100%", justifyContent: "center", gap: 8, height: 40 }} disabled={loading || !databaseCreated || !passwordsMatch}>
+              {loading ? "Creando..." : <><Database size={16} /> Crear administrador e iniciar</>}
+            </button>
+          </div>
+          </form>
+        </div>}
+
+        {setupRequired === false && <form onSubmit={handleSubmit}>
           <div className="form-group">
             <label>Usuario</label>
             <div style={{ position: "relative" }}>
@@ -76,7 +174,7 @@ export default function LoginPage() {
           <button type="submit" className="btn btn-primary" style={{ width: "100%", justifyContent: "center", gap: 8, height: 40, marginTop: 4 }} disabled={loading}>
             {loading ? "Iniciando sesión..." : <><LogIn size={16} /> Iniciar Sesión</>}
           </button>
-        </form>
+        </form>}
       </div>
     </div>
   )

@@ -3,6 +3,7 @@ import { useState, useEffect } from "react"
 import { useAuth } from "../context/AuthContext"
 import axios from "axios"
 import { Upload, RefreshCw } from "lucide-react"
+import OperationProgress, { OperationJob } from "./OperationProgress"
 
 function getErrorMessage(error: unknown, fallback: string) {
   if (axios.isAxiosError(error)) {
@@ -37,6 +38,7 @@ export default function ImportTab() {
   const [selectedParser, setSelectedParser] = useState("")
   const [selectedTerminal, setSelectedTerminal] = useState<number | "">("")
   const [activeTab, setActiveTab] = useState<"file" | "device">("file")
+  const [job, setJob] = useState<OperationJob | null>(null)
 
   useEffect(() => {
     async function init() {
@@ -63,6 +65,25 @@ export default function ImportTab() {
     }
     init()
   }, [api])
+
+  useEffect(() => {
+    if (!job || job.state === "completed" || job.state === "failed") return
+    const timer = window.setInterval(async () => {
+      try {
+        const res = await api.get(`/api/import/jobs/${job.id}`)
+        const next = res.data as OperationJob
+        setJob(next)
+        if (next.state === "completed") {
+          const result = next.result || {}
+          setStatus(`Logs: ${result.total || 0} | Nuevos: ${result.nuevos || 0} | Duplicados: ${result.duplicados || 0}`)
+          setLogs(result.logs || [])
+          setRunning(false)
+        }
+        if (next.state === "failed") { setError(next.error || next.message); setRunning(false) }
+      } catch { setError("No se pudo consultar el progreso de importación"); setRunning(false) }
+    }, 500)
+    return () => window.clearInterval(timer)
+  }, [api, job])
 
   function switchTab(tab: "file" | "device") {
     setActiveTab(tab)
@@ -140,14 +161,12 @@ export default function ImportTab() {
       const form = new FormData()
       form.append("file", file)
       const query = selectedParser ? `?parser_name=${encodeURIComponent(selectedParser)}` : ""
-      const res = await api.post("/api/import/txt" + query, form, {
+      const res = await api.post("/api/import/txt/jobs" + query, form, {
         headers: { "Content-Type": "multipart/form-data" },
       })
-      setStatus(`Logs: ${res.data.total} | Nuevos: ${res.data.nuevos} | Duplicados: ${res.data.duplicados}`)
-      setLogs((res.data.logs || []) as string[])
+      setJob(res.data as OperationJob)
     } catch (e: unknown) {
       setError(getErrorMessage(e, "Error al importar"))
-    } finally {
       setRunning(false)
     }
   }
@@ -156,6 +175,7 @@ export default function ImportTab() {
     setStatus("Logs: 0 | Nuevos: 0 | Duplicados: 0")
     setLogs([])
     setError("")
+    setJob(null)
   }
 
   return (
@@ -239,6 +259,8 @@ export default function ImportTab() {
           </span>
         )}
       </div>
+
+      <OperationProgress job={job} />
 
       {error && <p style={{ color: "var(--status-error)", marginBottom: 10 }}>⚠ {error}</p>}
 

@@ -1,47 +1,88 @@
-# Manual de Usuario Final: Ingesta de Asistencia SRTime
+# Manual de usuario de SRTime
 
-Este manual describe el funcionamiento diario para importar las marcas de asistencia de los empleados.
+> Versión de uso actual: **Beta 0.9.0-beta.1**. Es apta para operación y pruebas
+> controladas; el equipo técnico debe validar el entorno antes de producción.
 
----
+## Ingreso al sistema
 
-## 1. Importación Desde Archivo (.TXT)
-Utilice este método si descarga las marcas de asistencia desde un puerto USB de la terminal o si dispone de un archivo plano provisto externamente.
+Abrí SRTime en la dirección indicada por la persona técnica, normalmente
+`http://127.0.0.1:8000/`.
 
-### Paso a Paso:
-1. Abra la aplicación de **SRTime** y diríjase a la pestaña **Importar**.
-2. Asegúrese de estar posicionado en la pestaña **Desde Archivo**.
-3. Haga clic en **Buscar Archivo** y seleccione el archivo `.txt` con los fichajes.
-4. Elija el formato en el selector de formatos si no corresponde al estándar predeterminado de SRTime.
-5. Haga clic en **Importar TXT**.
-6. En la caja inferior de logs verá el progreso detallado en tiempo real. Al finalizar la carga, el sistema informará la cantidad de registros nuevos procesados y los duplicados omitidos.
+Ingresá con tu usuario y contraseña de **SRTime**. No uses el usuario
+`postgres`: ese usuario pertenece a la base de datos y no sirve para entrar a
+la aplicación.
 
-El archivo original no se renombra, vacía ni elimina. Puede volver a importarlo: la base de
-datos detectará y omitirá las marcas ya existentes.
+La primera cuenta se llama `admin`. Una persona con rol `root` puede crear más
+cuentas desde **Usuarios Autorizados**.
 
----
+## Qué puede hacer cada persona
 
-## 2. Descarga Directa Desde Red (Equipos Biométricos)
-Utilice este método si las terminales de fichada de la empresa se encuentran conectadas a la red LAN de la empresa o mediante un túnel VPN.
+- **Viewer**: consultar y exportar información.
+- **Supervisor/Admin**: además puede cargar empleados, turnos, terminales e
+  importaciones.
+- **Root**: administra usuarios, acciones sensibles y aprobaciones.
 
-### Paso a Paso:
-1. En la pestaña **Importar**, seleccione la sub-pestaña **Desde Red Física** (en la interfaz web) o **Desde Terminal** (en la interfaz de Windows).
-2. En el menú desplegable, elija el equipo al cual desea conectarse (ej: *Recepción*).
-3. **Prueba de Conectividad (Recomendado)**:
-   - Haga clic en **Probar Conexión**.
-   - El sistema intentará dialogar con el reloj. Si la comunicación es exitosa, se desplegará una ventana informativa que muestra el *Modelo, Dirección MAC, Número de serie, versión de Firmware y la hora local del dispositivo*.
-4. **Descargar Asistencias**:
-   - Haga clic en **Descargar Memorias**.
-   - El sistema descargará todos los fichajes almacenados en la memoria del hardware de forma autónoma. Comparará contra la base de datos para no duplicar marcas previas e ingresará automáticamente las nuevas filas junto con cualquier empleado nuevo detectado.
-5. **Sincronizar Reloj Interno (Opcional)**:
-   - Si advierte que el reloj físico de la oficina tiene un desfasaje, haga clic en el botón **Sincronizar Hora**. Esto colocará el hardware en la hora exacta sincronizada del servidor.
+Si no ves una opción, probablemente tu rol no tiene permiso. Pedí ayuda a una
+persona con rol `root`; no compartas tu contraseña.
 
----
+## Configuración inicial
 
-## 3. Guía de Errores Comunes
+La primera vez puede aparecer la pantalla **Configuración inicial**. Es para
+la persona técnica: solicita datos de PostgreSQL y crea la primera cuenta
+`admin`. Una persona usuaria no debe modificar esa información.
 
-* **Error: "No se pudo conectar al dispositivo"**
-  - El reloj puede estar apagado, desconectado de la corriente, o no tener acceso a la red local. Póngase en contacto con el administrador de sistemas para verificar la conexión IP.
-* **Todos los registros aparecen como "Duplicados"**
-  - Esto es correcto y normal. Significa que los datos que está intentando descargar ya fueron ingresados al sistema con anterioridad, evitando duplicidad de información.
-* **El archivo cargado es inválido**
-  - Verifique que la extensión del archivo sea estrictamente `.txt` y que el formato coincida con el parser que seleccionó.
+## Empleados y turnos
+
+Antes de procesar asistencia, verificar:
+
+1. Cada empleado está cargado en **Empleados** con su identificador correcto.
+2. Cada empleado tiene asignado un turno.
+3. El turno contiene hora de entrada, salida y tolerancia.
+
+Los turnos nocturnos deben configurarse como tales para que SRTime relacione
+correctamente una salida del día siguiente.
+
+## Importar marcaciones
+
+En **Importar** hay dos opciones:
+
+### Desde archivo
+
+1. Elegí **Buscar archivo** y seleccioná un `.txt`.
+2. Elegí el formato/parser si corresponde.
+3. Presioná **Importar TXT**.
+4. Revisá el resultado: nuevos, duplicados y errores.
+
+Podés importar el mismo archivo nuevamente: SRTime omite las marcaciones ya
+registradas. El archivo original nunca se elimina.
+
+### Desde red física
+
+1. Elegí una terminal registrada.
+2. Usá **Probar conexión** antes de descargar.
+3. Presioná **Descargar memorias**.
+4. Esperá el resumen y revisá los nuevos registros.
+
+Si falla, verificá que la terminal esté encendida y conectada a la red. No
+cambies IP, contraseña ni parámetros del reloj sin autorización.
+
+## Procesar asistencia y reportes
+
+Después de importar, ir a **Asistencia Procesada** y procesar pendientes. El
+sistema calcula horas, tardanzas, extras e incompletos según el turno.
+
+Revisá los registros `INCOMPLETO` antes de exportar. Las correcciones y
+justificaciones requieren permisos superiores.
+
+Usá las opciones de exportación para generar planillas o reportes. Confirmá el
+período antes de compartir un archivo.
+
+## Problemas frecuentes
+
+- **Usuario o contraseña incorrectos**: verificá que uses tu cuenta de SRTime,
+  no la cuenta PostgreSQL. Si continúa, pedí restablecimiento a un `root`.
+- **Todos los registros son duplicados**: normalmente significa que ya se
+  importaron; no es un error.
+- **No se conecta a una terminal**: revisar energía, red, IP y permisos con
+  soporte técnico.
+- **No podés editar**: tu rol puede ser sólo de consulta.

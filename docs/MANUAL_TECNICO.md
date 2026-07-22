@@ -1,92 +1,112 @@
-# Manual de Soporte Técnico y Desarrollo: Ingesta de Asistencia SRTime
+# Manual técnico de SRTime
 
-Este manual detalla la arquitectura, base de datos y endpoints relacionados con la ingesta y comunicación con terminales biométricas.
+> Estado de versión: **Beta 0.9.0-beta.1**. Consultar `docs/ESTADO_VERSION.md` antes
+> de promover una instalación a producción.
 
----
+## 1. Arquitectura
 
-## 1. Arquitectura de Ingesta Unificada
+SRTime es un sistema de asistencia con dos interfaces: escritorio Windows y web.
+La lógica de negocio se comparte en `attendance/services/`. En modo web, FastAPI
+sirve la API `/api/*` y el frontend estático generado en `attendance/web/out`;
+no hay un servidor Node.js en ejecución.
 
-El sistema cuenta con un pipeline desacoplado que normaliza cualquier fuente de datos (archivos TXT o conexiones directas) en una sola función central de ingesta llamada `_ingest_rows()`.
-
+```text
+Terminal / archivo TXT → addons → AttendanceLog → motor de asistencia → reportes
+                                PostgreSQL                         Web / Windows
 ```
- [TXT File Upload] ────► [Parsers (Addons)] ──┐
-                                             ├──► _ingest_rows() ──► [PostgreSQL]
- [Network Pull]    ────► [Drivers (Addons)] ──┘
+
+La lógica de cálculo transforma marcaciones crudas en asistencia procesada,
+con soporte para turnos nocturnos, tardanzas, horas extra, incompletos y
+justificaciones.
+
+## 2. Cuentas y permisos
+
+No confundir las cuentas de PostgreSQL con las cuentas de SRTime.
+
+| Cuenta | Finalidad | Dónde se administra |
+|---|---|---|
+| `postgres` | Administración del servidor PostgreSQL. Sólo instalación/recuperación. | PostgreSQL / pgAdmin |
+| `srtime_owner` | Dueño del esquema y migraciones en producción. No debe iniciar sesión. | PostgreSQL |
+| `srtime_app` | Cuenta de conexión de la API. Debe tener privilegios mínimos sobre la BD de SRTime. | `.env` protegido |
+| `admin` | Primera cuenta de SRTime, rol `root`. | Tabla `auth_user` / interfaz Usuarios Autorizados |
+
+Roles de SRTime:
+
+- `root`: administra cuentas, borrados, reproceso total y aprobaciones.
+- `supervisor`: operaciones cotidianas de empleados, turnos, terminales,
+  importación y procesamiento.
+- `admin`: rol legado equivalente a `supervisor`.
+- `viewer`: lectura y exportación.
+
+Las contraseñas de SRTime se almacenan hasheadas. Las claves PostgreSQL y JWT
+nunca se versionan ni se documentan en texto plano.
+
+## 3. Instalación local QA
+
+Requisitos previos: PostgreSQL, Python y Node.js LTS instalados.
+
+1. Ejecutar `Iniciar-SRTime-QA.cmd` una vez. Crea `.venv`, instala dependencias
+   y genera el frontend.
+2. Abrir `http://127.0.0.1:8000/`.
+3. Completar el wizard en dos pasos: crear/conectar la base con PostgreSQL y,
+   cuando se habilite, crear la cuenta inicial `admin`.
+4. Para reinicios posteriores ejecutar:
+
+   ```powershell
+   .\deploy\start-local-qa-server.ps1
+   ```
+
+La configuración local se guarda en `attendance/.env.qa`, ignorado por Git.
+La plantilla segura es `attendance/.env.qa.example`.
+
+## 4. Flujo recomendado de PostgreSQL
+
+En QA, el wizard guarda la conexión PostgreSQL indicada en `.env.qa` y separa
+la creación de la base de la creación del primer usuario de SRTime. Para
+producción se recomienda:
+
+1. Usar una credencial administrativa temporal sólo durante la instalación.
+2. Crear la base `srtime_attendance`.
+3. Crear `srtime_owner` como dueño de base/esquema y sin uso cotidiano.
+4. Crear `srtime_app` con `LOGIN`, contraseña propia y permisos sólo sobre
+   `srtime_attendance`.
+5. Configurar la API con `srtime_app`; nunca con `postgres`. El primer
+   bootstrap otorga `CREATE` en el esquema a esa cuenta para que SRTime pueda
+   inicializarlo y aplicar sus migraciones; en una operación madura, las
+   migraciones pueden ejecutarse separadamente con una cuenta de despliegue.
+6. Guardar `.env` con permisos restringidos y hacer copias de seguridad.
+
+La cuenta de aplicación no debe recibir permisos `CREATEDB`, `CREATEROLE` ni
+permisos sobre otras bases.
+
+## 5. Base de datos y migraciones
+
+Tablas principales:
+
+- `auth_user`: cuentas de acceso a SRTime.
+- `users`: empleados.
+- `shifts`: turnos y tolerancias.
+- `attendance_log`: marcaciones crudas inmutables.
+- `processed_attendance`: cálculo de asistencia.
+- `device_terminal`: terminales y parámetros de conexión.
+- `holidays`: feriados.
+
+En bases existentes, aplicar migraciones desde la raíz del proyecto:
+
+```powershell
+.\.venv\Scripts\alembic.exe upgrade head
 ```
 
-Cada driver o parser es responsable de generar registros bajo una estructura de tupla estándar en Python:
-`Tuple[str, datetime.date, datetime.time, int, str]`
-*(identificador, fecha, hora, tipo de marca, banderas)*
+En una base nueva, el instalador crea el esquema y registra Alembic en `head`.
+No ejecutar `downgrade` en una base con datos sin un backup probado.
 
----
+## 6. Operación y diagnóstico
 
-## 2. Estructura de Tablas SQL
+- Salud de API: `GET /api/health`.
+- Documentación API: `/docs`.
+- Logs: configurar `LOG_DIR`, `LOG_FORMAT` y `LOG_LEVEL` en el entorno.
+- El frontend debe reconstruirse con `npm run build` después de cambios web.
+- Pruebas: `python -m pytest tests -v` desde `attendance/`.
 
-### Tabla: `device_terminal`
-Almacena los datos de configuración física de los relojes.
-* `id` (PK): Clave primaria.
-* `name`: Nombre descriptivo.
-* `driver_name`: Nombre del addon correspondiente (ej: `"ZKTeco"`, `"Hikvision (ISAPI)"`).
-* `ip`: Dirección IP asignada.
-* `port`: Puerto (ZK usa `4370`, Hikvision usa `80` o puerto HTTP alternativo).
-* `connection_params`: JSON con los campos declarados por el manifest del addon. Los secretos
-  se cifran antes de persistirse y nunca se incluyen en respuestas API.
-* `password`: Campo legacy; se migra a `connection_params` al editar la terminal.
-* `serial_number`: Código único del equipo (se auto-completa en la primera prueba).
-* `is_active`: Estado lógico del equipo.
-* `last_sync`: Fecha/hora del último pull exitoso.
-
-### Tabla: `att_logs`
-Contiene los registros de fichadas unificados.
-* `employee_id` (FK): Asociación al ID del empleado.
-* `raw_identifier`: String de 15 caracteres con ceros a la izquierda (ej: `"000000000099999"`).
-* `date`: Fecha de la marca.
-* `time`: Hora de la marca.
-* `mark_type`: Tipo de marca (0 = Entrada, 1 = Salida).
-* `flags`: Cadena de metadatos estandarizada (ej: `"0100100"` para coincidir con el USB).
-* `source_file`: Nombre del archivo de texto cargado o del driver que realizó la descarga.
-
----
-
-## 3. Endpoints de la API REST (FastAPI)
-
-Todos los endpoints requieren autenticación. La Web usa una cookie JWT HttpOnly y las
-integraciones pueden usar `Authorization: Bearer <TOKEN_JWT>`.
-
-* **Listado de Addons** (`GET /api/import/parsers`): Lista los módulos de importación y de hardware válidos y sus campos de configuración requeridos.
-* **Importar Archivo** (`POST /api/import/txt`): Recibe un archivo plano y un parámetro opcional `parser_name`.
-* **Prueba de Conexión** (`POST /api/terminals/{id}/test`): Ejecuta el test de red contra la terminal y recupera el número de serie, MAC y firmware.
-* **Sincronizar Reloj** (`POST /api/terminals/{id}/sync-time`): Actualiza la hora local del dispositivo con la del servidor central.
-* **Descarga Pull Manual** (`POST /api/terminals/{id}/pull`): Realiza la descarga on-demand y actualiza `last_sync` solamente si fue exitosa.
-
-La aplicación productiva es un único servicio FastAPI: sirve `/api/*` y el export estático de
-Next.js desde `attendance/web/out` (o `SRTIME_WEB_DIR`). No requiere Node ni un puerto 3000.
-
----
-
-## 4. Requerimientos de Red (Firewall y Puertos)
-
-Para garantizar la comunicación directa del servidor con los relojes físicos:
-1. **Modelos ZKTeco**: Se requiere habilitar el puerto **`4370` UDP** y **`4370` TCP** en la red local o WAN.
-2. **Modelos Hikvision**: Se requiere habilitar el puerto HTTP del equipo (por defecto, **`80` TCP**).
-
-En despliegues en la nube, se requiere configurar Port Forwarding en los routers de cada sucursal física o interconectar mediante túneles VPN.
-
----
-
-## 5. Guía: Agregar un Nuevo Driver de Reloj
-
-El sistema utiliza escaneo dinámico de addons estilo Odoo. Para soportar una nueva marca:
-1. Cree un subdirectorio en `services/addons/<nombre_marca>/`.
-2. Cree el archivo `__manifest__.py` indicando:
-   - `"name"`: Nombre visual
-   - `"type"`: `"driver"`
-   - `"driver_class"`: Nombre de la clase del driver
-   - `"connection_fields"`: Lista de inputs requeridos (IP, puerto, etc.)
-3. Implemente la clase heredando de `BiometricDriver` en un módulo de Python expuesto por `__init__.py`:
-   - `connect(self, params)`
-   - `test_connection(self, params) -> dict`
-   - `sync_time(self, params) -> bool`
-   - `get_attendance_logs(self) -> Iterator[Tuple[str, date, time, int, str]]`
-   - `disconnect(self)`
-4. El sistema lo detectará automáticamente al iniciar.
+Antes de una actualización: backup PostgreSQL, prueba de restauración, migración
+en staging y validación de login, importación y reportes.

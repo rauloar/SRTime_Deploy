@@ -1,5 +1,5 @@
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import case, func
@@ -18,6 +18,8 @@ from services.justification import JustificationService
 from services.metrics import MetricsCalculator
 from services.export_helpers import build_excel_workbook, streaming_excel_response
 from core.limiter import limiter
+from core.database import SessionLocal
+from core.operation_status import operation_status
 
 router = APIRouter()
 
@@ -30,6 +32,47 @@ class RequestJustifyRequest(BaseModel):
     first_in: str
     last_out: str
     justification: str
+
+
+def _run_processing_job(job_id: str, force_all: bool, username: str) -> None:
+    db = SessionLocal()
+    try:
+        def progress(current: int, total: int) -> None:
+            operation_status.update(job_id, current=current, total=total, message=f"Procesando jornada {current} de {total}")
+
+        count = AttendanceEngine(db).process_all(progress_callback=progress, force_all=force_all)
+        operation_status.complete(job_id, {"processed_days": count, "mode": "all" if force_all else "pending"}, f"Proceso completado: {count} jornadas")
+        logger.info("Background attendance processing done", extra={"user": username, "action": "reprocess_all" if force_all else "process_pending"})
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Background attendance processing failed")
+        operation_status.fail(job_id, f"Error al procesar: {exc}")
+    finally:
+        db.close()
+
+
+@router.post("/jobs/{mode}", status_code=202)
+def start_processing_job(
+    mode: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: AuthUser = Depends(require_supervisor_or_root),
+):
+    if mode not in {"pending", "all"}:
+        raise HTTPException(status_code=400, detail="Unknown processing mode")
+    if mode == "all" and current_user.role != "root":
+        raise HTTPException(status_code=403, detail="Root role is required for historical reprocessing")
+    job = operation_status.create("processing", "Procesamiento en cola")
+    background_tasks.add_task(_run_processing_job, job["id"], mode == "all", current_user.username)
+    return operation_status.get(job["id"])
+
+
+@router.get("/jobs/{job_id}")
+def get_processing_job(job_id: str, current_user: AuthUser = Depends(get_current_user)):
+    job = operation_status.get(job_id)
+    if not job or job["operation"] != "processing":
+        raise HTTPException(status_code=404, detail="Processing job not found")
+    return job
 
 
 @router.post("/process-pending")

@@ -21,7 +21,7 @@ from core.limiter import limiter
 setup_logging()
 logger = get_logger("api")
 
-from api.routers import auth, users, shifts, processed, movements, auth_users, importer, terminals, holidays, dashboard, reports
+from api.routers import auth, users, shifts, processed, movements, auth_users, importer, terminals, holidays, dashboard, reports, setup
 
 
 @asynccontextmanager
@@ -33,7 +33,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="Attendance System API",
     description="SRTime REST API — Attendance Management",
-    version="1.0.0",
+    version="0.9.0-beta.1",
     lifespan=lifespan,
 )
 
@@ -121,6 +121,7 @@ app.add_middleware(
 # ── Mount Sub-Routers ────────────────────────────────────────
 
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
+app.include_router(setup.router, prefix="/api/setup", tags=["Initial Setup"])
 app.include_router(auth_users.router, prefix="/api/auth-users", tags=["Authorized Users"])
 app.include_router(importer.router, prefix="/api/import", tags=["Import"])
 app.include_router(users.router, prefix="/api/users", tags=["Employees Management"])

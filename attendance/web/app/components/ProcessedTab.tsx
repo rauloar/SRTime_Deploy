@@ -5,6 +5,7 @@ import axios from "axios"
 import { RefreshCw, Wrench, X, Play, RotateCcw } from "lucide-react"
 import Pagination from "./Pagination"
 import { downloadFromApi } from "../utils/download"
+import OperationProgress, { OperationJob } from "./OperationProgress"
 
 interface ProcessedRecord {
   id: number; employee_id: number; date: string;
@@ -60,6 +61,7 @@ export default function ProcessedTab() {
   const [justError, setJustError] = useState("")
   const [actionMsg, setActionMsg] = useState("")
   const [processing, setProcessing] = useState<"pending" | "all" | null>(null)
+  const [job, setJob] = useState<OperationJob | null>(null)
   const [selectedRowId, setSelectedRowId] = useState<number | null>(null)
   const [page, setPage]           = useState(1)
   const [pageSize, setPageSize]   = useState(50)
@@ -75,6 +77,24 @@ export default function ProcessedTab() {
 
   useEffect(() => { load() }, [load])
   useEffect(() => { setPage(1) }, [empFilter, dateStart, dateEnd])
+
+  useEffect(() => {
+    if (!job || job.state === "completed" || job.state === "failed") return
+    const timer = window.setInterval(async () => {
+      try {
+        const res = await api.get(`/api/processed/jobs/${job.id}`)
+        const next = res.data as OperationJob
+        setJob(next)
+        if (next.state === "completed") {
+          await load()
+          setActionMsg(`Proceso completado: ${next.result?.processed_days || 0} flujos diarios procesados.`)
+          setProcessing(null)
+        }
+        if (next.state === "failed") { setActionMsg(next.error || next.message); setProcessing(null) }
+      } catch { setActionMsg("No se pudo consultar el progreso del proceso"); setProcessing(null) }
+    }, 500)
+    return () => window.clearInterval(timer)
+  }, [api, job, load])
 
   const nameOf = (emp_id: number) => {
     const u = users.find(x => x.id === emp_id)
@@ -178,13 +198,10 @@ export default function ProcessedTab() {
     setProcessing(mode)
     setActionMsg("")
     try {
-      const endpoint = mode === "pending" ? "/api/processed/process-pending" : "/api/processed/reprocess-all"
-      const res = await api.post(endpoint)
-      await load()
-      setActionMsg(`Proceso completado: ${res.data.processed_days} flujos diarios procesados.`)
+      const res = await api.post(`/api/processed/jobs/${mode}`)
+      setJob(res.data as OperationJob)
     } catch (e: unknown) {
       setActionMsg(getErrorMessage(e, "Error al ejecutar el proceso"))
-    } finally {
       setProcessing(null)
     }
   }
@@ -235,6 +252,8 @@ export default function ProcessedTab() {
         <button className="btn" onClick={exportExcel}>Exportar Excel</button>
         <button className="btn" onClick={load} disabled={loading}><RefreshCw size={14} /> Actualizar</button>
       </div>
+
+      <OperationProgress job={job} />
 
       {actionMsg && <p style={{ fontSize: 13, marginBottom: 10, color: actionMsg.startsWith("Error") ? "var(--status-error)" : "var(--text-secondary)" }}>⚠ {actionMsg}</p>}
 

@@ -342,6 +342,55 @@ label {
   -webkit-backdrop-filter: var(--backdrop-blur);
   backdrop-filter: var(--backdrop-blur);
 }
+.setup-page {
+  height: 100dvh;
+  min-height: 0;
+  padding: 12px;
+  overflow: hidden;
+}
+.setup-login-box {
+  max-width: 520px;
+  max-height: calc(100dvh - 24px);
+  padding: 20px 28px;
+  display: flex;
+  flex-direction: column;
+}
+.login-brand-compact {
+  margin-bottom: 14px !important;
+}
+.login-brand-compact img {
+  width: 48px;
+  height: 48px;
+  margin-bottom: 8px !important;
+}
+.setup-form {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 6px 8px 0;
+}
+.setup-form .form-group { margin-bottom: 10px; }
+.setup-actions {
+  position: sticky;
+  bottom: 0;
+  padding-top: 12px;
+  background: var(--bg-card);
+}
+.password-match-message {
+  margin: -4px 0 12px;
+  font-size: 12px;
+  font-weight: var(--font-weight-semibold);
+}
+.password-match-error { color: var(--status-error); }
+.password-match-ok { color: var(--status-success); }
+.operation-progress { margin: 12px 0; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-card); }
+.operation-progress-label { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; margin-bottom: 7px; }
+.operation-progress-track { height: 8px; overflow: hidden; border-radius: 99px; background: var(--bg-main); }
+.operation-progress-bar { height: 100%; border-radius: inherit; background: var(--primary); transition: width .25s ease; }
+.operation-progress-bar.indeterminate { width: 35%; animation: operation-progress-slide 1s ease-in-out infinite; }
+.operation-progress small { display: block; margin-top: 5px; color: var(--text-muted); font-size: 12px; }
+.table-sort-button { display: inline-flex; align-items: center; gap: 3px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; font-weight: inherit; cursor: pointer; }
+.table-sort-button:hover { color: var(--primary); }
 .login-header {
   font-size: 22px;
   font-weight: 700;
@@ -409,9 +458,12 @@ label {
 @media (max-width: 480px) {
   .content-wrapper { padding: 10px 10px; }
   .login-box { padding: 24px 18px; }
+  .setup-page { padding: 6px; }
+  .setup-login-box { max-height: calc(100dvh - 12px); padding: 16px 16px; }
 }
 
 /* ===== Animations ===== */
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes operation-progress-slide { from { transform: translateX(-120%); } to { transform: translateX(350%); } }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .fade-in { animation: fadeIn .18s ease-out; }

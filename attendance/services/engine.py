@@ -216,6 +216,8 @@ class AttendanceEngine:
                     continue
             
             self.session.commit()
+            if progress_callback:
+                progress_callback(processed_count, total_days)
             logger.info(f"Processing complete: {processed_count} days processed, "
                        f"{len(self.processed_with_errors)} errors")
             return processed_count

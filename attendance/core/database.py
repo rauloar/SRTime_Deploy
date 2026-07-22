@@ -1,6 +1,7 @@
 import os
 import sys
 from sqlalchemy import create_engine
+from sqlalchemy.engine import URL
 from sqlalchemy.orm import sessionmaker, declarative_base
 from dotenv import load_dotenv
 
@@ -22,29 +23,47 @@ else:
 env_path = os.environ.get("SRTIME_ENV_FILE") or os.path.join(base_dir, ".env")
 load_dotenv(dotenv_path=env_path)
 
-DB_ENGINE = os.getenv("DB_ENGINE", "sqlite").lower()
+def build_database_url(settings: dict[str, str] | None = None):
+    """Build the SQLAlchemy URL from the current environment or explicit settings."""
+    source = settings or os.environ
+    db_engine = source.get("DB_ENGINE", "sqlite").lower()
+    if db_engine == "postgres":
+        return URL.create(
+            "postgresql",
+            username=source.get("DB_USER", "postgres"),
+            password=source.get("DB_PASS", ""),
+            host=source.get("DB_HOST", "localhost"),
+            port=int(source.get("DB_PORT", "5432")),
+            database=source.get("DB_NAME", "srtime_attendance"),
+        )
 
-if DB_ENGINE == "postgres":
-    DB_USER = os.getenv("DB_USER", "postgres")
-    DB_PASS = os.getenv("DB_PASS", "password")
-    DB_HOST = os.getenv("DB_HOST", "localhost")
-    DB_PORT = os.getenv("DB_PORT", "5432")
-    DB_NAME = os.getenv("DB_NAME", "srtime_attendance")
-    
-    DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-    engine = create_engine(
-        DATABASE_URL,
-        echo=False
-    )
-else:
-    # Comportamiento por defecto: SQLite
-    db_path = os.path.join(base_dir, "attendance.db")
-    DATABASE_URL = f"sqlite:///{db_path}"
-    engine = create_engine(
-        DATABASE_URL,
-        echo=False,
-        connect_args={"check_same_thread": False}
-    )
+    db_path = source.get("SQLITE_DB_PATH", "attendance.db")
+    if not os.path.isabs(db_path):
+        db_path = os.path.join(base_dir, db_path)
+    return f"sqlite:///{db_path}"
 
+
+def create_database_engine(database_url):
+    is_sqlite = (
+        database_url.get_backend_name() == "sqlite"
+        if isinstance(database_url, URL)
+        else str(database_url).startswith("sqlite")
+    )
+    if is_sqlite:
+        return create_engine(database_url, echo=False, connect_args={"check_same_thread": False})
+    return create_engine(database_url, echo=False)
+
+
+DATABASE_URL = build_database_url()
+engine = create_database_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
+
+
+def configure_database(settings: dict[str, str] | None = None):
+    """Switch the process to a newly configured database after first-run setup."""
+    global DATABASE_URL, engine
+    DATABASE_URL = build_database_url(settings)
+    engine = create_database_engine(DATABASE_URL)
+    SessionLocal.configure(bind=engine)
+    return engine

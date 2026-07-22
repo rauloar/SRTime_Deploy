@@ -81,8 +81,10 @@ attendance/logs/
 
 # ── Datos biométricos/reales de importación ───────────────────
 # Usar exclusivamente attendance/tests/fixtures/tm_mr001_mock.txt en tests.
-TM-MR001.txt
-TM-MR001.Txt
+# Los archivos descargados de terminal, incluso los usados durante QA manual,
+# permanecen locales para no publicar datos biométricos ni identificadores.
+TM-MR001*.txt
+TM-MR001*.Txt
 
 # ── Legacy / generated docs ──────────────────────────────────
 CLEANUP_EXECUTED.md

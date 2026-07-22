@@ -1,5 +1,5 @@
 from typing import Optional, List
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from datetime import date, time
 
 # --- USERS ---
@@ -118,3 +118,24 @@ class AuthMeResponse(BaseModel):
     role: str
     is_active: bool
     must_change_password: bool
+
+
+class SetupStatusResponse(BaseModel):
+    setup_required: bool
+    configured: bool
+
+
+class DatabaseConnectionRequest(BaseModel):
+    db_host: str = Field(min_length=1, max_length=255)
+    db_port: int = Field(default=5432, ge=1, le=65535)
+    db_user: str = Field(min_length=1, max_length=128)
+    db_password: str = Field(min_length=1, max_length=512)
+
+
+class DatabaseSetupRequest(DatabaseConnectionRequest):
+    db_name: str = Field(min_length=1, max_length=63, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+class AdminSetupRequest(BaseModel):
+    admin_password: str = Field(min_length=8, max_length=512)
+    confirm_admin_password: str = Field(min_length=8, max_length=512)
