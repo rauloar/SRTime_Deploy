@@ -199,7 +199,7 @@ def pull_logs_from_terminal(
     except (TerminalOperationError, OSError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    logger.info(f"Pull logs done: {terminal.name} → {nuevos} new, {duplicados} dup", extra={
+    logger.info(f"Pull logs done: {terminal.name}: {nuevos} new, {duplicados} dup", extra={
         "user": current_user.username, "action": "terminal_pull_logs_done"
     })
 

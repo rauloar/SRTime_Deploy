@@ -24,18 +24,15 @@ STAGE="$DIST_DIR/srtime"
 PYTHON="${PYTHON:-python3}"
 NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL-}"
 
-# Versión: VERSION explícita > git describe > fecha
-if [ -z "${VERSION:-}" ]; then
-    VERSION="$(git -C "$PROJ_DIR" describe --tags --always --dirty 2>/dev/null || true)"
-    [ -n "$VERSION" ] || VERSION="$(date -u +%Y%m%d%H%M)"
-fi
-GIT_SHA="$(git -C "$PROJ_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
-GIT_BRANCH="$(git -C "$PROJ_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+# El build no depende de Git. VERSION y SOURCE_REVISION son metadatos aportados
+# por el pipeline o por el operador que construye una copia local del código.
+VERSION="${VERSION:-$(date -u +%Y%m%d%H%M)}"
+SOURCE_REVISION="${SOURCE_REVISION:-local-transfer}"
 BUILD_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 TARBALL="srtime-web-linux-${VERSION}.tar.gz"
 
 echo "=================================================="
-echo "  SRTime — BUILD $VERSION  ($GIT_SHA @ $GIT_BRANCH)"
+echo "  SRTime — BUILD $VERSION  ($SOURCE_REVISION)"
 echo "=================================================="
 
 # ── 1. Compilar la API con Nuitka ─────────────────────────────────────────────
@@ -63,7 +60,18 @@ cd "$PROJ_DIR/attendance"
     --include-package=dotenv \
     --include-package=alembic \
     --include-package=bcrypt \
+    --include-package-data=limits \
     "$PROJ_DIR/deploy/run_api.py"
+
+# Nuitka usa el sufijo .bin en este entorno Debian. El runtime e instalador
+# exponen un nombre estable, independiente de ese detalle del compilador.
+if [ -f "$BUILD_DIR/run_api.dist/run_api.bin" ]; then
+    mv "$BUILD_DIR/run_api.dist/run_api.bin" "$BUILD_DIR/run_api.dist/run_api"
+fi
+[ -x "$BUILD_DIR/run_api.dist/run_api" ] || {
+    echo "✗ Nuitka no generó el ejecutable esperado run_api" >&2
+    exit 1
+}
 
 # ── 2. Compilar el frontend Next.js (export estático) ─────────────────────────
 echo "→ [2/5] Compilando frontend Next.js (NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL)..."
@@ -86,6 +94,7 @@ cp -r out/. "$STAGE/web/"
 # Config + instalador (sin fuente)
 cp "$PROJ_DIR/deploy/.env.production.example"      "$STAGE/config/.env.example"
 cp "$PROJ_DIR/deploy/linux/srtime-api.service"     "$STAGE/config/"
+cp "$PROJ_DIR/deploy/linux/srtime-apache.conf"      "$STAGE/config/"
 cp "$PROJ_DIR/deploy/linux/srtime-nginx.conf"      "$STAGE/config/"
 cp "$PROJ_DIR/deploy/linux/install.sh"             "$STAGE/install.sh"
 chmod +x "$STAGE/install.sh"
@@ -99,8 +108,7 @@ SRTime — Build Manifest
 =======================
 Version       : $VERSION
 Built (UTC)    : $BUILD_UTC
-Git commit     : $GIT_SHA
-Git branch     : $GIT_BRANCH
+Source revision: $SOURCE_REVISION
 Builder host   : $(uname -srm)
 Python         : $($PYTHON --version 2>&1)
 Nuitka         : $($PYTHON -m nuitka --version 2>&1 | head -1)
@@ -129,11 +137,11 @@ if [ ! -f "$REGISTRY" ]; then
 
 Historial de artefactos de producción generados con `deploy/linux/build.sh`.
 
-| Fecha (UTC) | Versión | Git | Artefacto | SHA256 (tar.gz) |
+| Fecha (UTC) | Versión | Fuente | Artefacto | SHA256 (tar.gz) |
 |-------------|---------|-----|-----------|-----------------|
 EOF
 fi
-echo "| $BUILD_UTC | $VERSION | $GIT_SHA | $TARBALL | \`$TAR_SHA\` |" >> "$REGISTRY"
+echo "| $BUILD_UTC | $VERSION | $SOURCE_REVISION | $TARBALL | \`$TAR_SHA\` |" >> "$REGISTRY"
 
 echo "=================================================="
 echo "✅ BUILD OK"

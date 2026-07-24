@@ -6,6 +6,7 @@ import axios from "axios"
 import { Database, Lock, User, AlertCircle, LogIn } from "lucide-react"
 
 const API = process.env.NEXT_PUBLIC_API_URL || ""
+const APP_VERSION = "v0.9.0-beta.2"
 
 export default function LoginPage() {
   const { login } = useAuth()
@@ -18,7 +19,9 @@ export default function LoginPage() {
   const [dbPort, setDbPort] = useState("5432")
   const [dbUser, setDbUser] = useState("postgres")
   const [dbPassword, setDbPassword] = useState("")
-  const [dbName, setDbName] = useState("srtime_qa")
+  // This is only a proposed name; the installer never creates a database
+  // unless the operator explicitly enters it in this field.
+  const [dbName, setDbName] = useState("srtime_db")
   const [databaseCreated, setDatabaseCreated] = useState(false)
   const [adminPassword, setAdminPassword] = useState("")
   const [confirmAdminPassword, setConfirmAdminPassword] = useState("")
@@ -103,6 +106,9 @@ export default function LoginPage() {
           <p style={{ color: "var(--text-secondary)", fontSize: 13, margin: 0 }}>
             Sistema de Control de Asistencias
           </p>
+          <p style={{ color: "var(--text-muted)", fontSize: 11, margin: "5px 0 0" }}>
+            {APP_VERSION}
+          </p>
         </div>
 
         {setupRequired && <div className="setup-form">
@@ -112,14 +118,16 @@ export default function LoginPage() {
           <p style={{ color: "var(--text-secondary)", fontSize: 13, marginBottom: 16 }}>
             Primero creá o conectá la base de datos. Luego definí el usuario inicial de SRTime.
           </p>
-          <form onSubmit={handleCreateDatabase}>
-            <div className="form-group"><label>Servidor PostgreSQL</label><input value={dbHost} onChange={e => setDbHost(e.target.value)} required disabled={databaseCreated} /></div>
-            <div className="form-group"><label>Puerto</label><input type="number" value={dbPort} onChange={e => setDbPort(e.target.value)} required disabled={databaseCreated} /></div>
-            <div className="form-group"><label>Usuario PostgreSQL</label><input value={dbUser} onChange={e => setDbUser(e.target.value)} required disabled={databaseCreated} /></div>
-            <div className="form-group"><label>Contraseña PostgreSQL</label><input type="password" value={dbPassword} onChange={e => setDbPassword(e.target.value)} required disabled={databaseCreated} /></div>
-            <div className="form-group"><label>Base de datos</label><input value={dbName} onChange={e => setDbName(e.target.value)} required disabled={databaseCreated} pattern="[A-Za-z_][A-Za-z0-9_]*" /></div>
-            <button type="submit" className="btn btn-primary" style={{ width: "100%", justifyContent: "center", height: 40 }} disabled={loading || databaseCreated}>{loading ? "Creando..." : "Crear base de datos"}</button>
-          </form>
+          {!databaseCreated ? <form onSubmit={handleCreateDatabase}>
+            <div className="form-group"><label>Servidor PostgreSQL</label><input value={dbHost} onChange={e => setDbHost(e.target.value)} required /></div>
+            <div className="form-group"><label>Puerto</label><input type="number" value={dbPort} onChange={e => setDbPort(e.target.value)} required /></div>
+            <div className="form-group"><label>Usuario PostgreSQL</label><input value={dbUser} onChange={e => setDbUser(e.target.value)} required /></div>
+            <div className="form-group"><label>Contraseña PostgreSQL</label><input type="password" value={dbPassword} onChange={e => setDbPassword(e.target.value)} required /></div>
+            <div className="form-group"><label>Base de datos</label><input value={dbName} onChange={e => setDbName(e.target.value)} required pattern="[A-Za-z_][A-Za-z0-9_]*" /></div>
+            <button type="submit" className="btn btn-primary" style={{ width: "100%", justifyContent: "center", height: 40 }} disabled={loading}>{loading ? "Creando..." : "Crear base de datos"}</button>
+          </form> : <div role="status" style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--status-success)", background: "var(--bg-secondary)", border: "1px solid var(--status-success)", borderRadius: 6, padding: "10px 12px", fontSize: 13 }}>
+            <Database size={16} /> Conexión y esquema de la base listos. Ahora creá el administrador de SRTime.
+          </div>}
           <form onSubmit={handleCreateAdmin} style={{ borderTop: "1px solid var(--border)", marginTop: 20, paddingTop: 16, opacity: databaseCreated ? 1 : .55 }}>
           <div className="form-group">
             <label>Usuario inicial de SRTime</label>

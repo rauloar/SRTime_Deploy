@@ -33,7 +33,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="Attendance System API",
     description="SRTime REST API — Attendance Management",
-    version="0.9.0-beta.1",
+    version="0.9.0-beta.2",
     lifespan=lifespan,
 )
 
@@ -53,7 +53,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         start = time.perf_counter()
 
         logger.info(
-            f"→ {request.method} {request.url.path}",
+            f"REQUEST START {request.method} {request.url.path}",
             extra={
                 "method": request.method,
                 "path": str(request.url.path),
@@ -70,7 +70,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         duration_ms = round((time.perf_counter() - start) * 1000, 1)
 
         logger.info(
-            f"← {request.method} {request.url.path} {response.status_code} ({duration_ms}ms)",
+            f"REQUEST END {request.method} {request.url.path} {response.status_code} ({duration_ms}ms)",
             extra={
                 "method": request.method,
                 "path": str(request.url.path),

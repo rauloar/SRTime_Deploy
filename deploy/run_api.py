@@ -69,10 +69,16 @@ if __name__ == "__main__":
         run_db_bootstrap()
         sys.exit(0)
 
+    requested_workers = int(os.environ.get("API_WORKERS", "1"))
+    # El binario Nuitka recibe la instancia FastAPI, no un import string. Uvicorn
+    # no permite workers múltiples en esa modalidad; se evita un restart loop.
+    if requested_workers != 1:
+        print("[startup] API_WORKERS>1 no es compatible con el binario actual; usando 1.", flush=True)
+
     uvicorn.run(
         app,
         host=os.environ.get("API_HOST", "127.0.0.1"),
         port=int(os.environ.get("API_PORT", "8000")),
-        workers=int(os.environ.get("API_WORKERS", "4")),
+        workers=1,
         log_level=os.environ.get("LOG_LEVEL", "info").lower(),
     )

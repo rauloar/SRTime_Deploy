@@ -34,7 +34,7 @@ def build_database_url(settings: dict[str, str] | None = None):
             password=source.get("DB_PASS", ""),
             host=source.get("DB_HOST", "localhost"),
             port=int(source.get("DB_PORT", "5432")),
-            database=source.get("DB_NAME", "srtime_attendance"),
+            database=source.get("DB_NAME", "srtime_db"),
         )
 
     db_path = source.get("SQLITE_DB_PATH", "attendance.db")

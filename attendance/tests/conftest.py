@@ -1,6 +1,11 @@
-"""
-Fixtures y configuración compartida para tests.
-"""
+"""Fixtures y configuración compartida para tests."""
+import os
+import secrets
+
+# La aplicación exige SECRET_KEY aun al importar routers. Los tests no dependen
+# de un .env local: generan una clave efímera por proceso antes de esos imports.
+os.environ.setdefault("SECRET_KEY", secrets.token_hex(32))
+
 import pytest
 from datetime import datetime, time, date, timedelta
 from sqlalchemy import create_engine

@@ -2,6 +2,8 @@
 
 > Estado de versión: **Beta 0.9.0-beta.1**. Consultar `docs/ESTADO_VERSION.md` antes
 > de promover una instalación a producción.
+> La matriz de hardware, software y perfiles de uso está en
+> `docs/ESPECIFICACIONES_DESPLIEGUE.md`.
 
 ## 1. Arquitectura
 
@@ -41,11 +43,11 @@ Roles de SRTime:
 Las contraseñas de SRTime se almacenan hasheadas. Las claves PostgreSQL y JWT
 nunca se versionan ni se documentan en texto plano.
 
-## 3. Instalación local QA
+## 3. Instalación local de pseudo-producción
 
 Requisitos previos: PostgreSQL, Python y Node.js LTS instalados.
 
-1. Ejecutar `Iniciar-SRTime-QA.cmd` una vez. Crea `.venv`, instala dependencias
+1. Ejecutar `deploy\install-pseudo-pro.ps1` una vez. Crea `.venv`, instala dependencias
    y genera el frontend.
 2. Abrir `http://127.0.0.1:8000/`.
 3. Completar el wizard en dos pasos: crear/conectar la base con PostgreSQL y,
@@ -53,23 +55,28 @@ Requisitos previos: PostgreSQL, Python y Node.js LTS instalados.
 4. Para reinicios posteriores ejecutar:
 
    ```powershell
-   .\deploy\start-local-qa-server.ps1
+   .\deploy\start-pseudo-pro-server.ps1
    ```
 
-La configuración local se guarda en `attendance/.env.qa`, ignorado por Git.
-La plantilla segura es `attendance/.env.qa.example`.
+La configuración local se guarda en `attendance/.env.pseudo_pro`, ignorado por Git.
+La plantilla segura es `attendance/.env.pseudo_pro.example`.
+
+Los logs operativos se escriben en el directorio definido por `LOG_DIR`; los
+archivos de aplicación y errores, tamaño máximo y cantidad de rotaciones se
+configuran con `LOG_APP_FILE`, `LOG_ERROR_FILE`, `LOG_MAX_BYTES` y
+`LOG_BACKUP_COUNT`.
 
 ## 4. Flujo recomendado de PostgreSQL
 
-En QA, el wizard guarda la conexión PostgreSQL indicada en `.env.qa` y separa
+En pseudo-producción, el wizard guarda la conexión PostgreSQL indicada en `.env.pseudo_pro` y separa
 la creación de la base de la creación del primer usuario de SRTime. Para
 producción se recomienda:
 
 1. Usar una credencial administrativa temporal sólo durante la instalación.
-2. Crear la base `srtime_attendance`.
+2. Crear la base `srtime_db` o el nombre elegido durante la instalación.
 3. Crear `srtime_owner` como dueño de base/esquema y sin uso cotidiano.
 4. Crear `srtime_app` con `LOGIN`, contraseña propia y permisos sólo sobre
-   `srtime_attendance`.
+   la base elegida durante la instalación.
 5. Configurar la API con `srtime_app`; nunca con `postgres`. El primer
    bootstrap otorga `CREATE` en el esquema a esa cuenta para que SRTime pueda
    inicializarlo y aplicar sus migraciones; en una operación madura, las

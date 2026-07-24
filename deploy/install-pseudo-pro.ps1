@@ -4,8 +4,8 @@ param([switch]$RebuildWeb)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $attendanceDir = Join-Path $root 'attendance'
-$envFile = Join-Path $attendanceDir '.env.qa'
-$exampleEnv = Join-Path $attendanceDir '.env.qa.example'
+$envFile = Join-Path $attendanceDir '.env.pseudo_pro'
+$exampleEnv = Join-Path $attendanceDir '.env.pseudo_pro.example'
 $webDir = Join-Path $attendanceDir 'web'
 $venvDir = Join-Path $root '.venv'
 $venvPython = Join-Path $venvDir 'Scripts\python.exe'
@@ -57,7 +57,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $webDir 'node_modules'))) {
 if ($RebuildWeb -or -not (Test-Path -LiteralPath (Join-Path $webDir 'out\index.html'))) {
     Push-Location $webDir
     try {
-        # QA runs frontend and API under the same FastAPI origin; do not bake a
+        # Pseudo-production runs frontend and API under the same FastAPI origin; do not bake a
         # localhost URL into the static bundle because 127.0.0.1 is also valid.
         $env:NEXT_PUBLIC_API_URL = ''
         & $npm.Source run build
@@ -67,5 +67,5 @@ if ($RebuildWeb -or -not (Test-Path -LiteralPath (Join-Path $webDir 'out\index.h
 }
 
 Remove-Item Env:\NEXT_PUBLIC_API_URL -ErrorAction SilentlyContinue
-Write-Host 'SRTime QA preparation completed.'
-Write-Host 'Use deploy\start-local-qa-server.ps1 to start the server without reinstalling packages.'
+Write-Host 'SRTime pseudo-production installation completed.'
+Write-Host 'Use deploy\start-pseudo-pro-server.ps1 to start the server without reinstalling packages.'

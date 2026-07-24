@@ -1,35 +1,38 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# SRTime — Orquestador pseudo-producción (clonar + compilar + instalar)
+# SRTime — Orquestador pseudo-producción local (transferir + compilar + instalar)
 # ==============================================================================
-# Flujo para la notebook de pruebas (simula "cliente nuevo" pero compilando en
+# Flujo para una VM de pruebas (simula "cliente nuevo" pero compilando en
 # el propio Linux, porque Nuitka NO cross-compila Win→Linux):
-#   1. Clona el repo de FUENTE en un directorio de STAGING vía deploy key SSH.
+#   1. Recibe un archivo fuente temporal transferido por la red local.
 #   2. Crea venv + instala requirements-web.txt + nuitka, compila con build.sh.
 #   3. Instala SOLO los binarios resultantes con install.sh (sin fuente en runtime).
 #   4. (Opcional) borra el staging → el servicio no expone código fuente.
 #
-# Para entrega a CLIENTE real (sin fuente nunca), no usar esto: usar el flujo
-# build.sh (en tu máquina) → release.sh → srtime-fetch.sh (en el cliente).
+# El staging se borra al terminar; el runtime final contiene sólo el binario.
 #
 # Variables:
-#   REPO_SSH     remoto SSH de la fuente   (default: github-srtime:rauloar/SRTime_Deploy.git)
-#   BRANCH       rama a compilar            (default: master)
+#   SOURCE_ARCHIVE archivo .tar.gz temporal con la fuente (REQUERIDO)
+#   VERSION      versión que se grabará en el artefacto (REQUERIDO)
 #   STAGING_DIR  dir de clonado/compilado   (default: $HOME/srtime-build)
 #   PURGE_SOURCE borrar staging al terminar (default: 0)
 #   + cualquier variable de install.sh (APP_DIR, SERVER_NAME, DB_NAME, ...)
 # ==============================================================================
 set -euo pipefail
 
-REPO_SSH="${REPO_SSH:-github-srtime:rauloar/SRTime_Deploy.git}"
-BRANCH="${BRANCH:-master}"
-STAGING_DIR="${STAGING_DIR:-$HOME/srtime-build}"
-PURGE_SOURCE="${PURGE_SOURCE:-0}"
+SOURCE_ARCHIVE="${SOURCE_ARCHIVE:-}"
+VERSION="${VERSION:-}"
+STAGING_DIR="${STAGING_DIR:-/var/tmp/srtime-build}"
+PURGE_SOURCE="${PURGE_SOURCE:-1}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+[ -n "$SOURCE_ARCHIVE" ] || { echo "✗ Falta SOURCE_ARCHIVE=/ruta/srtime-source.tar.gz"; exit 1; }
+[ -f "$SOURCE_ARCHIVE" ] || { echo "✗ No existe SOURCE_ARCHIVE: $SOURCE_ARCHIVE"; exit 1; }
+[ -n "$VERSION" ] || { echo "✗ Falta VERSION=vX.Y.Z"; exit 1; }
 
 echo "=================================================="
 echo "  SRTime — SETUP pseudo-producción"
-echo "  Repo   : $REPO_SSH ($BRANCH)"
+echo "  Fuente : $SOURCE_ARCHIVE (transferencia local)"
 echo "  Staging: $STAGING_DIR"
 echo "=================================================="
 
@@ -38,11 +41,17 @@ echo "=================================================="
 # tiene un bug y Nuitka la rechaza; si aparece, se hace downgrade a 0.17.2.
 echo "→ [1/4] Instalando toolchain de compilación..."
 if command -v pacman >/dev/null 2>&1; then
-    sudo pacman -Sy --noconfirm --needed base-devel python python-pip nodejs npm git openssl patchelf >/dev/null
+    BUILD_PACKAGES=(base-devel python python-pip openssl patchelf)
+    command -v node >/dev/null 2>&1 || BUILD_PACKAGES+=(nodejs)
+    command -v npm >/dev/null 2>&1 || BUILD_PACKAGES+=(npm)
+    pacman -Sy --noconfirm --needed "${BUILD_PACKAGES[@]}" >/dev/null
 elif command -v apt-get >/dev/null 2>&1; then
     export DEBIAN_FRONTEND=noninteractive
-    sudo apt-get update -qq
-    sudo apt-get install -y -qq build-essential python3 python3-venv python3-pip nodejs npm git openssl patchelf >/dev/null
+    BUILD_PACKAGES=(build-essential python3 python3-venv python3-pip openssl patchelf)
+    command -v node >/dev/null 2>&1 || BUILD_PACKAGES+=(nodejs)
+    command -v npm >/dev/null 2>&1 || BUILD_PACKAGES+=(npm)
+    apt-get update -qq
+    apt-get install -y -qq "${BUILD_PACKAGES[@]}" >/dev/null
 else
     echo "✗ Gestor de paquetes no soportado (pacman/apt)"; exit 1
 fi
@@ -59,14 +68,11 @@ if patchelf --version 2>/dev/null | grep -q '0\.18\.0'; then
     fi
 fi
 
-# ── 2. Clonar / actualizar la fuente vía deploy key ───────────────────────────
-echo "→ [2/4] Obteniendo código fuente (deploy key SSH)..."
-if [ -d "$STAGING_DIR/.git" ]; then
-    git -C "$STAGING_DIR" fetch origin
-    git -C "$STAGING_DIR" reset --hard "origin/$BRANCH"
-else
-    git clone --branch "$BRANCH" "$REPO_SSH" "$STAGING_DIR"
-fi
+# ── 2. Extraer fuente temporal transferida por LAN ────────────────────────────
+echo "→ [2/4] Extrayendo fuente temporal..."
+rm -rf "$STAGING_DIR"
+mkdir -p "$STAGING_DIR"
+tar -xzf "$SOURCE_ARCHIVE" -C "$STAGING_DIR" --strip-components=1
 
 # ── 3. Compilar el artefacto ──────────────────────────────────────────────────
 echo "→ [3/4] Compilando artefacto (Nuitka + Next.js)..."
@@ -76,7 +82,8 @@ source "$STAGING_DIR/.venv-build/bin/activate"
 pip install --quiet --upgrade pip
 pip install --quiet -r "$STAGING_DIR/attendance/requirements-web.txt"
 pip install --quiet nuitka
-PYTHON="$STAGING_DIR/.venv-build/bin/python" bash "$STAGING_DIR/deploy/linux/build.sh"
+VERSION="$VERSION" SOURCE_REVISION="local-lan-transfer" \
+    PYTHON="$STAGING_DIR/.venv-build/bin/python" bash "$STAGING_DIR/deploy/linux/build.sh"
 deactivate
 
 TARBALL="$(ls -t "$STAGING_DIR"/deploy/dist/linux/srtime-web-linux-*.tar.gz | head -1)"

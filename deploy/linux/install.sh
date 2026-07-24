@@ -6,33 +6,37 @@
 # servidor Linux. NO clona el repo, NO compila, NO requiere Python ni código
 # fuente. Pensado para entrega a cliente.
 #
-# Requisitos del SO que instala automáticamente: postgresql y nginx.
+# Requisitos del SO que instala automáticamente: PostgreSQL y reverse proxy.
 # Soporta gestores de paquetes: pacman (Arch/Manjaro) y apt (Debian/Ubuntu).
 #
 # Uso:
 #   sudo TARBALL=/ruta/srtime-web-linux.tar.gz ./install.sh
 #
 # Variables (todas con default razonable, sin nada hardcodeado al equipo):
-#   APP_USER     usuario dueño de la app        (default: usuario que invoca)
+#   APP_USER     usuario de servicio             (default: srtime; se crea si falta)
 #   APP_DIR      directorio de instalación       (default: /opt/srtime)
 #   TARBALL      ruta al .tar.gz compilado        (REQUERIDO)
-#   SERVER_NAME  IP/dominio para nginx            (default: IP primaria del host)
-#   DB_NAME      base de datos PostgreSQL         (default: srtime_attendance)
-#   DB_USER      rol PostgreSQL                   (default: srtime)
+#   SERVER_NAME  IP/dominio para el proxy         (default: IP primaria del host)
+#   DB_NAME      base de datos PostgreSQL         (default: srtime_db)
+#   DB_USER      rol PostgreSQL de aplicación     (default: srtime_app)
 #   DB_PASS      password del rol                 (default: se genera aleatorio)
+#   PROXY        auto, apache o nginx              (default: auto)
 #   ADMIN_PASS   password inicial del admin       (default: se genera aleatorio)
 # ==============================================================================
 set -euo pipefail
 
 # ── Parámetros ────────────────────────────────────────────────────────────────
-APP_USER="${APP_USER:-${SUDO_USER:-$(id -un)}}"
+APP_USER="${APP_USER:-srtime}"
 APP_DIR="${APP_DIR:-/opt/srtime}"
 TARBALL="${TARBALL:-}"
 SERVER_NAME="${SERVER_NAME:-$(hostname -I 2>/dev/null | awk '{print $1}')}"
-DB_NAME="${DB_NAME:-srtime_attendance}"
-DB_USER="${DB_USER:-srtime}"
-DB_PASS="${DB_PASS:-$(openssl rand -hex 16)}"
-ADMIN_PASS="${ADMIN_PASS:-$(openssl rand -base64 12 | tr -d '/+=' | cut -c1-12)}"
+DB_NAME="${DB_NAME:-srtime_db}"
+DB_OWNER="${DB_OWNER:-srtime_owner}"
+DB_USER="${DB_USER:-srtime_app}"
+DB_PASS="${DB_PASS:-A1!$(openssl rand -hex 16)}"
+ADMIN_PASS="${ADMIN_PASS:-A1!$(openssl rand -hex 12)}"
+PROXY="${PROXY:-auto}"
+COOKIE_SECURE="${COOKIE_SECURE:-false}"
 
 log()  { printf '\n\033[1;36m▶ %s\033[0m\n' "$*"; }
 ok()   { printf '  \033[1;32m✔\033[0m %s\n' "$*"; }
@@ -41,7 +45,13 @@ die()  { printf '\n\033[1;31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
 [ "$(id -u)" -eq 0 ] || die "Ejecutá con sudo/root (instala paquetes y servicios)."
 [ -n "$TARBALL" ]    || die "Falta TARBALL=/ruta/srtime-web-linux.tar.gz"
 [ -f "$TARBALL" ]    || die "No existe el tarball: $TARBALL"
-id "$APP_USER" >/dev/null 2>&1 || die "El usuario '$APP_USER' no existe."
+[[ "$DB_NAME" =~ ^[a-z_][a-z0-9_]*$ ]] || die "DB_NAME inválido."
+[[ "$DB_OWNER" =~ ^[a-z_][a-z0-9_]*$ ]] || die "DB_OWNER inválido."
+[[ "$DB_USER" =~ ^[a-z_][a-z0-9_]*$ ]] || die "DB_USER inválido."
+
+if ! id "$APP_USER" >/dev/null 2>&1; then
+    useradd --system --home /var/lib/srtime --create-home --shell /usr/sbin/nologin "$APP_USER"
+fi
 
 log "Configuración del deploy"
 cat <<EOF
@@ -50,7 +60,9 @@ cat <<EOF
   TARBALL     : $TARBALL
   SERVER_NAME : $SERVER_NAME
   DB_NAME     : $DB_NAME
+  DB_OWNER    : $DB_OWNER
   DB_USER     : $DB_USER
+  PROXY       : $PROXY
 EOF
 
 # ── 1. Análisis del sistema: detectar e instalar SOLO lo que falta ────────────
@@ -74,7 +86,7 @@ ok "SO: $(. /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-Linux}") — gesto
 # Componentes requeridos:  binario_a_chequear : paquete_pacman : paquete_apt
 COMPONENTS=(
     "psql:postgresql:postgresql"
-    "nginx:nginx:nginx"
+    "apache2:apache:apache2"
     "openssl:openssl:openssl"
 )
 TO_INSTALL=()
@@ -110,19 +122,24 @@ fi
 systemctl enable --now postgresql >/dev/null 2>&1 || systemctl restart postgresql
 
 # Rol + base de datos (idempotente)
-if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'" | grep -q 1; then
-    sudo -u postgres psql -qc "CREATE ROLE \"$DB_USER\" LOGIN PASSWORD '$DB_PASS';"
-    ok "Rol '$DB_USER' creado"
-else
-    sudo -u postgres psql -qc "ALTER ROLE \"$DB_USER\" LOGIN PASSWORD '$DB_PASS';"
-    ok "Rol '$DB_USER' ya existía — password actualizado"
+if ! runuser -u postgres -- psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='$DB_OWNER'" | grep -q 1; then
+    runuser -u postgres -- psql -qc "CREATE ROLE \"$DB_OWNER\" NOLOGIN;"
+    ok "Rol propietario '$DB_OWNER' creado"
 fi
-if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='$DB_NAME'" | grep -q 1; then
-    sudo -u postgres createdb -O "$DB_USER" "$DB_NAME"
+if ! runuser -u postgres -- psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'" | grep -q 1; then
+    runuser -u postgres -- psql -qc "CREATE ROLE \"$DB_USER\" LOGIN PASSWORD '$DB_PASS';"
+    ok "Rol de aplicación '$DB_USER' creado"
+else
+    runuser -u postgres -- psql -qc "ALTER ROLE \"$DB_USER\" LOGIN PASSWORD '$DB_PASS';"
+    ok "Rol de aplicación '$DB_USER' ya existía — password actualizado"
+fi
+if ! runuser -u postgres -- psql -tAc "SELECT 1 FROM pg_database WHERE datname='$DB_NAME'" | grep -q 1; then
+    runuser -u postgres -- createdb -O "$DB_OWNER" "$DB_NAME"
     ok "Base '$DB_NAME' creada"
 else
     ok "Base '$DB_NAME' ya existía"
 fi
+runuser -u postgres -- psql -d "$DB_NAME" -qc "GRANT USAGE, CREATE ON SCHEMA public TO \"$DB_USER\";"
 
 # ── 3. Extraer el artefacto (solo binarios, sin fuente) ───────────────────────
 log "[3/7] Extrayendo artefacto en $APP_DIR..."
@@ -151,9 +168,10 @@ SECRET_KEY=$SECRET_KEY
 TERMINAL_CREDENTIAL_KEY=$TERMINAL_CREDENTIAL_KEY
 API_HOST=127.0.0.1
 API_PORT=8000
-API_WORKERS=4
+API_WORKERS=1
+SRTIME_SETUP_ALLOWED_IPS=${SRTIME_SETUP_ALLOWED_IPS:-}
 SRTIME_WEB_DIR=$APP_DIR/web
-COOKIE_SECURE=false
+COOKIE_SECURE=$COOKIE_SECURE
 ACCESS_TOKEN_EXPIRE_MINUTES=60
 MAX_IMPORT_SIZE_BYTES=10485760
 CORS_ORIGINS=["http://$SERVER_NAME"]
@@ -169,7 +187,7 @@ install -d -o "$APP_USER" -g "$APP_USER" /var/log/srtime
 
 # ── 5. Bootstrap de la base de datos (create_all + seed admin) ────────────────
 log "[5/7] Inicializando esquema y usuario admin..."
-sudo -u "$APP_USER" env \
+runuser -u "$APP_USER" -- env \
     SRTIME_ENV_FILE="$ENV_FILE" \
     RUN_DB_BOOTSTRAP=1 \
     SRTIME_ADMIN_PASSWORD="$ADMIN_PASS" \
@@ -187,21 +205,39 @@ systemctl daemon-reload
 systemctl disable --now srtime-web >/dev/null 2>&1 || true
 systemctl enable --now srtime-api >/dev/null 2>&1 || true
 
-# ── 7. Reverse proxy nginx ────────────────────────────────────────────────────
-log "[7/7] Configurando reverse proxy nginx..."
-NGINX_CONF="$APP_DIR/config/srtime-nginx.conf"
-RENDERED="$(sed "s|__SERVER_NAME__|$SERVER_NAME|g" "$NGINX_CONF")"
-if [ -d /etc/nginx/sites-available ]; then           # Debian/Ubuntu
-    printf '%s\n' "$RENDERED" > /etc/nginx/sites-available/srtime.conf
-    ln -sf /etc/nginx/sites-available/srtime.conf /etc/nginx/sites-enabled/srtime.conf
-    rm -f /etc/nginx/sites-enabled/default
-else                                                  # Arch/Manjaro
-    install -d /etc/nginx/conf.d
-    printf '%s\n' "$RENDERED" > /etc/nginx/conf.d/srtime.conf
+# ── 7. Reverse proxy ─────────────────────────────────────────────────────────
+log "[7/7] Configurando reverse proxy..."
+if [ "$PROXY" = auto ]; then
+    if systemctl is-active --quiet apache2 || command -v apache2 >/dev/null 2>&1; then
+        PROXY=apache
+    else
+        PROXY=nginx
+    fi
 fi
-nginx -t >/dev/null 2>&1 || die "Configuración nginx inválida (nginx -t falló)."
-systemctl enable --now nginx >/dev/null 2>&1 || systemctl reload nginx
-ok "nginx configurado y recargado"
+if [ "$PROXY" = apache ]; then
+    a2enmod proxy proxy_http headers >/dev/null
+    sed "s|__SERVER_NAME__|$SERVER_NAME|g" "$APP_DIR/config/srtime-apache.conf" > /etc/apache2/sites-available/srtime.conf
+    a2ensite srtime.conf >/dev/null
+    apachectl configtest >/dev/null || die "Configuración Apache inválida."
+    systemctl enable --now apache2 >/dev/null
+    systemctl reload apache2
+elif [ "$PROXY" = nginx ]; then
+    NGINX_CONF="$APP_DIR/config/srtime-nginx.conf"
+    RENDERED="$(sed "s|__SERVER_NAME__|$SERVER_NAME|g" "$NGINX_CONF")"
+    if [ -d /etc/nginx/sites-available ]; then
+        printf '%s\n' "$RENDERED" > /etc/nginx/sites-available/srtime.conf
+        ln -sf /etc/nginx/sites-available/srtime.conf /etc/nginx/sites-enabled/srtime.conf
+    else
+        install -d /etc/nginx/conf.d
+        printf '%s\n' "$RENDERED" > /etc/nginx/conf.d/srtime.conf
+    fi
+    nginx -t >/dev/null || die "Configuración nginx inválida."
+    systemctl enable --now nginx >/dev/null
+    systemctl reload nginx
+else
+    die "PROXY debe ser auto, apache o nginx."
+fi
+ok "Proxy $PROXY configurado y recargado"
 
 # ── Resumen ───────────────────────────────────────────────────────────────────
 log "✅ INSTALACIÓN COMPLETA"
@@ -214,7 +250,7 @@ cat <<EOF
 
   Verificación:
     curl -fsS http://localhost/api/health
-    systemctl status srtime-api nginx
+    systemctl status srtime-api $PROXY
 
   ⚠ Guardá estas credenciales: no se vuelven a mostrar.
 EOF

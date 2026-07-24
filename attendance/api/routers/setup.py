@@ -2,8 +2,6 @@
 import os
 from pathlib import Path
 
-from alembic import command
-from alembic.config import Config
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL
@@ -23,8 +21,16 @@ _LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
 
 def _require_local_request(request: Request) -> None:
     host = request.client.host if request.client else ""
-    if host not in _LOCAL_HOSTS:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Initial setup is available only from the local machine")
+    configured_hosts = {
+        value.strip()
+        for value in os.getenv("SRTIME_SETUP_ALLOWED_IPS", "").split(",")
+        if value.strip()
+    }
+    if host not in _LOCAL_HOSTS | configured_hosts:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Initial setup is available only from an authorized machine",
+        )
 
 
 def _configured() -> bool:
@@ -39,7 +45,7 @@ def _configured() -> bool:
 
 
 def _write_local_config(values: dict[str, str]) -> None:
-    env_path = Path(os.environ.get("SRTIME_ENV_FILE", Path(__file__).parents[2] / ".env.qa"))
+    env_path = Path(os.environ.get("SRTIME_ENV_FILE", Path(__file__).parents[2] / ".env.pseudo_pro"))
     current: dict[str, str] = {}
     if env_path.exists():
         for line in env_path.read_text(encoding="utf-8").splitlines():
@@ -51,12 +57,6 @@ def _write_local_config(values: dict[str, str]) -> None:
     temp_path = env_path.with_suffix(env_path.suffix + ".tmp")
     temp_path.write_text(content, encoding="utf-8")
     os.replace(temp_path, env_path)
-
-
-def _stamp_schema_head() -> None:
-    """The installer uses create_all for a new schema, then records Alembic head."""
-    root = Path(__file__).parents[3]
-    command.stamp(Config(str(root / "alembic.ini")), "head")
 
 
 def _maintenance_url(body: DatabaseConnectionRequest) -> URL:
@@ -128,7 +128,6 @@ def create_database(body: DatabaseSetupRequest, request: Request):
         target_engine = configure_database(settings)
         # The first SRTime user is deliberately created only by /admin.
         init_database(target_engine, defer_admin_setup=True)
-        _stamp_schema_head()
     except (SQLAlchemyError, UnicodeDecodeError, OSError) as exc:
         # psycopg2 may raise UnicodeDecodeError while decoding a localized
         # PostgreSQL authentication error (for example, a Spanish server).
