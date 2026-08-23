@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from datetime import datetime, time
 from typing import Any, Optional
 
 from api.deps import get_db, get_current_user, get_terminal_or_404, ok_response, require_root, require_supervisor_or_root
@@ -15,7 +16,9 @@ from services.terminals import (
     public_connection_params,
     sync_time as service_sync_time,
     test_connection as service_test_connection,
+    pull_logs as service_pull_logs,
 )
+from services.terminal_scheduler import schedule_next_pull
 
 logger = get_logger(__name__)
 
@@ -40,6 +43,13 @@ class TerminalUpdate(BaseModel):
     is_active: Optional[bool] = None
 
 
+class TerminalScheduleUpdate(BaseModel):
+    enabled: bool = False
+    interval_minutes: Optional[int] = None
+    window_start: Optional[time] = None
+    window_end: Optional[time] = None
+
+
 @router.get("/")
 def list_terminals(
     db: Session = Depends(get_db),
@@ -62,6 +72,15 @@ def list_terminals(
                 "serial_number": t.serial_number,
                 "is_active": t.is_active,
                 "last_sync": str(t.last_sync) if t.last_sync else None,
+                "pull_schedule": {
+                    "enabled": t.pull_schedule_enabled,
+                    "interval_minutes": t.pull_interval_minutes,
+                    "window_start": t.pull_window_start.isoformat() if t.pull_window_start else None,
+                    "window_end": t.pull_window_end.isoformat() if t.pull_window_end else None,
+                    "next_pull_at": str(t.next_pull_at) if t.next_pull_at else None,
+                    "last_status": t.last_pull_status,
+                    "last_error": t.last_pull_error,
+                },
                 "created_at": str(t.created_at) if t.created_at else None,
             }
             for t in terminals
@@ -169,3 +188,56 @@ def sync_terminal_time(
         return ok_response({"ok": ok})
     except (TerminalOperationError, OSError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/{terminal_id}/pull")
+def pull_terminal_logs_now(
+    terminal_id: int,
+    db: Session = Depends(get_db),
+    current_user: AuthUser = Depends(require_supervisor_or_root),
+):
+    """Descarga raw on-demand por el mismo pipeline que el importer."""
+    terminal = get_terminal_or_404(terminal_id, db)
+    if not terminal.is_active:
+        raise HTTPException(status_code=400, detail="La terminal está inactiva")
+    try:
+        nuevos, duplicados, total, logs_msgs = service_pull_logs(terminal, db)
+        terminal.last_pull_status = "ok"
+        terminal.last_pull_error = None
+        db.commit()
+        logger.info("Terminal raw pull completed", extra={"user": current_user.username, "action": "terminal_pull_manual"})
+        return {"ok": True, "terminal_name": terminal.name, "total": total, "nuevos": nuevos, "duplicados": duplicados, "logs": logs_msgs[-200:]}
+    except (TerminalOperationError, OSError, RuntimeError, ValueError) as exc:
+        db.rollback()
+        terminal = get_terminal_or_404(terminal_id, db)
+        terminal.last_pull_status = "error"
+        terminal.last_pull_error = str(exc)[:500]
+        db.commit()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.put("/{terminal_id}/pull-schedule")
+def update_pull_schedule(
+    terminal_id: int,
+    payload: TerminalScheduleUpdate,
+    db: Session = Depends(get_db),
+    current_user: AuthUser = Depends(require_supervisor_or_root),
+):
+    terminal = get_terminal_or_404(terminal_id, db)
+    if payload.enabled and (payload.interval_minutes is None or payload.interval_minutes < 1):
+        raise HTTPException(status_code=422, detail="El intervalo debe ser de al menos un minuto")
+    if (payload.window_start is None) != (payload.window_end is None):
+        raise HTTPException(status_code=422, detail="Indique inicio y fin de franja, o deje ambos vacíos")
+    terminal.pull_schedule_enabled = payload.enabled
+    terminal.pull_interval_minutes = payload.interval_minutes if payload.enabled else None
+    terminal.pull_window_start = payload.window_start if payload.enabled else None
+    terminal.pull_window_end = payload.window_end if payload.enabled else None
+    if payload.enabled:
+        schedule_next_pull(terminal, datetime.now())
+    else:
+        terminal.next_pull_at = None
+        terminal.last_pull_status = None
+        terminal.last_pull_error = None
+    db.commit()
+    logger.info("Terminal pull schedule updated", extra={"user": current_user.username, "action": "terminal_pull_schedule"})
+    return ok_response({"enabled": terminal.pull_schedule_enabled, "next_pull_at": str(terminal.next_pull_at) if terminal.next_pull_at else None})

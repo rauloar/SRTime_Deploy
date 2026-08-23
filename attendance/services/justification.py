@@ -97,6 +97,51 @@ class JustificationService:
         self.db.refresh(record)
         return record
 
+    # ── Ausencias: mismo registro procesado, sin tabla adicional ───
+
+    def apply_absence_direct(self, record: ProcessedAttendance, reason: str) -> ProcessedAttendance:
+        """Justifica una ausencia conservando su procedencia en el registro."""
+        record.first_in = None
+        record.last_out = None
+        record.total_hours = 0.0
+        record.tardiness_minutes = 0
+        record.early_departure_minutes = 0
+        record.overtime_minutes = 0
+        record.status = "JUSTIFICADO"
+        record.justification = reason
+        # Permite que el endpoint de Ausencias siga mostrando el registro.
+        record.previous_status = "AUSENTE"
+        record.pending_first_in = None
+        record.pending_last_out = None
+        record.pending_justification = None
+        record.requested_by = None
+        self.db.commit()
+        self.db.refresh(record)
+        return record
+
+    def request_absence(self, record: ProcessedAttendance, reason: str, requested_by: str) -> ProcessedAttendance:
+        """Un supervisor solicita justificar una ausencia para aprobación de root."""
+        record.previous_status = "AUSENTE"
+        record.pending_first_in = None
+        record.pending_last_out = None
+        record.pending_justification = reason
+        record.requested_by = requested_by
+        record.status = "PENDIENTE"
+        self.db.commit()
+        self.db.refresh(record)
+        return record
+
+    def approve_absence(self, record: ProcessedAttendance) -> ProcessedAttendance:
+        return self.apply_absence_direct(record, record.pending_justification or "")
+
+    def reject_absence(self, record: ProcessedAttendance) -> ProcessedAttendance:
+        record.status = "AUSENTE"
+        record.justification = None
+        self._clear_pending_fields(record)
+        self.db.commit()
+        self.db.refresh(record)
+        return record
+
     # ── Helpers ───────────────────────────────────────────────────
 
     @staticmethod

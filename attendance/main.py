@@ -1,11 +1,63 @@
 import sys
 import platform
-from PySide6.QtWidgets import QApplication
+import os
+from PySide6.QtWidgets import QApplication, QLineEdit
 
 app = QApplication(sys.argv)
 
 from core.init_db import init_database
+from core.database import SessionLocal
+from models.user import AuthUser
 from ui.main_window import MainWindow
+
+
+def ensure_local_admin() -> None:
+    """Create the first desktop admin interactively for a fresh SQLite install."""
+    if os.getenv("DB_ENGINE", "sqlite").lower() != "sqlite":
+        return
+    session = SessionLocal()
+    try:
+        if session.query(AuthUser).first():
+            return
+        from PySide6.QtWidgets import QInputDialog, QMessageBox
+        from core.security import hash_password, validate_password
+
+        while True:
+            password, accepted = QInputDialog.getText(
+                None,
+                "Configuración inicial",
+                "Creá la contraseña del administrador local:",
+                QLineEdit.EchoMode.Password,
+            )
+            if not accepted:
+                raise SystemExit("La contraseña inicial es necesaria para usar SRTime.")
+            confirmation, confirmed = QInputDialog.getText(
+                None,
+                "Confirmar contraseña",
+                "Repetí la contraseña:",
+                QLineEdit.EchoMode.Password,
+            )
+            if not confirmed:
+                continue
+            if password != confirmation:
+                QMessageBox.warning(None, "Contraseña", "Las contraseñas no coinciden.")
+                continue
+            try:
+                validate_password(password)
+            except ValueError as exc:
+                QMessageBox.warning(None, "Contraseña", str(exc))
+                continue
+            session.add(AuthUser(
+                username="admin",
+                password_hash=hash_password(password),
+                role="root",
+                must_change_password=False,
+                is_active=True,
+            ))
+            session.commit()
+            return
+    finally:
+        session.close()
 
 def detect_system_theme():
     # Windows 10/11: Lee el registro para saber si el sistema está en modo oscuro
@@ -32,7 +84,10 @@ def detect_system_theme():
     return "light"
 
 if __name__ == "__main__":
-    init_database()
+    # The executable has an empty SQLite database on first install. Schema is
+    # created without a password in files; the operator creates admin locally.
+    init_database(defer_admin_setup=True)
+    ensure_local_admin()
     app.setStyle("Fusion")
     theme = detect_system_theme()
     # QSS manual para tema claro y oscuro
@@ -59,7 +114,7 @@ if __name__ == "__main__":
     # Ventana de login
     from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox
     from sqlalchemy.orm import Session
-    from core.security import verify_password, hash_password
+    from core.security import verify_password, hash_password, validate_password
     from models.user import AuthUser
     from PySide6.QtGui import QIcon, QPixmap, QFont
     from PySide6.QtCore import Qt
@@ -189,11 +244,13 @@ AAABAAEAICAAAAAAIADaCQAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAgAAAAIAgGAAAAc3p69AAACaFJ
                     def save_new_password():
                         p1 = new_pass.text()
                         p2 = confirm_pass.text()
-                        if len(p1) < 6:
-                            QMessageBox.warning(dlg, "Error", "La contraseña debe tener al menos 12 caracteres.")
-                            return
                         if p1 != p2:
                             QMessageBox.warning(dlg, "Error", "Las contraseñas no coinciden.")
+                            return
+                        try:
+                            validate_password(p1)
+                        except ValueError as exc:
+                            QMessageBox.warning(dlg, "Error", str(exc))
                             return
                         user.password_hash = hash_password(p1)
                         user.must_change_password = False

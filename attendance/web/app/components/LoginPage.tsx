@@ -7,6 +7,7 @@ import { Database, Lock, User, AlertCircle, LogIn } from "lucide-react"
 
 const API = process.env.NEXT_PUBLIC_API_URL || ""
 const APP_VERSION = "v0.9.0-beta.2"
+const PASSWORD_PATTERN = "(?=.*[A-Za-z])(?=.*\\d)[A-Za-z\\d]{8,}"
 
 export default function LoginPage() {
   const { login } = useAuth()
@@ -15,6 +16,7 @@ export default function LoginPage() {
   const [error, setError]   = useState("")
   const [loading, setLoading] = useState(false)
   const [setupRequired, setSetupRequired] = useState<boolean | null>(null)
+  const [databaseEngine, setDatabaseEngine] = useState("postgres")
   const [dbHost, setDbHost] = useState("localhost")
   const [dbPort, setDbPort] = useState("5432")
   const [dbUser, setDbUser] = useState("postgres")
@@ -32,6 +34,7 @@ export default function LoginPage() {
     axios.get(`${API}/api/setup/status`)
       .then(res => {
         setSetupRequired(Boolean(res.data.setup_required))
+        setDatabaseEngine(res.data.database_engine || "postgres")
         setDatabaseCreated(Boolean(res.data.configured && res.data.setup_required))
       })
       // A failed status check must never expose the login form as if setup had
@@ -116,9 +119,11 @@ export default function LoginPage() {
             <Database size={17} /> Configuración inicial
           </div>
           <p style={{ color: "var(--text-secondary)", fontSize: 13, marginBottom: 16 }}>
-            Primero creá o conectá la base de datos. Luego definí el usuario inicial de SRTime.
+            {databaseEngine === "sqlite"
+              ? "SRTime creará la base local en este equipo. Definí el usuario inicial para comenzar."
+              : "Primero creá o conectá la base de datos. Luego definí el usuario inicial de SRTime."}
           </p>
-          {!databaseCreated ? <form onSubmit={handleCreateDatabase}>
+          {!databaseCreated && databaseEngine !== "sqlite" ? <form onSubmit={handleCreateDatabase}>
             <div className="form-group"><label>Servidor PostgreSQL</label><input value={dbHost} onChange={e => setDbHost(e.target.value)} required /></div>
             <div className="form-group"><label>Puerto</label><input type="number" value={dbPort} onChange={e => setDbPort(e.target.value)} required /></div>
             <div className="form-group"><label>Usuario PostgreSQL</label><input value={dbUser} onChange={e => setDbUser(e.target.value)} required /></div>
@@ -126,16 +131,16 @@ export default function LoginPage() {
             <div className="form-group"><label>Base de datos</label><input value={dbName} onChange={e => setDbName(e.target.value)} required pattern="[A-Za-z_][A-Za-z0-9_]*" /></div>
             <button type="submit" className="btn btn-primary" style={{ width: "100%", justifyContent: "center", height: 40 }} disabled={loading}>{loading ? "Creando..." : "Crear base de datos"}</button>
           </form> : <div role="status" style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--status-success)", background: "var(--bg-secondary)", border: "1px solid var(--status-success)", borderRadius: 6, padding: "10px 12px", fontSize: 13 }}>
-            <Database size={16} /> Conexión y esquema de la base listos. Ahora creá el administrador de SRTime.
+            <Database size={16} /> {databaseEngine === "sqlite" ? "Base local lista para inicializar." : "Conexión y esquema de la base listos. Ahora creá el administrador de SRTime."}
           </div>}
           <form onSubmit={handleCreateAdmin} style={{ borderTop: "1px solid var(--border)", marginTop: 20, paddingTop: 16, opacity: databaseCreated ? 1 : .55 }}>
           <div className="form-group">
             <label>Usuario inicial de SRTime</label>
             <input value="admin" disabled aria-label="Usuario inicial de SRTime" />
-            <p style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 5 }}>Disponible luego de crear la base de datos.</p>
+            <p style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 5 }}>{databaseEngine === "sqlite" ? "Administrador de la base local de este equipo." : "Disponible luego de crear la base de datos."}</p>
           </div>
-          <div className="form-group"><label>Contraseña para el usuario admin</label><input type="password" value={adminPassword} onChange={e => setAdminPassword(e.target.value)} required disabled={!databaseCreated} minLength={8} /></div>
-          <div className="form-group"><label>Confirmar contraseña</label><input type="password" value={confirmAdminPassword} onChange={e => setConfirmAdminPassword(e.target.value)} required disabled={!databaseCreated} minLength={8} /></div>
+          <div className="form-group"><label>Contraseña para el usuario admin</label><input type="password" value={adminPassword} onChange={e => setAdminPassword(e.target.value)} required disabled={!databaseCreated} minLength={8} pattern={PASSWORD_PATTERN} title="Al menos 8 caracteres, con una letra y un número; sin caracteres especiales" /></div>
+          <div className="form-group"><label>Confirmar contraseña</label><input type="password" value={confirmAdminPassword} onChange={e => setConfirmAdminPassword(e.target.value)} required disabled={!databaseCreated} minLength={8} pattern={PASSWORD_PATTERN} title="Al menos 8 caracteres, con una letra y un número; sin caracteres especiales" /></div>
           {passwordsMismatch && <p className="password-match-message password-match-error">Las contraseñas no coinciden.</p>}
           {passwordsMatch && <p className="password-match-message password-match-ok">Las contraseñas coinciden.</p>}
           <div className="setup-actions">

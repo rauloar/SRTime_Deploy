@@ -23,14 +23,14 @@ Nunca se agregan contraseñas reales a `.env.pseudo_pro.example`, documentación
 ## Primer inicio
 
 1. Verificar que PostgreSQL y Node.js LTS estén instalados.
-2. Ejecutar `deploy\install-pseudo-pro.ps1`. Este paso crea `.venv`, instala
+2. Ejecutar `deploy\web\install-pseudo-pro.ps1`. Este paso crea `.venv`, instala
    dependencias Python y Node, genera el frontend estático y luego inicia SRTime.
    Se realiza una vez por instalación o cuando se decide reconstruir dependencias.
 
    También puede ejecutarse la preparación sola:
 
    ```powershell
-   .\deploy\install-pseudo-pro.ps1
+.\deploy\web\install-pseudo-pro.ps1
    ```
 
 3. Abrir `http://127.0.0.1:8000/`. El primer paso usa los valores por defecto
@@ -49,7 +49,7 @@ Para iniciar SRTime sin instalar paquetes, crear el entorno virtual ni compilar
 la web, ejecutar:
 
 ```powershell
-.\deploy\start-pseudo-pro-server.ps1
+.\deploy\web\start-pseudo-pro-server.ps1
 ```
 
 ## Reconstruir la interfaz
@@ -57,7 +57,7 @@ la web, ejecutar:
 Después de modificar código del frontend, iniciar con:
 
 ```powershell
-.\deploy\install-pseudo-pro.ps1 -RebuildWeb
+.\deploy\web\install-pseudo-pro.ps1 -RebuildWeb
 ```
 
 La base configurada conserva sus datos entre arranques. No usar este iniciador

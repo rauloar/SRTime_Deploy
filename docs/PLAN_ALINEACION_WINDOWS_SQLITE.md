@@ -93,6 +93,19 @@ presentar resultados.
 SQLite es el valor por defecto del instalador Windows. PostgreSQL se configura
 de forma explícita y nunca se incluyen sus credenciales en el ejecutable.
 
+### Archivo de configuración de escritorio
+
+La distribución incluye `attendance/.env.desktop.example`. El operador lo copia
+como `attendance/.env` y comienza con `DB_ENGINE=sqlite` y
+`SQLITE_DB_PATH=attendance.db`. No necesita servidor ni credenciales de base de
+datos para el perfil local.
+
+Si la edición Windows se conecta a un PostgreSQL corporativo, el operador cambia
+explícitamente `DB_ENGINE=postgres` y completa `DB_HOST`, `DB_PORT`, `DB_USER`,
+`DB_PASS` y `DB_NAME` en ese mismo `.env`. El archivo real está ignorado por Git;
+el template no contiene secretos. Para SQLite, `migrate_sqlite.py` ahora usa
+`SQLITE_DB_PATH`; para PostgreSQL se usa `alembic upgrade head`.
+
 ## Fase 6 — Nueva distribución Windows
 
 1. Ejecutar pruebas SQLite y paridad antes de empaquetar.

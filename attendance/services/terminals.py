@@ -9,7 +9,7 @@ from models.terminal import DeviceTerminal
 from core.credentials import decrypt_credential, encrypt_credential
 
 
-SECRET_FIELDS = frozenset({"password", "db_password", "token", "secret", "api_key"})
+SECRET_FIELDS = frozenset({"password", "db_password", "token", "api_token", "secret", "api_key"})
 
 
 class TerminalOperationError(RuntimeError):

@@ -47,7 +47,7 @@ nunca se versionan ni se documentan en texto plano.
 
 Requisitos previos: PostgreSQL, Python y Node.js LTS instalados.
 
-1. Ejecutar `deploy\install-pseudo-pro.ps1` una vez. Crea `.venv`, instala dependencias
+1. Ejecutar `deploy\web\install-pseudo-pro.ps1` una vez. Crea `.venv`, instala dependencias
    y genera el frontend.
 2. Abrir `http://127.0.0.1:8000/`.
 3. Completar el wizard en dos pasos: crear/conectar la base con PostgreSQL y,
@@ -55,11 +55,16 @@ Requisitos previos: PostgreSQL, Python y Node.js LTS instalados.
 4. Para reinicios posteriores ejecutar:
 
    ```powershell
-   .\deploy\start-pseudo-pro-server.ps1
+   .\deploy\web\start-pseudo-pro-server.ps1
    ```
 
 La configuración local se guarda en `attendance/.env.pseudo_pro`, ignorado por Git.
 La plantilla segura es `attendance/.env.pseudo_pro.example`.
+
+Para una instalación compilada de cliente en Windows mediante Inno Setup,
+seguir `docs/INSTALACION_SRTIME_WEB_WINDOWS.md`. El instalador coloca SRTime
+en `C:\Service Reloj\SRTime`, registra el servicio `SRTimeWeb` y genera una
+configuración local sin credenciales preincluidas.
 
 Los logs operativos se escriben en el directorio definido por `LOG_DIR`; los
 archivos de aplicación y errores, tamaño máximo y cantidad de rotaciones se
@@ -111,6 +116,10 @@ No ejecutar `downgrade` en una base con datos sin un backup probado.
 
 - Salud de API: `GET /api/health`.
 - Documentación API: `/docs`.
+- Acceso desde PCs de la misma LAN: seguir
+  `docs/ACCESO_LAN_WINDOWS.md`. La API escucha según `API_HOST` y el firewall
+  de Windows se limita a la subred autorizada; los clientes nunca deben abrir
+  una conexión directa a PostgreSQL.
 - Logs: configurar `LOG_DIR`, `LOG_FORMAT` y `LOG_LEVEL` en el entorno.
 - El frontend debe reconstruirse con `npm run build` después de cambios web.
 - Pruebas: `python -m pytest tests -v` desde `attendance/`.

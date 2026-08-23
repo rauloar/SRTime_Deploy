@@ -2,17 +2,18 @@
 import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "../context/AuthContext"
 import axios from "axios"
-import { RefreshCw, Wrench, X, Play, RotateCcw } from "lucide-react"
+import { RefreshCw, Wrench, Play, RotateCcw } from "lucide-react"
 import Pagination from "./Pagination"
 import { downloadFromApi } from "../utils/download"
 import OperationProgress, { OperationJob } from "./OperationProgress"
+import AttendanceCorrectionModal from "./AttendanceCorrectionModal"
 
 interface ProcessedRecord {
   id: number; employee_id: number; date: string;
   first_in: string | null; last_out: string | null;
   total_hours: number; tardiness_minutes: number;
   early_departure_minutes: number; overtime_minutes: number;
-  status: string; justification: string | null
+  status: string; justification: string | null; previous_status?: string | null
 }
 interface User { id: number; first_name: string | null; last_name: string | null }
 
@@ -22,20 +23,6 @@ const STATUS_BADGE: Record<string, string> = {
 }
 function today() { return new Date().toISOString().slice(0, 10) }
 function daysAgo(n: number) { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10) }
-
-function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
-  return (
-    <div className="modal-backdrop">
-      <div className="modal-box">
-        <div className="modal-title"><span>{title}</span><button className="modal-close" onClick={onClose}><X size={16} /></button></div>
-        {children}
-      </div>
-    </div>
-  )
-}
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div className="form-group"><label>{label}</label>{children}</div>
-}
 
 function getErrorMessage(error: unknown, fallback: string) {
   if (axios.isAxiosError(error)) {
@@ -54,11 +41,6 @@ export default function ProcessedTab() {
   const [dateEnd, setDateEnd]     = useState(today())
   const [empFilter, setEmpFilter] = useState("")
   const [selected, setSelected]   = useState<ProcessedRecord | null>(null)
-  const [justIn, setJustIn]       = useState("08:00")
-  const [justOut, setJustOut]     = useState("17:00")
-  const [justText, setJustText]   = useState("")
-  const [saving, setSaving]       = useState(false)
-  const [justError, setJustError] = useState("")
   const [actionMsg, setActionMsg] = useState("")
   const [processing, setProcessing] = useState<"pending" | "all" | null>(null)
   const [job, setJob] = useState<OperationJob | null>(null)
@@ -175,10 +157,6 @@ export default function ProcessedTab() {
       if (!proceed) return
     }
     setSelected(r)
-    setJustIn(r.first_in ? r.first_in.slice(0, 5) : "08:00")
-    setJustOut(r.last_out ? r.last_out.slice(0, 5) : "17:00")
-    setJustText(r.justification || "")
-    setJustError("")
   }
 
   function justifySelectedRow() {
@@ -189,6 +167,10 @@ export default function ProcessedTab() {
     const rec = records.find(r => r.id === selectedRowId)
     if (!rec) {
       setActionMsg("La fila seleccionada ya no está disponible.")
+      return
+    }
+    if (rec.status === "AUSENTE" || rec.previous_status === "AUSENTE") {
+      setActionMsg("Las ausencias se justifican desde la pestaña Ausencias.")
       return
     }
     openJustify(rec)
@@ -206,30 +188,22 @@ export default function ProcessedTab() {
     }
   }
 
-  async function saveJustify() {
-    if (!justText.trim()) { setJustError("Debe explicar el motivo de la justificación."); return }
-    setSaving(true)
-    try {
-      await api.patch(`/api/processed/${selected!.id}/justify`, { first_in: justIn, last_out: justOut, justification: justText })
-      setSelected(null); load()
-    } catch (e: unknown) { setJustError(getErrorMessage(e, "Error al guardar."))
-    } finally { setSaving(false) }
-  }
-
   return (
     <div>
       {selected && (
-        <Modal title="Justificar Asistencia" onClose={() => setSelected(null)}>
-          <p style={{ marginBottom: 14, fontSize: 13, color: "var(--text-secondary)" }}>{selected.date} — {nameOf(selected.employee_id)}</p>
-          <Field label="Entrada Real / Justificada:"><input type="time" value={justIn} onChange={e => setJustIn(e.target.value)} /></Field>
-          <Field label="Salida Real / Justificada:"><input type="time" value={justOut} onChange={e => setJustOut(e.target.value)} /></Field>
-          <Field label="Razón de Justificación (obligatorio):"><textarea value={justText} onChange={e => setJustText(e.target.value)} rows={3} style={{ resize: "vertical" }} /></Field>
-          {justError && <p style={{ color: "var(--status-error)", fontSize: 13, marginBottom: 10 }}>⚠ {justError}</p>}
-          <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-            <button className="btn btn-primary" onClick={saveJustify} disabled={saving}>{saving ? "Guardando..." : "Guardar Justificación"}</button>
-            <button className="btn" onClick={() => setSelected(null)}>Cancelar</button>
-          </div>
-        </Modal>
+        <AttendanceCorrectionModal
+          title="Justificar asistencia"
+          context={`${selected.date} — ${nameOf(selected.employee_id)}`}
+          firstIn={selected.first_in}
+          lastOut={selected.last_out}
+          justification={selected.justification}
+          onClose={() => setSelected(null)}
+          onSave={async values => {
+            await api.patch(`/api/processed/${selected.id}/justify`, { first_in: values.firstIn, last_out: values.lastOut, justification: values.justification })
+            setSelected(null)
+            await load()
+          }}
+        />
       )}
 
       <div className="filter-bar">
@@ -288,11 +262,11 @@ export default function ProcessedTab() {
                     <td style={{ fontSize: 12, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {r.justification || <span style={{ opacity: 0.35 }}>—</span>}
                     </td>
-                    <td>
+                    <td>{r.status !== "AUSENTE" && r.previous_status !== "AUSENTE" &&
                       <button className="btn" style={{ padding: "4px 10px", fontSize: 12, whiteSpace: "nowrap" }} onClick={() => openJustify(r)}>
                         <Wrench size={13} /> Justificar
                       </button>
-                    </td>
+                    }</td>
                   </tr>
                 ))}
               </tbody>

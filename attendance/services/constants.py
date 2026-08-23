@@ -1,4 +1,4 @@
-VALID_STATUSES = ["OK", "INCOMPLETO", "JUSTIFICADO", "FERIADO", "PENDIENTE", "ERROR"]
+VALID_STATUSES = ["OK", "INCOMPLETO", "AUSENTE", "JUSTIFICADO", "FERIADO", "PENDIENTE", "ERROR"]
 
 MONTH_NAMES = [
     "", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",

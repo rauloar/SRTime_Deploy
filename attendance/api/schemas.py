@@ -123,6 +123,7 @@ class AuthMeResponse(BaseModel):
 class SetupStatusResponse(BaseModel):
     setup_required: bool
     configured: bool
+    database_engine: str
 
 
 class DatabaseConnectionRequest(BaseModel):

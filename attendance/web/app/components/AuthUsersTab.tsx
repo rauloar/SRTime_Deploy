@@ -14,6 +14,8 @@ interface AuthUser {
 
 type Role = "root" | "admin" | "supervisor" | "viewer"
 const ROLES: Role[] = ["root", "admin", "supervisor", "viewer"]
+const PASSWORD_PATTERN = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{8,}$/
+const PASSWORD_RULE_MESSAGE = "Usá al menos 8 caracteres, con una letra y un número; sin caracteres especiales"
 
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
@@ -80,8 +82,8 @@ export default function AuthUsersTab() {
         return
       }
       if (modal === "add") {
-        if (!current.password || current.password.length < 12) {
-          setError("La contraseña debe tener al menos 12 caracteres")
+        if (!current.password || !PASSWORD_PATTERN.test(current.password)) {
+          setError(PASSWORD_RULE_MESSAGE)
           return
         }
         await api.post("/api/auth-users/", {

@@ -65,7 +65,7 @@ class ProcessedTab(QWidget):
 
         filter_layout.addWidget(QLabel("Estado:"))
         self.status_selector = QComboBox()
-        self.status_selector.addItems(["Todos", "OK", "INCOMPLETO", "JUSTIFICADO", "FERIADO", "PENDIENTE"])
+        self.status_selector.addItems(["Todos", "OK", "INCOMPLETO", "AUSENTE", "JUSTIFICADO", "FERIADO", "PENDIENTE"])
         filter_layout.addWidget(self.status_selector)
 
         self.btn_refresh = QPushButton("Actualizar Filtros")
@@ -127,7 +127,7 @@ class ProcessedTab(QWidget):
             self.btn_reject.clicked.connect(self.reject_selected_row)
             justify_toolbar.addWidget(self.btn_reject)
 
-        elif self.current_role == "supervisor":
+        elif self.current_role in ("admin", "supervisor"):
             self.btn_request_justify = QPushButton("Solicitar Justificación")
             self.btn_request_justify.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxQuestion))
             self.btn_request_justify.clicked.connect(self.request_justify_selected_row)

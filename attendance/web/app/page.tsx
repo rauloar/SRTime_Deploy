@@ -8,10 +8,12 @@ import ImportTab from "./components/ImportTab"
 import UsersTab from "./components/UsersTab"
 import ShiftsTab from "./components/ShiftsTab"
 import ProcessedTab from "./components/ProcessedTab"
+import AbsencesTab from "./components/AbsencesTab"
 import MovementsTab from "./components/MovementsTab"
 import AuthUsersTab from "./components/AuthUsersTab"
 import TerminalsTab from "./components/TerminalsTab"
-import { Users, Clock, ArrowLeftRight, CheckSquare, Sun, Moon, LogOut, ShieldCheck, FileUp, MonitorSmartphone } from "lucide-react"
+import ControlCenterTab from "./components/ControlCenterTab"
+import { Users, Clock, ArrowLeftRight, CheckSquare, Sun, Moon, LogOut, ShieldCheck, FileUp, MonitorSmartphone, UserX, Settings } from "lucide-react"
 
 const TABS = [
   { id: "import",    label: "Importar",             Icon: FileUp },
@@ -19,10 +21,13 @@ const TABS = [
   { id: "users",     label: "Empleados",            Icon: Users },
   { id: "shifts",    label: "Turnos Horarios",      Icon: Clock },
   { id: "movements", label: "Movimientos",          Icon: ArrowLeftRight },
-  { id: "processed", label: "Asistencia Procesada", Icon: CheckSquare },
+  { id: "processed", label: "Movimientos Procesados", Icon: CheckSquare },
+  { id: "absences",  label: "Ausencias",             Icon: UserX },
 ]
 
 type Theme = "light" | "dark"
+const PASSWORD_PATTERN = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{8,}$/
+const PASSWORD_RULE_MESSAGE = "Usá al menos 8 caracteres, con una letra y un número; sin caracteres especiales"
 
 function getErrorMessage(error: unknown, fallback: string) {
   if (axios.isAxiosError(error)) {
@@ -43,7 +48,7 @@ export default function Home() {
   const [theme, setTheme] = useState<Theme>("light")
 
   const tabs = role === "root"
-    ? [...TABS, { id: "auth_users", label: "Usuarios Autorizados", Icon: ShieldCheck }]
+    ? [...TABS, { id: "auth_users", label: "Usuarios Autorizados", Icon: ShieldCheck }, { id: "control", label: "Control Center", Icon: Settings }]
     : TABS
 
   useEffect(() => {
@@ -72,8 +77,8 @@ export default function Home() {
 
   async function handleChangePassword() {
     setPasswordError("")
-    if (newPassword.length < 12) {
-      setPasswordError("La contraseña debe tener al menos 12 caracteres")
+    if (!PASSWORD_PATTERN.test(newPassword)) {
+      setPasswordError(PASSWORD_RULE_MESSAGE)
       return
     }
     if (newPassword !== confirmPassword) {
@@ -162,7 +167,9 @@ export default function Home() {
           {activeTab === "shifts"     && <ShiftsTab />}
           {activeTab === "movements"  && <MovementsTab />}
           {activeTab === "processed"  && <ProcessedTab />}
+          {activeTab === "absences"   && <AbsencesTab />}
           {activeTab === "auth_users" && role === "root" && <AuthUsersTab />}
+          {activeTab === "control"    && role === "root" && <ControlCenterTab />}
         </div>
       </div>
     </div>

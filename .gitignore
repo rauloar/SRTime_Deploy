@@ -2,13 +2,13 @@
 # El proyecto vive en attendance/. Todo lo demás es excluido.
 
 # ── Carpetas externas al proyecto ─────────────────────────────
+# Deployments, installers and local deployment scripts never belong in Git.
+/deploy/
 att/
 backup/
 build/
 dist/
 pyzk/
-deploy/dist/
-deploy/build/
 SRCopilot/
 
 # ── Virtual Environments ─────────────────────────────────────
@@ -28,6 +28,7 @@ __pycache__/
 *.pot
 *.spec
 .pytest_cache/
+.pytest-tmp-*/
 .coverage
 htmlcov/
 .tox/
@@ -41,11 +42,10 @@ htmlcov/
 
 # ── Environment variables ────────────────────────────────────
 # .env.* cubre .env.production, .env.staging, .env.development, etc.
-# Los .example se re-incluyen (son templates seguros para commitear).
+# Solo la plantilla canónica se re-incluye; los perfiles de QA/deploy permanecen locales.
 .env
 .env.*
 !.env.example
-!.env.*.example
 
 # ── Logs ──────────────────────────────────────────────────────
 *.log
@@ -75,9 +75,11 @@ attendance/web/node_modules/
 attendance/web/.next/
 attendance/web/out/
 attendance/web/.cache/
+.pnpm-store/
 
 # ── Application logs directory ────────────────────────────────
 attendance/logs/
+attendance/nuitka-crash-report.xml
 
 # ── Datos biométricos/reales de importación ───────────────────
 # Usar exclusivamente attendance/tests/fixtures/tm_mr001_mock.txt en tests.

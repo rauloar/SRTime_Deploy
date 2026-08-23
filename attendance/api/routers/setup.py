@@ -1,5 +1,6 @@
 """Local-only first-run configuration, inspired by the WordPress installer."""
 import os
+from ipaddress import ip_address, ip_network
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -10,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from api.deps import get_db
 from api.schemas import AdminSetupRequest, DatabaseConnectionRequest, DatabaseSetupRequest, SetupStatusResponse
-from core.database import SessionLocal, configure_database
+from core.database import SessionLocal, configure_database, engine
 from core.init_db import init_database
 from core.security import hash_password, validate_password
 from models.user import AuthUser
@@ -19,21 +20,46 @@ router = APIRouter()
 _LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
 
 
-def _require_local_request(request: Request) -> None:
-    host = request.client.host if request.client else ""
-    configured_hosts = {
+def _is_authorized_setup_host(host: str) -> bool:
+    """Allow loopback, explicit clients, CIDR ranges, or trusted private LANs."""
+    if host in _LOCAL_HOSTS:
+        return True
+    try:
+        client_ip = ip_address(host)
+    except ValueError:
+        return False
+    configured_hosts = [
         value.strip()
         for value in os.getenv("SRTIME_SETUP_ALLOWED_IPS", "").split(",")
         if value.strip()
-    }
-    if host not in _LOCAL_HOSTS | configured_hosts:
+    ]
+    for value in configured_hosts:
+        if value.lower() == "private" and client_ip.is_private:
+            return True
+        try:
+            if "/" in value and client_ip in ip_network(value, strict=False):
+                return True
+        except ValueError:
+            continue
+        if host == value:
+            return True
+    return False
+
+
+def _require_local_request(request: Request) -> None:
+    host = request.client.host if request.client else ""
+    if not _is_authorized_setup_host(host):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Initial setup is available only from an authorized machine",
+            detail="Initial setup is available only from an authorized machine or configured LAN range",
         )
 
 
 def _configured() -> bool:
+    if os.getenv("DB_ENGINE", "sqlite").lower() == "sqlite":
+        # SQLite is self-contained: the application owns the database file and
+        # needs no external credentials before the first administrator is made.
+        return True
     return bool(
         os.getenv("DB_ENGINE") == "postgres"
         and os.getenv("DB_HOST")
@@ -74,12 +100,23 @@ def _quote_identifier(identifier: str) -> str:
 @router.get("/status", response_model=SetupStatusResponse)
 def setup_status(request: Request, db: Session = Depends(get_db)):
     _require_local_request(request)
+    database_engine = os.getenv("DB_ENGINE", "sqlite").lower()
     if not _configured():
-        return {"setup_required": True, "configured": False}
+        return {"setup_required": True, "configured": False, "database_engine": database_engine}
     try:
-        return {"setup_required": db.query(AuthUser).count() == 0, "configured": True}
+        return {
+            "setup_required": db.query(AuthUser).count() == 0,
+            "configured": True,
+            "database_engine": database_engine,
+        }
     except SQLAlchemyError:
-        return {"setup_required": True, "configured": False}
+        # A new SQLite file has no tables yet. Its schema is created by the
+        # admin step below, after the operator chooses the initial password.
+        return {
+            "setup_required": True,
+            "configured": database_engine == "sqlite",
+            "database_engine": database_engine,
+        }
 
 
 @router.post("/databases")
@@ -156,6 +193,10 @@ def create_initial_admin(body: AdminSetupRequest, request: Request):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     try:
+        if os.getenv("DB_ENGINE", "sqlite").lower() == "sqlite":
+            # For the desktop profile, create the local schema only when the
+            # operator completes this wizard. No default login is seeded.
+            init_database(engine, defer_admin_setup=True)
         with SessionLocal() as db:
             if db.query(AuthUser).count() > 0:
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="SRTime already has an administrator")

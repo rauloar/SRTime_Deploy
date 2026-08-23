@@ -21,15 +21,31 @@ from pathlib import Path
 import bcrypt
 import sys
 import os
+from dotenv import load_dotenv
 
-# Auto-detect database location
+# Auto-detect the same runtime directory used by core.database.
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable)
 else:
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-DB_NAME = "attendance.db"
-DB_PATH = Path(BASE_DIR) / DB_NAME
+ENV_PATH = os.environ.get("SRTIME_ENV_FILE") or os.path.join(BASE_DIR, ".env")
+load_dotenv(ENV_PATH)
+
+
+def configured_sqlite_path() -> Path:
+    """Resolve the SQLite file with the exact convention used by core.database."""
+    if os.getenv("DB_ENGINE", "sqlite").lower() != "sqlite":
+        raise RuntimeError(
+            "SQLite migration requires DB_ENGINE=sqlite. "
+            "PostgreSQL upgrades use 'alembic upgrade head'."
+        )
+
+    db_path = Path(os.getenv("SQLITE_DB_PATH", "attendance.db"))
+    return db_path if db_path.is_absolute() else Path(BASE_DIR) / db_path
+
+
+DB_PATH = configured_sqlite_path()
 
 
 def hash_password(password: str) -> str:
@@ -106,10 +122,14 @@ def migrate_auth_user(cur: sqlite3.Cursor, changed: list[str]) -> None:
     if add_column_if_missing(cur, "auth_user", "is_active", "is_active BOOLEAN DEFAULT 1"):
         changed.append("auth_user.is_active")
 
+    if add_column_if_missing(cur, "auth_user", "token_version", "token_version INTEGER DEFAULT 0"):
+        changed.append("auth_user.token_version")
+
     # Default values for existing records
     cur.execute("UPDATE auth_user SET role = 'viewer' WHERE role IS NULL OR role = ''")
     cur.execute("UPDATE auth_user SET must_change_password = 0 WHERE must_change_password IS NULL")
     cur.execute("UPDATE auth_user SET is_active = 1 WHERE is_active IS NULL")
+    cur.execute("UPDATE auth_user SET token_version = 0 WHERE token_version IS NULL")
     
     # Ensure admin has root role
     cur.execute("UPDATE auth_user SET role = 'root' WHERE username = 'admin'")
@@ -192,30 +212,79 @@ def migrate_attendance_log(cur: sqlite3.Cursor, changed: list[str]) -> None:
 
 
 def migrate_processed_attendance(cur: sqlite3.Cursor, changed: list[str]) -> None:
-    """Create processed_attendance table if missing."""
-    if table_exists(cur, "processed_attendance"):
+    """Create or upgrade processed attendance, including the workflow fields."""
+    if not table_exists(cur, "processed_attendance"):
+        cur.execute(
+            """
+            CREATE TABLE processed_attendance (
+                id INTEGER PRIMARY KEY,
+                employee_id INTEGER NOT NULL,
+                date DATE NOT NULL,
+                first_in TIME,
+                last_out TIME,
+                total_hours FLOAT DEFAULT 0.0,
+                tardiness_minutes INTEGER DEFAULT 0,
+                early_departure_minutes INTEGER DEFAULT 0,
+                overtime_minutes INTEGER DEFAULT 0,
+                status VARCHAR(20) DEFAULT 'OK',
+                justification VARCHAR,
+                previous_status VARCHAR(20),
+                pending_first_in TIME,
+                pending_last_out TIME,
+                pending_justification VARCHAR,
+                requested_by VARCHAR,
+                UNIQUE(employee_id, date),
+                FOREIGN KEY(employee_id) REFERENCES users(id)
+            )
+            """
+        )
+        changed.append("processed_attendance (table)")
         return
-    
+
+    for column, ddl in [
+        ("previous_status", "previous_status VARCHAR(20)"),
+        ("pending_first_in", "pending_first_in TIME"),
+        ("pending_last_out", "pending_last_out TIME"),
+        ("pending_justification", "pending_justification VARCHAR"),
+        ("requested_by", "requested_by VARCHAR"),
+    ]:
+        if add_column_if_missing(cur, "processed_attendance", column, ddl):
+            changed.append(f"processed_attendance.{column}")
+
+
+def migrate_holidays(cur: sqlite3.Cursor, changed: list[str]) -> None:
+    if table_exists(cur, "holidays"):
+        return
     cur.execute(
         """
-        CREATE TABLE processed_attendance (
+        CREATE TABLE holidays (
             id INTEGER PRIMARY KEY,
-            employee_id INTEGER NOT NULL,
-            date DATE NOT NULL,
-            first_in TIME,
-            last_out TIME,
-            total_hours FLOAT DEFAULT 0.0,
-            tardiness_minutes INTEGER DEFAULT 0,
-            early_departure_minutes INTEGER DEFAULT 0,
-            overtime_minutes INTEGER DEFAULT 0,
-            status VARCHAR(20) DEFAULT 'OK',
-            justification VARCHAR,
-            UNIQUE(employee_id, date),
-            FOREIGN KEY(employee_id) REFERENCES users(id)
+            date DATE NOT NULL UNIQUE,
+            name VARCHAR NOT NULL,
+            is_recurring BOOLEAN DEFAULT 0
         )
         """
     )
-    changed.append("processed_attendance (table)")
+    changed.append("holidays (table)")
+
+
+def migrate_terminals(cur: sqlite3.Cursor, changed: list[str]) -> None:
+    """Upgrade terminal configuration and local raw-pull scheduling fields."""
+    if not table_exists(cur, "device_terminal"):
+        return
+    if add_column_if_missing(cur, "device_terminal", "connection_params", "connection_params JSON"):
+        changed.append("device_terminal.connection_params")
+    for column, ddl in [
+        ("pull_schedule_enabled", "pull_schedule_enabled BOOLEAN DEFAULT 0"),
+        ("pull_interval_minutes", "pull_interval_minutes INTEGER"),
+        ("pull_window_start", "pull_window_start TIME"),
+        ("pull_window_end", "pull_window_end TIME"),
+        ("next_pull_at", "next_pull_at TIMESTAMP"),
+        ("last_pull_status", "last_pull_status VARCHAR(20)"),
+        ("last_pull_error", "last_pull_error VARCHAR(500)"),
+    ]:
+        if add_column_if_missing(cur, "device_terminal", column, ddl):
+            changed.append(f"device_terminal.{column}")
 
 
 def migrate(db_path: Path) -> None:
@@ -244,6 +313,8 @@ def migrate(db_path: Path) -> None:
         migrate_shifts(cur, changed)
         migrate_attendance_log(cur, changed)
         migrate_processed_attendance(cur, changed)
+        migrate_holidays(cur, changed)
+        migrate_terminals(cur, changed)
         
         con.commit()
         

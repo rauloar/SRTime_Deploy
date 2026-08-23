@@ -436,6 +436,29 @@ label {
   padding: 0 4px !important;
 }
 
+/* ===== Ausencias ===== */
+.absence-message { margin: 0 0 10px; font-size: 13px; color: var(--text-secondary); }
+.absence-message-error { color: var(--status-error); }
+.absence-modal-context { margin-bottom: 14px; font-size: 13px; color: var(--text-secondary); }
+.absence-actions, .modal-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.absence-empty { opacity: .45; }
+.table-empty { text-align: center; opacity: .55; padding: 20px; }
+.movement-reference { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0 0 14px; }
+.movement-reference > div { padding: 8px 10px; border: 1px solid var(--border-color); border-radius: var(--border-radius); background: var(--bg-main); }
+.movement-reference span { display: block; margin-bottom: 2px; color: var(--text-secondary); font-size: 12px; }
+.movement-reference strong { font-variant-numeric: tabular-nums; font-size: 15px; color: var(--text-main); }
+
+/* ===== Control Center ===== */
+.tab-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.tab-header h2 { font-size: 20px; margin: 0 0 4px; }
+.tab-header p, .control-card p, .control-note { color: var(--text-secondary); font-size: 13px; }
+.control-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+.control-card { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; min-height: 185px; padding: 18px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--border-radius-lg); box-shadow: var(--shadow-sm); }
+.control-card svg { color: var(--primary); }
+.control-card h3 { font-size: 15px; margin: 0; }
+.control-card p { flex: 1; margin: 0; overflow-wrap: anywhere; }
+.control-note { margin-top: 18px; }
+
 /* ===== Scrollbar ===== */
 * { scrollbar-width: thin; scrollbar-color: var(--border-color) transparent; }
 ::-webkit-scrollbar { width: 6px; height: 6px; }

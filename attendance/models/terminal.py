@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, Column, Integer, String, Boolean, DateTime
+from sqlalchemy import JSON, Column, Integer, String, Boolean, DateTime, Time
 from sqlalchemy.sql import func
 from core.database import Base
 
@@ -16,4 +16,13 @@ class DeviceTerminal(Base):
     serial_number = Column(String(100), nullable=True)      # SN del dispositivo (se llena en primer test)
     is_active = Column(Boolean, default=True)
     last_sync = Column(DateTime, nullable=True)             # Última descarga exitosa
+    # La agenda pertenece a la terminal, no a los movimientos crudos.  Mantenerla
+    # aquí evita una segunda fuente de verdad para la configuración del equipo.
+    pull_schedule_enabled = Column(Boolean, default=False, nullable=False)
+    pull_interval_minutes = Column(Integer, nullable=True)
+    pull_window_start = Column(Time, nullable=True)
+    pull_window_end = Column(Time, nullable=True)
+    next_pull_at = Column(DateTime, nullable=True)
+    last_pull_status = Column(String(20), nullable=True)
+    last_pull_error = Column(String(500), nullable=True)
     created_at = Column(DateTime, default=func.now())

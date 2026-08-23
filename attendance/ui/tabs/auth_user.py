@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QStyle,
 )
-from core.security import hash_password
+from core.security import hash_password, validate_password
 from models.user import AuthUser
 
 
@@ -121,8 +121,10 @@ class AuthUserTab(QWidget):
             if not password:
                 QMessageBox.warning(dialog, "Error", "La contraseña es obligatoria.")
                 return
-            if len(password) < 12:
-                QMessageBox.warning(dialog, "Error", "La contraseña debe tener al menos 12 caracteres.")
+            try:
+                validate_password(password)
+            except ValueError as exc:
+                QMessageBox.warning(dialog, "Error", str(exc))
                 return
             if self.session.query(AuthUser).filter_by(username=username).first():
                 QMessageBox.warning(dialog, "Error", "Ese usuario ya existe.")
@@ -207,8 +209,10 @@ class AuthUserTab(QWidget):
 
             new_pass = le_pass.text()
             if new_pass:
-                if len(new_pass) < 12:
-                    QMessageBox.warning(dialog, "Error", "La contraseña debe tener al menos 12 caracteres.")
+                try:
+                    validate_password(new_pass)
+                except ValueError as exc:
+                    QMessageBox.warning(dialog, "Error", str(exc))
                     return
                 user.password_hash = hash_password(new_pass)
 

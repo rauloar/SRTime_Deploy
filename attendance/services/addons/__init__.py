@@ -11,24 +11,44 @@ def get_available_addons():
     Retorna un dict: { display_name: addon_info }
     """
     addons = {}
+    # Perfil opcional para distribuciones acotadas (por ejemplo, el desktop de
+    # prueba que sólo importa TM-MR001). Si no existe, se mantienen todos los
+    # addons del producto; nunca se aplica un filtro hardcodeado global.
+    enabled_raw = os.getenv("SRTIME_ENABLED_ADDONS", "").strip()
+    enabled_addons = {
+        item.strip().lower() for item in enabled_raw.split(",") if item.strip()
+    }
     addons_dir = os.path.dirname(__file__)
+    # A frozen executable stores Python modules inside its archive; therefore
+    # there may be no physical ``services/addons`` directory beside the EXE.
+    # An explicit profile remains discoverable by importing its packaged module.
+    if enabled_addons:
+        entries = sorted(enabled_addons)
+    else:
+        try:
+            entries = os.listdir(addons_dir)
+        except FileNotFoundError:
+            entries = []
 
-    for entry in os.listdir(addons_dir):
+    for entry in entries:
+        if entry.startswith("__"):
+            continue
         entry_path = os.path.join(addons_dir, entry)
         manifest_path = os.path.join(entry_path, "__manifest__.py")
 
-        if not os.path.isdir(entry_path) or not os.path.exists(manifest_path):
-            continue
-        if entry.startswith("__"):
-            continue
-
         try:
-            # Cargar manifest
-            spec = importlib.util.spec_from_file_location(
-                f"services.addons.{entry}.__manifest__", manifest_path
-            )
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
+            if os.path.exists(manifest_path):
+                # Desarrollo / instalación no congelada: cargar desde archivo
+                # para descubrir addons incorporados sin un registro central.
+                spec = importlib.util.spec_from_file_location(
+                    f"services.addons.{entry}.__manifest__", manifest_path
+                )
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+            else:
+                # PyInstaller onefile: el manifest está dentro del archivo
+                # empaquetado y se importa mediante el cargador de Python.
+                mod = importlib.import_module(f"services.addons.{entry}.__manifest__")
             manifest = mod.manifest
 
             # Importar el módulo del addon

@@ -225,7 +225,9 @@ class ProcessedAttendanceValidator:
     @staticmethod
     def validate_status(status: str) -> Tuple[bool, Optional[str]]:
         """Valida que el status sea uno de los valores permitidos."""
-        valid_statuses = ["OK", "INCOMPLETO", "ERROR", "JUSTIFICADO"]
+        from services.constants import VALID_STATUSES
+
+        valid_statuses = VALID_STATUSES
         
         if status not in valid_statuses:
             return False, f"Invalid status '{status}'. Must be one of: {valid_statuses}"

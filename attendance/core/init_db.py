@@ -62,6 +62,19 @@ def init_database(target_engine=None, defer_admin_setup: bool = False):
         column_type = "JSONB" if db_engine.url.get_backend_name() == "postgresql" else "JSON"
         session.execute(text(f"ALTER TABLE device_terminal ADD COLUMN connection_params {column_type}"))
         session.commit()
+    terminal_additions = [
+        ("pull_schedule_enabled", "BOOLEAN DEFAULT FALSE"),
+        ("pull_interval_minutes", "INTEGER"),
+        ("pull_window_start", "TIME"),
+        ("pull_window_end", "TIME"),
+        ("next_pull_at", "TIMESTAMP"),
+        ("last_pull_status", "VARCHAR(20)"),
+        ("last_pull_error", "VARCHAR(500)"),
+    ]
+    for column_name, column_type in terminal_additions:
+        if column_name not in terminal_cols:
+            session.execute(text(f"ALTER TABLE device_terminal ADD COLUMN {column_name} {column_type}"))
+            session.commit()
 
     pa_cols = {c["name"] for c in inspect(db_engine).get_columns("processed_attendance")}
     for col_def in [

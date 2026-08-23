@@ -21,13 +21,16 @@ from core.limiter import limiter
 setup_logging()
 logger = get_logger("api")
 
-from api.routers import auth, users, shifts, processed, movements, auth_users, importer, terminals, holidays, dashboard, reports, setup
+from api.routers import absences, auth, users, shifts, processed, movements, auth_users, importer, terminals, holidays, dashboard, reports, setup, control
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    from services.terminal_scheduler import start_scheduler, stop_scheduler
+    start_scheduler()
     logger.info("SRTime API started", extra={"action": "startup"})
     yield
+    stop_scheduler()
     logger.info("SRTime API stopped", extra={"action": "shutdown"})
 
 app = FastAPI(
@@ -127,11 +130,13 @@ app.include_router(importer.router, prefix="/api/import", tags=["Import"])
 app.include_router(users.router, prefix="/api/users", tags=["Employees Management"])
 app.include_router(shifts.router, prefix="/api/shifts", tags=["Shifts"])
 app.include_router(processed.router, prefix="/api/processed", tags=["Processed Attendance"])
+app.include_router(absences.router, prefix="/api/absences", tags=["Absences"])
 app.include_router(movements.router, prefix="/api/movements", tags=["Raw Movements"])
 app.include_router(terminals.router, prefix="/api/terminals", tags=["Device Terminals"])
 app.include_router(holidays.router, prefix="/api/holidays", tags=["Holidays"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])
+app.include_router(control.router, prefix="/api/control", tags=["Control Center"])
 
 
 @app.get("/api/health")

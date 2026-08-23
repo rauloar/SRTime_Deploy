@@ -22,7 +22,7 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 JWT_ISSUER = os.getenv("JWT_ISSUER", "srtime-api")
 JWT_AUDIENCE = os.getenv("JWT_AUDIENCE", "srtime-web")
-MIN_PASSWORD_LENGTH = int(os.getenv("MIN_PASSWORD_LENGTH", "12"))
+MIN_PASSWORD_LENGTH = int(os.getenv("MIN_PASSWORD_LENGTH", "8"))
 
 
 def hash_password(password: str) -> str:
@@ -52,4 +52,8 @@ def create_access_token(data: dict) -> str:
 
 def validate_password(password: str) -> None:
     if len(password) < MIN_PASSWORD_LENGTH:
-        raise ValueError(f"Password must be at least {MIN_PASSWORD_LENGTH} characters")
+        raise ValueError(f"La contraseña debe tener al menos {MIN_PASSWORD_LENGTH} caracteres")
+    if not password.isascii() or not password.isalnum():
+        raise ValueError("La contraseña solo puede contener letras y números")
+    if not any(character.isalpha() for character in password) or not any(character.isdigit() for character in password):
+        raise ValueError("La contraseña debe incluir al menos una letra y un número")

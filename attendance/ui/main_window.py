@@ -4,6 +4,7 @@ from ui.tabs.users_tab import UsersTab
 from ui.tabs.auth_user import AuthUserTab
 from ui.tabs.movements_tab import MovementsTab
 from ui.tabs.processed_tab import ProcessedTab
+from ui.tabs.absences_tab import AbsencesTab
 from ui.tabs.shifts_tab import ShiftsTab
 from ui.tabs.dashboard_tab import DashboardTab
 from ui.tabs.holidays_tab import HolidaysTab
@@ -48,6 +49,7 @@ AAABAAEAICAAAAAAIADaCQAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAgAAAAIAgGAAAAc3p69AAACaFJ
         auth_user_tab = AuthUserTab(self.session, self.current_auth_user)
         movements_tab = MovementsTab(self.session)
         processed_tab = ProcessedTab(self.session, self.current_auth_user)
+        absences_tab = AbsencesTab(self.session, self.current_auth_user)
         dashboard_tab = DashboardTab(self.session)
         holidays_tab = HolidaysTab(self.session)
         reports_tab = ReportsTab(self.session)
@@ -63,11 +65,12 @@ AAABAAEAICAAAAAAIADaCQAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAgAAAAIAgGAAAAc3p69AAACaFJ
             4: shifts_tab.load_data,
             5: self._load_movements_tab,
             6: self._load_processed_tab,
-            7: holidays_tab.load_data,
-            8: reports_tab.load_data,
+            7: absences_tab.load_data,
+            8: holidays_tab.load_data,
+            9: reports_tab.load_data,
         }
         if self.is_root:
-            self._tab_loaders[9] = auth_user_tab.load_data
+            self._tab_loaders[10] = auth_user_tab.load_data
 
         tabs.addTab(dashboard_tab, "Dashboard")
         tabs.addTab(import_tab, "Importar")
@@ -75,7 +78,8 @@ AAABAAEAICAAAAAAIADaCQAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAgAAAAIAgGAAAAc3p69AAACaFJ
         tabs.addTab(users_tab, "Empleados")
         tabs.addTab(shifts_tab, "Turnos Horarios")
         tabs.addTab(movements_tab, "Movimientos")
-        tabs.addTab(processed_tab, "Asistencia Procesada")
+        tabs.addTab(processed_tab, "Movimientos Procesados")
+        tabs.addTab(absences_tab, "Ausencias")
         tabs.addTab(holidays_tab, "Feriados")
         tabs.addTab(reports_tab, "Reportes")
         if self.is_root:

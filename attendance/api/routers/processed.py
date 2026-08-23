@@ -135,6 +135,8 @@ def justify_record(
     rec = db.query(ProcessedAttendance).filter(ProcessedAttendance.id == record_id).first()
     if not rec:
         raise HTTPException(status_code=404, detail="Record not found")
+    if rec.status == "AUSENTE" or rec.previous_status == "AUSENTE":
+        raise HTTPException(status_code=400, detail="Use the Absences endpoint to justify an absence")
     if not body.justification.strip():
         raise HTTPException(status_code=400, detail="Justification text is required")
 
@@ -160,6 +162,8 @@ def request_justify(
     rec = db.query(ProcessedAttendance).filter(ProcessedAttendance.id == record_id).first()
     if not rec:
         raise HTTPException(status_code=404, detail="Record not found")
+    if rec.status == "AUSENTE" or rec.previous_status == "AUSENTE":
+        raise HTTPException(status_code=400, detail="Use the Absences endpoint to justify an absence")
     if rec.status == "PENDIENTE":
         raise HTTPException(status_code=400, detail="Already has a pending justification request")
     if not body.justification.strip():
@@ -185,6 +189,8 @@ def approve_justify(
     rec = db.query(ProcessedAttendance).filter(ProcessedAttendance.id == record_id).first()
     if not rec:
         raise HTTPException(status_code=404, detail="Record not found")
+    if rec.previous_status == "AUSENTE":
+        raise HTTPException(status_code=400, detail="Use the Absences endpoint to approve an absence justification")
     if rec.status != "PENDIENTE":
         raise HTTPException(status_code=400, detail="Record is not pending approval")
 
@@ -204,6 +210,8 @@ def reject_justify(
     rec = db.query(ProcessedAttendance).filter(ProcessedAttendance.id == record_id).first()
     if not rec:
         raise HTTPException(status_code=404, detail="Record not found")
+    if rec.previous_status == "AUSENTE":
+        raise HTTPException(status_code=400, detail="Use the Absences endpoint to reject an absence justification")
     if rec.status != "PENDIENTE":
         raise HTTPException(status_code=400, detail="Record is not pending approval")
 
