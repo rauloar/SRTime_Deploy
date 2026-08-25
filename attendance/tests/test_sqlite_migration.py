@@ -42,7 +42,8 @@ def test_sqlite_migration_upgrades_legacy_workflow_schema(tmp_path):
     assert "token_version" in columns["auth_user"]
     assert {"previous_status", "pending_first_in", "pending_last_out", "pending_justification", "requested_by"}.issubset(columns["processed_attendance"])
     assert {
-        "connection_params", "pull_schedule_enabled", "pull_interval_minutes",
+        "connection_params", "pull_schedule_enabled", "pull_schedule_mode", "pull_interval_minutes",
+        "pull_schedule_weekdays", "pull_schedule_time", "pull_schedule_start_date", "pull_schedule_end_date",
         "pull_window_start", "pull_window_end", "next_pull_at",
         "last_pull_status", "last_pull_error",
     }.issubset(columns["device_terminal"])

@@ -168,6 +168,29 @@ servidor central a la terminal.
 - No registrar secretos, payloads completos ni rutas de equipos en logs centrales.
 - Métricas: última señal, terminales activas, edad de última descarga, errores consecutivos y cola de comandos.
 
+## Gestión local ZKTeco (modo directo)
+
+Mientras una instalación utiliza el modo directo por LAN, el add-on ZKTeco
+declara sus capacidades en su propio `__manifest__.py`. La UI no presupone una
+marca ni una función: muestra sólo las acciones publicadas por ese manifest.
+
+- Cada operación es acotada: conecta, realiza la acción y desconecta en
+  `finally`. No se mantiene una sesión pyzk entre solicitudes HTTP ni se deja
+  bloqueado el reloj.
+- La descarga obtiene primero la cantidad de registros que el reloj informa y
+  publica progreso durante la ingesta. Los movimientos resultantes conservan
+  el pipeline raw único de SRTime.
+- La configuración de transporte (TCP/UDP) y timeout pertenece a los campos
+  dinámicos del add-on, no a valores fijos de la UI.
+- La lista de usuarios del reloj es sólo de consulta. `uid`, `user_id` y el
+  privilegio de terminal son propiedad de cada equipo; SRTime no los crea ni
+  los modifica durante la sincronización de nombres.
+- La sincronización compara `user_id` con `User.identifier`, modifica sólo el
+  nombre formado en SRTime y reenvía sin cambios UID, ID, privilegio, PIN,
+  grupo y tarjeta. No crea ni elimina usuarios biométricos.
+- Los privilegios de la terminal (`Usuario de terminal` y `Administrador de
+  terminal`) son independientes de los roles de aplicación SRTime.
+
 ## Estrategia de pruebas
 
 1. Unitarios: validación, token, transformación a tupla canónica y deduplicación.

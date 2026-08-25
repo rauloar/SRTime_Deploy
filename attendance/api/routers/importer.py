@@ -68,6 +68,7 @@ def list_parsers(current_user: AuthUser = Depends(get_current_user)):
             "is_driver": info["is_driver"],
             "is_parser": info["is_parser"],
             "connection_fields": info["connection_fields"],
+            "capabilities": (info.get("manifest") or {}).get("capabilities") or {},
         })
     return {"parsers": res}
 

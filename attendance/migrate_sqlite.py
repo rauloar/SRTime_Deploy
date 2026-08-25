@@ -276,7 +276,12 @@ def migrate_terminals(cur: sqlite3.Cursor, changed: list[str]) -> None:
         changed.append("device_terminal.connection_params")
     for column, ddl in [
         ("pull_schedule_enabled", "pull_schedule_enabled BOOLEAN DEFAULT 0"),
+        ("pull_schedule_mode", "pull_schedule_mode VARCHAR(20) DEFAULT 'interval'"),
         ("pull_interval_minutes", "pull_interval_minutes INTEGER"),
+        ("pull_schedule_weekdays", "pull_schedule_weekdays JSON"),
+        ("pull_schedule_time", "pull_schedule_time TIME"),
+        ("pull_schedule_start_date", "pull_schedule_start_date DATE"),
+        ("pull_schedule_end_date", "pull_schedule_end_date DATE"),
         ("pull_window_start", "pull_window_start TIME"),
         ("pull_window_end", "pull_window_end TIME"),
         ("next_pull_at", "next_pull_at TIMESTAMP"),

@@ -9,14 +9,16 @@ class ZKTecoDriver(BiometricDriver):
     connection_fields = [
         {"name": "ip", "label": "Dirección IP", "type": "text", "default": "", "required": True},
         {"name": "port", "label": "Puerto", "type": "number", "default": "4370"},
-        {"name": "password", "label": "Contraseña Com (vacío=sin clave)", "type": "password", "default": ""},
     ]
 
     def __init__(self):
         self.zk = None
         self.conn = None
+        self._attendance_cache = None
 
     def connect(self, params: dict):
+        ip = ""
+        port = 4370
         try:
             from zk import ZK
 
@@ -24,21 +26,29 @@ class ZKTecoDriver(BiometricDriver):
             if not ip:
                 raise ValueError("La dirección IP de la terminal es obligatoria")
             port = int(params.get("port", 4370))
-            password = int(params.get("password") or 0)
-
-            self.zk = ZK(ip, port=port, timeout=5, password=password, force_udp=False, ommit_ping=False)
+            # Mantener exactamente el formato de conexión validado con el
+            # dispositivo: ZK('IP', port=4370). PyZK aplica sus defaults.
+            self.zk = ZK(ip, port=port)
             self.conn = self.zk.connect()
-            self.conn.disable_device()
         except Exception as e:
             raise Exception(f"Error al conectar con ZKTeco en {ip}:{port} - {str(e)}")
 
-    def get_attendance_logs(self) -> Iterator[Tuple[str, date, time, int, str]]:
+    def _load_attendance(self):
         if not self.conn:
             raise Exception("No hay conexión activa con el dispositivo.")
-
         try:
-            attendances = self.conn.get_attendance()
-            for att in attendances:
+            if self._attendance_cache is None:
+                self._attendance_cache = list(self.conn.get_attendance())
+            return self._attendance_cache
+        except Exception as e:
+            raise Exception(f"Error al leer asistencias: {str(e)}") from e
+
+    def get_attendance_log_count(self):
+        return len(self._load_attendance())
+
+    def get_attendance_logs(self) -> Iterator[Tuple[str, date, time, int, str]]:
+        try:
+            for att in self._load_attendance():
                 identifier = str(att.user_id).strip().zfill(15)
                 dt = att.timestamp
                 if not dt: continue
@@ -53,7 +63,53 @@ class ZKTecoDriver(BiometricDriver):
 
                 yield identifier, d, t, mark_type, flags
         except Exception as e:
-            raise Exception(f"Error al leer asistencias: {str(e)}")
+            raise Exception(f"Error al normalizar asistencias: {str(e)}") from e
+
+    def get_terminal_users(self) -> list[dict]:
+        if not self.conn:
+            raise Exception("No hay conexión activa con el dispositivo.")
+        try:
+            return [
+                {
+                    "uid": int(user.uid),
+                    "user_id": str(user.user_id),
+                    "name": str(user.name),
+                    "privilege": int(user.privilege),
+                    "password": str(user.password),
+                    "group_id": str(user.group_id),
+                    "card": int(user.card),
+                }
+                for user in self.conn.get_users()
+            ]
+        except Exception as e:
+            raise Exception(f"Error al leer usuarios de ZKTeco: {str(e)}") from e
+
+    def update_terminal_user_name(self, user: dict, name: str) -> None:
+        if not self.conn:
+            raise Exception("No hay conexión activa con el dispositivo.")
+        # ``set_user`` actualiza por UID. Reenviar todos los atributos evita
+        # alterar privilegio, contraseña, grupo, tarjeta o user_id del reloj.
+        self.conn.set_user(
+            uid=int(user["uid"]),
+            user_id=str(user["user_id"]),
+            name=name,
+            privilege=int(user["privilege"]),
+            password=str(user.get("password") or ""),
+            group_id=str(user.get("group_id") or ""),
+            card=int(user.get("card") or 0),
+        )
+
+    def get_terminal_user_name_max_bytes(self):
+        if not self.conn:
+            raise Exception("No hay conexión activa con el dispositivo.")
+        # PyZK identifica perfiles ZK6 con paquetes de 28 bytes (nombre de 8)
+        # y ZK8 con paquetes de 72 bytes (nombre de 24).
+        packet_size = getattr(self.conn, "user_packet_size", None)
+        if packet_size == 28:
+            return 8
+        if packet_size == 72:
+            return 24
+        return None
 
     def test_connection(self, params: dict) -> dict:
         self.connect(params)
@@ -86,8 +142,8 @@ class ZKTecoDriver(BiometricDriver):
     def disconnect(self):
         if self.conn:
             try:
-                self.conn.enable_device()
                 self.conn.disconnect()
-            except:
+            except Exception:
                 pass
             self.conn = None
+        self._attendance_cache = None

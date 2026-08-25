@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from datetime import datetime, time
-from typing import Any, Optional
+from datetime import date, datetime, time
+from typing import Any, Literal, Optional
 
 from api.deps import get_db, get_current_user, get_terminal_or_404, ok_response, require_root, require_supervisor_or_root
 from models.user import AuthUser
@@ -17,12 +17,61 @@ from services.terminals import (
     sync_time as service_sync_time,
     test_connection as service_test_connection,
     pull_logs as service_pull_logs,
+    list_terminal_users as service_list_terminal_users,
+    sync_terminal_user_names as service_sync_terminal_user_names,
 )
 from services.terminal_scheduler import schedule_next_pull
+from core.database import SessionLocal
+from core.operation_status import operation_status
 
 logger = get_logger(__name__)
 
 router = APIRouter()
+
+
+class _TerminalPullProgress:
+    def __init__(self, job_id: str) -> None:
+        self.job_id = job_id
+
+    def set_total(self, total: int) -> None:
+        operation_status.update(self.job_id, current=0, total=total, message="Registros detectados; iniciando descarga")
+
+    def emit(self, current: int, nuevos: int, duplicados: int, message: str) -> None:
+        operation_status.update(
+            self.job_id,
+            current=current,
+            message=f"{message} ({nuevos} nuevos, {duplicados} duplicados)",
+        )
+
+
+def _run_terminal_pull_job(job_id: str, terminal_id: int, username: str) -> None:
+    db = SessionLocal()
+    try:
+        terminal = get_terminal_or_404(terminal_id, db)
+        result = service_pull_logs(terminal, db, progress_signal=_TerminalPullProgress(job_id))
+        terminal.last_pull_status = "ok"
+        terminal.last_pull_error = None
+        db.commit()
+        nuevos, duplicados, total, logs_msgs = result
+        operation_status.complete(
+            job_id,
+            {"terminal_name": terminal.name, "total": total, "nuevos": nuevos, "duplicados": duplicados, "logs": logs_msgs[-200:]},
+            f"Descarga completada: {nuevos} nuevos, {duplicados} duplicados",
+        )
+        logger.info("Terminal raw pull job completed", extra={"user": username, "action": "terminal_pull_job"})
+    except Exception as exc:
+        db.rollback()
+        try:
+            terminal = get_terminal_or_404(terminal_id, db)
+            terminal.last_pull_status = "error"
+            terminal.last_pull_error = str(exc)[:500]
+            db.commit()
+        except Exception:
+            db.rollback()
+        operation_status.fail(job_id, f"Error al descargar registros: {exc}")
+        logger.exception("Terminal raw pull job failed", extra={"user": username, "action": "terminal_pull_job"})
+    finally:
+        db.close()
 
 
 class TerminalCreate(BaseModel):
@@ -45,7 +94,12 @@ class TerminalUpdate(BaseModel):
 
 class TerminalScheduleUpdate(BaseModel):
     enabled: bool = False
+    mode: Literal["interval", "weekly"] = "interval"
     interval_minutes: Optional[int] = None
+    weekdays: Optional[list[int]] = None
+    scheduled_time: Optional[time] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
     window_start: Optional[time] = None
     window_end: Optional[time] = None
 
@@ -74,7 +128,12 @@ def list_terminals(
                 "last_sync": str(t.last_sync) if t.last_sync else None,
                 "pull_schedule": {
                     "enabled": t.pull_schedule_enabled,
+                    "mode": t.pull_schedule_mode or "interval",
                     "interval_minutes": t.pull_interval_minutes,
+                    "weekdays": t.pull_schedule_weekdays or [],
+                    "scheduled_time": t.pull_schedule_time.isoformat() if t.pull_schedule_time else None,
+                    "start_date": t.pull_schedule_start_date.isoformat() if t.pull_schedule_start_date else None,
+                    "end_date": t.pull_schedule_end_date.isoformat() if t.pull_schedule_end_date else None,
                     "window_start": t.pull_window_start.isoformat() if t.pull_window_start else None,
                     "window_end": t.pull_window_end.isoformat() if t.pull_window_end else None,
                     "next_pull_at": str(t.next_pull_at) if t.next_pull_at else None,
@@ -216,6 +275,63 @@ def pull_terminal_logs_now(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.post("/{terminal_id}/pull/jobs", status_code=202)
+def start_terminal_pull_job(
+    terminal_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: AuthUser = Depends(require_supervisor_or_root),
+):
+    terminal = get_terminal_or_404(terminal_id, db)
+    if not terminal.is_active:
+        raise HTTPException(status_code=400, detail="La terminal está inactiva")
+    job = operation_status.create("terminal_pull", f"Descarga en cola: {terminal.name}")
+    background_tasks.add_task(_run_terminal_pull_job, job["id"], terminal.id, current_user.username)
+    return job
+
+
+@router.get("/{terminal_id}/pull/jobs/{job_id}")
+def get_terminal_pull_job(
+    terminal_id: int,
+    job_id: str,
+    db: Session = Depends(get_db),
+    current_user: AuthUser = Depends(get_current_user),
+):
+    get_terminal_or_404(terminal_id, db)
+    job = operation_status.get(job_id)
+    if not job or job["operation"] != "terminal_pull":
+        raise HTTPException(status_code=404, detail="Trabajo de descarga no encontrado")
+    return job
+
+
+@router.get("/{terminal_id}/device-users")
+def list_device_users(
+    terminal_id: int,
+    db: Session = Depends(get_db),
+    current_user: AuthUser = Depends(require_supervisor_or_root),
+):
+    terminal = get_terminal_or_404(terminal_id, db)
+    try:
+        return service_list_terminal_users(terminal)
+    except (TerminalOperationError, OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/{terminal_id}/sync-user-names")
+def sync_device_user_names(
+    terminal_id: int,
+    db: Session = Depends(get_db),
+    current_user: AuthUser = Depends(require_supervisor_or_root),
+):
+    terminal = get_terminal_or_404(terminal_id, db)
+    try:
+        result = service_sync_terminal_user_names(terminal, db)
+        logger.info("Terminal user names synchronized", extra={"user": current_user.username, "action": "terminal_sync_user_names"})
+        return ok_response(result)
+    except (TerminalOperationError, OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.put("/{terminal_id}/pull-schedule")
 def update_pull_schedule(
     terminal_id: int,
@@ -224,12 +340,24 @@ def update_pull_schedule(
     current_user: AuthUser = Depends(require_supervisor_or_root),
 ):
     terminal = get_terminal_or_404(terminal_id, db)
-    if payload.enabled and (payload.interval_minutes is None or payload.interval_minutes < 1):
+    if payload.enabled and payload.mode == "interval" and (payload.interval_minutes is None or payload.interval_minutes < 1):
         raise HTTPException(status_code=422, detail="El intervalo debe ser de al menos un minuto")
+    if payload.enabled and payload.mode == "weekly":
+        if not payload.weekdays or any(day < 0 or day > 6 for day in payload.weekdays):
+            raise HTTPException(status_code=422, detail="Seleccione al menos un día válido de la semana")
+        if payload.scheduled_time is None:
+            raise HTTPException(status_code=422, detail="Indique la hora de descarga automática")
+    if payload.start_date and payload.end_date and payload.end_date < payload.start_date:
+        raise HTTPException(status_code=422, detail="La fecha final no puede ser anterior a la fecha inicial")
     if (payload.window_start is None) != (payload.window_end is None):
         raise HTTPException(status_code=422, detail="Indique inicio y fin de franja, o deje ambos vacíos")
     terminal.pull_schedule_enabled = payload.enabled
-    terminal.pull_interval_minutes = payload.interval_minutes if payload.enabled else None
+    terminal.pull_schedule_mode = payload.mode if payload.enabled else "interval"
+    terminal.pull_interval_minutes = payload.interval_minutes if payload.enabled and payload.mode == "interval" else None
+    terminal.pull_schedule_weekdays = sorted(set(payload.weekdays or [])) if payload.enabled and payload.mode == "weekly" else None
+    terminal.pull_schedule_time = payload.scheduled_time if payload.enabled and payload.mode == "weekly" else None
+    terminal.pull_schedule_start_date = payload.start_date if payload.enabled else None
+    terminal.pull_schedule_end_date = payload.end_date if payload.enabled else None
     terminal.pull_window_start = payload.window_start if payload.enabled else None
     terminal.pull_window_end = payload.window_end if payload.enabled else None
     if payload.enabled:

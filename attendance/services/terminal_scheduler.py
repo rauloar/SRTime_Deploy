@@ -24,6 +24,24 @@ _run_lock = Lock()
 
 def schedule_next_pull(terminal: DeviceTerminal, now: datetime | None = None) -> None:
     now = now or datetime.now()
+    if terminal.pull_schedule_mode == "weekly":
+        weekdays = {int(day) for day in (terminal.pull_schedule_weekdays or []) if 0 <= int(day) <= 6}
+        run_time = terminal.pull_schedule_time
+        if not weekdays or not run_time:
+            terminal.next_pull_at = None
+            return
+        first_date = max(now.date(), terminal.pull_schedule_start_date or now.date())
+        for offset in range(8):
+            candidate_date = first_date + timedelta(days=offset)
+            if terminal.pull_schedule_end_date and candidate_date > terminal.pull_schedule_end_date:
+                terminal.next_pull_at = None
+                return
+            candidate = datetime.combine(candidate_date, run_time)
+            if candidate.weekday() in weekdays and candidate > now:
+                terminal.next_pull_at = candidate
+                return
+        terminal.next_pull_at = None
+        return
     interval = terminal.pull_interval_minutes or 60
     terminal.next_pull_at = now + timedelta(minutes=max(1, interval))
 

@@ -1,19 +1,12 @@
 import os
-import sys
 import uuid
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
 import jwt
-from dotenv import load_dotenv
+from core.config import load_application_env
 
-_is_compiled = getattr(sys, "frozen", False) or "__compiled__" in globals()
-_base_dir = (
-    os.path.dirname(os.path.abspath(sys.argv[0]))
-    if _is_compiled
-    else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-)
-load_dotenv(os.environ.get("SRTIME_ENV_FILE") or os.path.join(_base_dir, ".env"))
+load_application_env()
 
 SECRET_KEY = os.getenv("SECRET_KEY")
 if not SECRET_KEY:

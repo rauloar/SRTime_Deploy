@@ -1,27 +1,14 @@
 import os
-import sys
 from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
 from sqlalchemy.orm import sessionmaker, declarative_base
-from dotenv import load_dotenv
+from core.config import ATTENDANCE_DIR, load_application_env
 
 # Determinar el directorio correcto donde reside el ejecutable original (o script).
 # Soporta: script de desarrollo, binario PyInstaller (sys.frozen) y binario
 # Nuitka --standalone (define el global __compiled__, NO setea sys.frozen).
-_is_compiled = getattr(sys, 'frozen', False) or '__compiled__' in globals()
-
-if _is_compiled:
-    # Binario compilado: el .env vive junto al ejecutable.
-    base_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-else:
-    # Script de desarrollo: el .env vive en la carpeta attendance/.
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-# Ubicación del .env: override explícito (SRTIME_ENV_FILE) o junto a base_dir.
-# Nota: load_dotenv NO pisa variables ya presentes en el entorno (override=False),
-# por lo que systemd EnvironmentFile= sigue siendo la fuente de verdad en prod.
-env_path = os.environ.get("SRTIME_ENV_FILE") or os.path.join(base_dir, ".env")
-load_dotenv(dotenv_path=env_path)
+base_dir = str(ATTENDANCE_DIR)
+load_application_env()
 
 def build_database_url(settings: dict[str, str] | None = None):
     """Build the SQLAlchemy URL from the current environment or explicit settings."""

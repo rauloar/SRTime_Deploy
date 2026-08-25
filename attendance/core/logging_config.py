@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
+from core.config import resolve_env_path
 
 request_id_ctx: ContextVar[str] = ContextVar("request_id", default="-")
 
@@ -84,7 +85,7 @@ class LogSettings:
 
 def _load_active_environment() -> None:
     """Carga el entorno elegido por el launcher antes de leer ``LOG_*``."""
-    env_path = Path(os.getenv("SRTIME_ENV_FILE", _ATTENDANCE_DIR / ".env"))
+    env_path = resolve_env_path()
     load_dotenv(env_path, override=False)
 
 

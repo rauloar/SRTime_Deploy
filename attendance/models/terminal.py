@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, Column, Integer, String, Boolean, DateTime, Time
+from sqlalchemy import JSON, Column, Integer, String, Boolean, DateTime, Date, Time
 from sqlalchemy.sql import func
 from core.database import Base
 
@@ -19,7 +19,14 @@ class DeviceTerminal(Base):
     # La agenda pertenece a la terminal, no a los movimientos crudos.  Mantenerla
     # aquí evita una segunda fuente de verdad para la configuración del equipo.
     pull_schedule_enabled = Column(Boolean, default=False, nullable=False)
+    # ``interval`` conserva el comportamiento histórico. ``weekly`` permite
+    # programar días concretos y una hora de descarga para cada terminal.
+    pull_schedule_mode = Column(String(20), default="interval", nullable=False)
     pull_interval_minutes = Column(Integer, nullable=True)
+    pull_schedule_weekdays = Column(JSON, nullable=True)
+    pull_schedule_time = Column(Time, nullable=True)
+    pull_schedule_start_date = Column(Date, nullable=True)
+    pull_schedule_end_date = Column(Date, nullable=True)
     pull_window_start = Column(Time, nullable=True)
     pull_window_end = Column(Time, nullable=True)
     next_pull_at = Column(DateTime, nullable=True)

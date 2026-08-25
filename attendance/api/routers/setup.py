@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from api.deps import get_db
 from api.schemas import AdminSetupRequest, DatabaseConnectionRequest, DatabaseSetupRequest, SetupStatusResponse
 from core.database import SessionLocal, configure_database, engine
+from core.config import resolve_env_path
 from core.init_db import init_database
 from core.security import hash_password, validate_password
 from models.user import AuthUser
@@ -71,7 +72,7 @@ def _configured() -> bool:
 
 
 def _write_local_config(values: dict[str, str]) -> None:
-    env_path = Path(os.environ.get("SRTIME_ENV_FILE", Path(__file__).parents[2] / ".env.pseudo_pro"))
+    env_path = resolve_env_path()
     current: dict[str, str] = {}
     if env_path.exists():
         for line in env_path.read_text(encoding="utf-8").splitlines():

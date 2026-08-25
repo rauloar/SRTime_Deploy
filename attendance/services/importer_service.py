@@ -206,6 +206,10 @@ def import_from_driver(driver_instance, connection_params: dict, session, progre
             progress_signal.emit(0, 0, 0, "Conectando al dispositivo...")
         driver_instance.connect(connection_params)
 
+        known_total = driver_instance.get_attendance_log_count()
+        if progress_signal and known_total is not None and hasattr(progress_signal, "set_total"):
+            progress_signal.set_total(known_total)
+
         if progress_signal:
             progress_signal.emit(0, 0, 0, "Descargando registros...")
 

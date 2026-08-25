@@ -1,4 +1,4 @@
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 
 from models.terminal import DeviceTerminal
 from services.terminal_scheduler import _inside_window, schedule_next_pull
@@ -20,6 +20,32 @@ def test_schedule_window_accepts_overnight_period():
     assert _inside_window(terminal, datetime(2026, 7, 26, 23, 0)) is True
     assert _inside_window(terminal, datetime(2026, 7, 27, 5, 0)) is True
     assert _inside_window(terminal, datetime(2026, 7, 27, 12, 0)) is False
+
+
+def test_weekly_schedule_uses_selected_day_and_time():
+    terminal = DeviceTerminal(
+        pull_schedule_mode="weekly",
+        pull_schedule_weekdays=[0, 2],  # lunes y miércoles
+        pull_schedule_time=time(8, 30),
+    )
+
+    schedule_next_pull(terminal, datetime(2026, 7, 26, 10, 0))  # domingo
+
+    assert terminal.next_pull_at == datetime(2026, 7, 27, 8, 30)
+
+
+def test_weekly_schedule_respects_calendar_end_date():
+    terminal = DeviceTerminal(
+        pull_schedule_mode="weekly",
+        pull_schedule_weekdays=[0],
+        pull_schedule_time=time(8, 30),
+        pull_schedule_start_date=date(2026, 7, 27),
+        pull_schedule_end_date=date(2026, 7, 26),
+    )
+
+    schedule_next_pull(terminal, datetime(2026, 7, 26, 10, 0))
+
+    assert terminal.next_pull_at is None
 
 
 def test_remote_agent_token_is_never_exposed_in_public_terminal_data():
