@@ -1,7 +1,7 @@
 import os
 from core.database import engine, Base
 from models import user, attendance
-from models.employee import User
+from models.employee import TERMINAL_PRIVILEGE_USER, User
 from models.holiday import Holiday  # noqa: F401 — registers Holiday with Base.metadata
 from sqlalchemy.orm import Session
 from sqlalchemy import inspect, text
@@ -50,6 +50,9 @@ def init_database(target_engine=None, defer_admin_setup: bool = False):
     users_cols = {c["name"] for c in inspect(db_engine).get_columns("users")}
     if "shift_id" not in users_cols:
         session.execute(text("ALTER TABLE users ADD COLUMN shift_id INTEGER"))
+        session.commit()
+    if "terminal_privilege" not in users_cols:
+        session.execute(text(f"ALTER TABLE users ADD COLUMN terminal_privilege INTEGER DEFAULT {TERMINAL_PRIVILEGE_USER} NOT NULL"))
         session.commit()
 
     attendance_cols = {c["name"] for c in inspect(db_engine).get_columns("attendance_log")}

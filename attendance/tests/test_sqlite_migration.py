@@ -33,13 +33,14 @@ def test_sqlite_migration_upgrades_legacy_workflow_schema(tmp_path):
     try:
         columns = {
             table: {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
-            for table in ("auth_user", "processed_attendance", "device_terminal")
+            for table in ("auth_user", "users", "processed_attendance", "device_terminal")
         }
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     finally:
         connection.close()
 
     assert "token_version" in columns["auth_user"]
+    assert "terminal_privilege" in columns["users"]
     assert {"previous_status", "pending_first_in", "pending_last_out", "pending_justification", "requested_by"}.issubset(columns["processed_attendance"])
     assert {
         "connection_params", "pull_schedule_enabled", "pull_schedule_mode", "pull_interval_minutes",

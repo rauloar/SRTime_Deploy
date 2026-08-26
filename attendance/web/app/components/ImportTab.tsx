@@ -17,6 +17,13 @@ interface ParserInfo {
   name: string
   is_driver: boolean
   is_parser: boolean
+  ui_features?: {
+    file_import?: boolean
+    network_import?: boolean
+    file_extensions?: string[]
+    file_name_patterns?: string[]
+    file_format_hint?: string
+  }
 }
 
 interface TerminalInfo {
@@ -26,7 +33,7 @@ interface TerminalInfo {
   is_active: boolean
 }
 
-export default function ImportTab() {
+export default function ImportTab({ fileImport, networkImport }: { fileImport: boolean; networkImport: boolean }) {
   const { api } = useAuth()
   const [file, setFile] = useState<File | null>(null)
   const [status, setStatus] = useState("Logs: 0 | Nuevos: 0 | Duplicados: 0")
@@ -37,7 +44,7 @@ export default function ImportTab() {
   const [terminals, setTerminals] = useState<TerminalInfo[]>([])
   const [selectedParser, setSelectedParser] = useState("")
   const [selectedTerminal, setSelectedTerminal] = useState<number | "">("")
-  const [activeTab, setActiveTab] = useState<"file" | "device">("file")
+  const [activeTab, setActiveTab] = useState<"file" | "device">(fileImport ? "file" : "device")
   const [job, setJob] = useState<OperationJob | null>(null)
 
   useEffect(() => {
@@ -50,7 +57,7 @@ export default function ImportTab() {
         
         const list = resParsers.data.parsers || []
         setParsers(list)
-        const fileList = (list as ParserInfo[]).filter(p => p.is_parser)
+        const fileList = (list as ParserInfo[]).filter(p => p.is_parser && p.ui_features?.file_import)
         if (fileList.length > 0) setSelectedParser(fileList[0].name)
 
         const termList = resTerminals.data.terminals || []
@@ -65,6 +72,10 @@ export default function ImportTab() {
     }
     init()
   }, [api])
+
+  useEffect(() => {
+    setActiveTab(fileImport ? "file" : "device")
+  }, [fileImport, networkImport])
 
   useEffect(() => {
     if (!job || job.state === "completed" || job.state === "failed") return
@@ -86,9 +97,10 @@ export default function ImportTab() {
   }, [api, job])
 
   function switchTab(tab: "file" | "device") {
+    if ((tab === "file" && !fileImport) || (tab === "device" && !networkImport)) return
     setActiveTab(tab)
     if (tab === "file") {
-      const list = parsers.filter(p => p.is_parser)
+      const list = parsers.filter(p => p.is_parser && p.ui_features?.file_import)
       if (list.length > 0) setSelectedParser(list[0].name)
     } else {
       const activeTerms = terminals.filter(t => t.is_active)
@@ -150,9 +162,11 @@ export default function ImportTab() {
       setError("Selecciona un archivo primero")
       return
     }
-    const ext = file.name.toLowerCase()
-    if (!ext.endsWith(".txt")) {
-      setError("Solo se admite importación de archivos .txt en la web")
+    const parser = parsers.find(item => item.name === selectedParser)
+    const allowedExtensions = parser?.ui_features?.file_extensions || [".txt"]
+    const extension = `.${file.name.split(".").pop()?.toLowerCase() || ""}`
+    if (!allowedExtensions.includes(extension)) {
+      setError(`El formato seleccionado admite: ${allowedExtensions.join(", ")}`)
       return
     }
 
@@ -178,17 +192,31 @@ export default function ImportTab() {
     setJob(null)
   }
 
+  function selectFile(nextFile: File | null) {
+    setFile(nextFile)
+    if (!nextFile) return
+    const extension = `.${nextFile.name.split(".").pop()?.toLowerCase() || ""}`
+    const matchingParser = parsers.find(item =>
+      item.is_parser &&
+      item.ui_features?.file_import &&
+      (item.ui_features.file_extensions || [".txt"]).includes(extension),
+    )
+    if (matchingParser) setSelectedParser(matchingParser.name)
+  }
+
   return (
     <div>
       <div style={{ display: "flex", gap: 2, marginBottom: 20, background: "var(--bg-color)", padding: 4, borderRadius: 8, width: "fit-content", border: "1px solid var(--border-color)" }}>
         <button 
           onClick={() => switchTab('file')}
+          hidden={!fileImport}
           style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: activeTab === 'file' ? "var(--primary-color)" : "transparent", color: activeTab === 'file' ? "#fff" : "var(--text-color)", fontWeight: activeTab === 'file' ? "bold" : "normal", cursor: "pointer" }}
         >
           Desde Archivo
         </button>
         <button 
           onClick={() => switchTab('device')}
+          hidden={!networkImport}
           style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: activeTab === 'device' ? "var(--primary-color)" : "transparent", color: activeTab === 'device' ? "#fff" : "var(--text-color)", fontWeight: activeTab === 'device' ? "bold" : "normal", cursor: "pointer" }}
         >
           Desde Red Física
@@ -196,7 +224,7 @@ export default function ImportTab() {
       </div>
 
       <div className="toolbar" style={{ flexWrap: "wrap", gap: 10 }}>
-        {activeTab === "device" ? (
+        {activeTab === "device" && networkImport ? (
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
             <span style={{ fontSize: 13, fontWeight: 500 }}>
               Equipo Registrado:
@@ -230,22 +258,32 @@ export default function ImportTab() {
                 </div>
             )}
           </div>
-        ) : (
+        ) : fileImport ? (
           <>
+            <select
+              value={selectedParser}
+              onChange={event => setSelectedParser(event.target.value)}
+              aria-label="Formato de archivo"
+              style={{ padding: "6px 10px", borderRadius: 4, border: "1px solid var(--border-color)", background: "var(--bg-color)", color: "var(--text-color)", fontSize: 13 }}
+            >
+              {parsers.filter(item => item.is_parser && item.ui_features?.file_import).map(item => (
+                <option key={item.name} value={item.name}>{item.name}</option>
+              ))}
+            </select>
             <label className="btn" style={{ cursor: "pointer" }}>
               <Upload size={14} /> Buscar Archivo
               <input
                 type="file"
-                accept=".txt"
+                accept={(parsers.find(item => item.name === selectedParser)?.ui_features?.file_extensions || [".txt"]).join(",")}
                 style={{ display: "none" }}
-                onChange={e => setFile(e.target.files?.[0] || null)}
+                onChange={e => selectFile(e.target.files?.[0] || null)}
               />
             </label>
             <button className="btn btn-primary" onClick={runImport} disabled={running || !file}>
-              <Upload size={14} /> {running ? "Importando..." : "Importar TXT"}
+              <Upload size={14} /> {running ? "Importando..." : "Importar archivo"}
             </button>
           </>
-        )}
+        ) : null}
         <button className="btn" onClick={clearView} disabled={running}>
           <RefreshCw size={14} /> Limpiar
         </button>
@@ -255,7 +293,7 @@ export default function ImportTab() {
         <strong>{status}</strong>
         {activeTab === "file" && (
           <span style={{ marginLeft: "auto", opacity: 0.7, fontSize: 12 }}>
-            Archivo: {file ? file.name : "(no seleccionado)"}
+            Formato: {parsers.find(item => item.name === selectedParser)?.ui_features?.file_format_hint || "archivo de asistencia"} · Archivo: {file ? file.name : "(no seleccionado)"}
           </span>
         )}
       </div>

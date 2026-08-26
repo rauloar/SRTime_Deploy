@@ -166,6 +166,11 @@ def migrate_users(cur: sqlite3.Cursor, changed: list[str]) -> None:
     if add_column_if_missing(cur, "users", "shift_id", "shift_id INTEGER"):
         changed.append("users.shift_id")
 
+    if add_column_if_missing(cur, "users", "terminal_privilege", "terminal_privilege INTEGER DEFAULT 0"):
+        changed.append("users.terminal_privilege")
+
+    cur.execute("UPDATE users SET terminal_privilege = 0 WHERE terminal_privilege IS NULL")
+
 
 def migrate_shifts(cur: sqlite3.Cursor, changed: list[str]) -> None:
     """Migrate shifts table - add overnight shift support."""

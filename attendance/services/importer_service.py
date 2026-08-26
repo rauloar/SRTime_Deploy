@@ -195,16 +195,28 @@ def import_att_logs(
 
 # ── Ingesta desde dispositivo de red (Pull) ───────────────────
 
-def import_from_driver(driver_instance, connection_params: dict, session, progress_signal=None):
+def import_from_driver(
+    driver_instance,
+    connection_params: dict,
+    session,
+    progress_signal=None,
+    on_connected=None,
+):
     """
     Ingesta Pull desde cualquier driver de red (ZKTeco, Hikvision, etc.).
-    El driver se conecta, descarga los logs y desconecta.
+    El driver se conecta, descarga los logs y desconecta. ``on_connected`` es
+    un hook interno para operaciones del terminal que deben ejecutarse con la
+    misma conexión (por ejemplo, obtener el directorio de usuarios ZKTeco)
+    antes de ingerir los movimientos.
     """
     logger.info(f"Starting device import: {driver_instance.display_name}")
     try:
         if progress_signal:
             progress_signal.emit(0, 0, 0, "Conectando al dispositivo...")
         driver_instance.connect(connection_params)
+
+        if on_connected:
+            on_connected(driver_instance)
 
         known_total = driver_instance.get_attendance_log_count()
         if progress_signal and known_total is not None and hasattr(progress_signal, "set_total"):

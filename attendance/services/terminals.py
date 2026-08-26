@@ -6,11 +6,13 @@ from datetime import datetime
 from typing import Any
 
 from models.terminal import DeviceTerminal
-from models.employee import User
+from models.employee import TERMINAL_PRIVILEGE_ADMIN, TERMINAL_PRIVILEGE_USER, User
 from core.credentials import decrypt_credential, encrypt_credential
+from core.logging_config import get_logger
 
 
 SECRET_FIELDS = frozenset({"password", "db_password", "token", "api_token", "secret", "api_key"})
+logger = get_logger(__name__)
 
 
 class TerminalOperationError(RuntimeError):
@@ -106,18 +108,101 @@ def sync_time(terminal: DeviceTerminal) -> bool:
         _disconnect_safely(driver)
 
 
+def _split_terminal_name(name: Any) -> tuple[str | None, str | None]:
+    """Convierte el único campo ``name`` de ZKTeco al perfil SRTime.
+
+    ZKTeco no separa nombre y apellido. Se respeta el formato explícito
+    ``Apellido, Nombre`` cuando existe; en cualquier otro caso se conserva el
+    valor completo como nombre para evitar adivinar una separación incorrecta.
+    """
+    value = str(name or "").strip()
+    if not value:
+        return None, None
+    if "," in value:
+        last_name, first_name = (part.strip() for part in value.split(",", 1))
+        return first_name or None, last_name or None
+    return value, None
+
+
+def _seed_terminal_employee_profiles(driver, session) -> dict[str, int]:
+    """Completa el directorio SRTime desde una terminal sin pisar su fuente.
+
+    La descarga normal de marcaciones no trae nombres. Si la terminal aporta
+    un usuario inexistente se crea su empleado; si el importador había creado
+    antes un empleado vacío, se completa una única vez. Los nombres que ya
+    existen en SRTime son administrados por la aplicación y nunca se
+    sobrescriben durante un pull de logs.
+    """
+    terminal_users = driver.get_terminal_users()
+    identifiers = {
+        str(item.get("user_id") or "").strip().zfill(15)
+        for item in terminal_users
+        if str(item.get("user_id") or "").strip()
+    }
+    if not identifiers:
+        return {"created": 0, "completed": 0, "preserved": 0}
+
+    employees = {
+        employee.identifier: employee
+        for employee in session.query(User).filter(User.identifier.in_(identifiers)).all()
+    }
+    created = completed = preserved = 0
+    for terminal_user in terminal_users:
+        raw_identifier = str(terminal_user.get("user_id") or "").strip()
+        if not raw_identifier:
+            continue
+        identifier = raw_identifier.zfill(15)
+        first_name, last_name = _split_terminal_name(terminal_user.get("name"))
+        privilege = int(terminal_user.get("privilege", TERMINAL_PRIVILEGE_USER))
+        if privilege not in (TERMINAL_PRIVILEGE_USER, TERMINAL_PRIVILEGE_ADMIN):
+            privilege = TERMINAL_PRIVILEGE_USER
+
+        employee = employees.get(identifier)
+        if employee is None:
+            employee = User(
+                identifier=identifier,
+                first_name=first_name,
+                last_name=last_name,
+                terminal_privilege=privilege,
+            )
+            session.add(employee)
+            employees[identifier] = employee
+            created += 1
+        elif not (employee.first_name or employee.last_name):
+            employee.first_name = first_name
+            employee.last_name = last_name
+            # El privilegio de terminal sólo se toma al incorporar/completar
+            # el perfil. Luego SRTime es la fuente que se sincroniza hacia ZK.
+            employee.terminal_privilege = privilege
+            completed += 1
+        else:
+            preserved += 1
+    session.flush()
+    return {"created": created, "completed": completed, "preserved": preserved}
+
+
 def pull_logs(terminal: DeviceTerminal, session, progress_signal=None):
     from services.importer_service import import_from_driver
 
     driver = get_driver_instance(terminal)
+    profile_result = {"created": 0, "completed": 0, "preserved": 0}
+
+    def on_connected(connected_driver) -> None:
+        nonlocal profile_result
+        if supports_capability(terminal, "terminal_users"):
+            profile_result = _seed_terminal_employee_profiles(connected_driver, session)
+
     result = import_from_driver(
         driver,
         get_connection_params(terminal),
         session,
         progress_signal=progress_signal,
+        on_connected=on_connected,
     )
     terminal.last_sync = datetime.now()
     session.commit()
+    if any(profile_result.values()):
+        logger.info("Terminal employee profiles synchronized during pull: %s", profile_result)
     return result
 
 
@@ -143,19 +228,25 @@ def list_terminal_users(terminal: DeviceTerminal) -> dict[str, Any]:
                 for item in users
             ],
             "name_max_bytes": driver.get_terminal_user_name_max_bytes(),
+            "privilege_options": [
+                {"value": TERMINAL_PRIVILEGE_USER, "label": "USER"},
+                {"value": TERMINAL_PRIVILEGE_ADMIN, "label": "ADMIN"},
+            ],
         }
     finally:
         _disconnect_safely(driver)
 
 
 def sync_terminal_user_names(terminal: DeviceTerminal, session) -> dict[str, Any]:
-    """Sube sólo nombres SRTime a usuarios ya existentes en la terminal.
+    """Sube perfil SRTime a usuarios ya existentes en la terminal.
 
-    UID, user_id y privilegios del reloj son fuente de verdad del equipo y se
-    preservan. Esta operación no crea ni elimina usuarios biométricos.
+    UID y user_id siguen siendo identidad del reloj y se preservan. Esta
+    operación no crea ni elimina usuarios biométricos. Sundial/TM-MR001 no
+    participa de este flujo; allí todos los empleados quedan USER por default.
     """
     if not supports_capability(terminal, "terminal_user_name_sync"):
         raise TerminalOperationError("El driver configurado no admite sincronizar nombres")
+    can_sync_privilege = supports_capability(terminal, "terminal_user_privilege_sync")
     driver = get_driver_instance(terminal)
     try:
         driver.connect(get_connection_params(terminal))
@@ -171,20 +262,29 @@ def sync_terminal_user_names(terminal: DeviceTerminal, session) -> dict[str, Any
             employee = employees.get(str(terminal_user["user_id"]).strip().zfill(15))
             if not employee:
                 continue
-            desired_name = " ".join(part for part in (employee.last_name, employee.first_name) if part).strip()
-            if not desired_name or desired_name == terminal_user["name"]:
-                continue
+            desired_name = " ".join(part for part in (employee.last_name, employee.first_name) if part).strip() or terminal_user["name"]
             if max_bytes and len(desired_name.encode("utf-8")) > max_bytes:
                 raise TerminalOperationError(
                     f"El nombre de {employee.identifier} supera el límite de {max_bytes} bytes de la terminal"
                 )
-            planned.append((terminal_user, desired_name))
+            desired_privilege = int(getattr(employee, "terminal_privilege", TERMINAL_PRIVILEGE_USER) or TERMINAL_PRIVILEGE_USER)
+            current_privilege = int(terminal_user.get("privilege", TERMINAL_PRIVILEGE_USER))
+            if desired_name != terminal_user["name"] or (can_sync_privilege and desired_privilege != current_privilege):
+                planned.append((terminal_user, desired_name, desired_privilege))
 
-        for terminal_user, desired_name in planned:
-            driver.update_terminal_user_name(terminal_user, desired_name)
+        privilege_updates = 0
+        for terminal_user, desired_name, desired_privilege in planned:
+            previous_privilege = int(terminal_user.get("privilege", TERMINAL_PRIVILEGE_USER))
+            if can_sync_privilege:
+                driver.update_terminal_user_profile(terminal_user, desired_name, desired_privilege)
+                if desired_privilege != previous_privilege:
+                    privilege_updates += 1
+            else:
+                driver.update_terminal_user_name(terminal_user, desired_name)
         return {
             "terminal_users": len(terminal_users),
             "updated": len(planned),
+            "privilege_updated": privilege_updates,
             "matched": len(employees),
             "name_max_bytes": max_bytes,
         }

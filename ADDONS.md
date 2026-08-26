@@ -122,18 +122,28 @@ con `__manifest__.py` y los expone vía `get_available_addons()`.
 |-------|-------|---------|
 | `ip` | Dirección IP | Configuración obligatoria |
 | `port` | Puerto | `4370` |
-| `password` | Contraseña Com | Vacío si el equipo no usa clave |
+| `timeout` | Timeout de conexión | `3` segundos |
 
 **Flujo de red (Pull):**
 ```
-ZKTecoDriver.connect()     → pyzk ZK(ip, port, password).connect()
+ZKTecoDriver.connect()     → pyzk ZK(ip, port, timeout=3).connect()
                            → conn.disable_device()
 ZKTecoDriver.get_attendance_logs()
                            → conn.get_attendance()
-                           → yield (identifier.zfill(15), date, time, int(att.status), flags)
+                           → mark_type desde att.punch, flags desde att.status
+                           → yield (identifier.zfill(15), date, time, mark_type, flags)
 ZKTecoDriver.disconnect()  → conn.enable_device() + conn.disconnect()
 ```
 **No crea archivos.** Escribe directo a BD via `_ingest_rows()`.
+
+La prueba de conectividad hace 3 intentos de 3 segundos. Si la terminal no
+responde, la API devuelve el mensaje funcional "No hay conectividad con la
+terminal" y el log conserva el traceback técnico completo.
+
+**Importante:** en pyzk, `punch` representa la dirección funcional de la marcación
+para SRTime (`0/3/4 = Entrada`, `1/2/5 = Salida`). `status` no debe usarse para
+Entrada/Salida; se conserva como metadata compacta en `flags` porque depende del
+firmware/modelo y puede representar modo o estado de verificación.
 
 **Flujo de archivo (USB export):**
 ```
@@ -141,14 +151,32 @@ ZKTecoParser.parse_line(line)
   parts = line.strip().split()
   identifier = parts[0].zfill(15)
   datetime.strptime(f"{parts[1]} {parts[2]}", "%Y-%m-%d %H:%M:%S")
-  mark_type = int(parts[3])  → normaliza a 0 si no es 0 o 1
+  status = int(parts[3])     → metadata en flags
+  punch = int(parts[4])      → dirección de marcación si existe
+  mark_type desde punch      → fallback legacy a parts[3] si falta parts[4]
 ```
 
 Formato ZKTeco USB (distinto al TM-MR001):
 ```
 1           2025-03-15 08:30:00 1   0   1   0
-[user_id]   [fecha]    [hora]   [status]...
+[user_id]   [fecha]    [hora]   [status] [punch] ...
 ```
+
+El nombre nativo de exportación por USB es **`att.dat`**. La interfaz de
+Importar permite seleccionar el formato ZKTeco y acepta `.dat`; al elegir
+`att.dat` selecciona ese parser automáticamente. El formato Sundial
+`TM-MR001.txt` sigue usando exclusivamente su parser `.txt`.
+
+**Sincronización de usuarios ZKTeco:** SRTime puede sincronizar nombre y privilegio
+terminal (`USER=0`, `ADMIN=14`) desde la ficha de Empleados hacia la terminal,
+preservando siempre `uid` y `user_id`. Este privilegio pertenece al reloj biométrico
+y no se mezcla con roles de login de la aplicación.
+
+Durante una descarga de registros, SRTime consulta el directorio de la terminal en
+la misma conexión: crea empleados que no existen y completa perfiles que quedaron
+vacíos por una ingesta raw anterior. Un nombre que ya fue cargado en SRTime no se
+sobrescribe automáticamente; SRTime pasa a ser su fuente operativa hasta una
+sincronización explícita administrada.
 
 ---
 

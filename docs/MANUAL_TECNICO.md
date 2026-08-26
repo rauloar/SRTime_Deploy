@@ -63,7 +63,7 @@ La plantilla segura es `attendance/.env.pseudo_pro.example`.
 
 Para una instalación compilada de cliente en Windows mediante Inno Setup,
 seguir `docs/INSTALACION_SRTIME_WEB_WINDOWS.md`. El instalador coloca SRTime
-en `C:\Service Reloj\SRTime`, registra el servicio `SRTimeWeb` y genera una
+en `C:\Service Reloj\SRTime_web`, registra el servicio `SRTimeWeb` y genera una
 configuración local sin credenciales preincluidas.
 
 Los logs operativos se escriben en el directorio definido por `LOG_DIR`; los

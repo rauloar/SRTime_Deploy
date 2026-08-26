@@ -35,9 +35,17 @@ def get_available_addons():
             continue
         entry_path = os.path.join(addons_dir, entry)
         manifest_path = os.path.join(entry_path, "__manifest__.py")
+        has_filesystem_manifest = os.path.isdir(entry_path) and os.path.exists(manifest_path)
+
+        # En desarrollo sólo las carpetas con __manifest__.py son addons. Los
+        # módulos base_driver.py/base_parser.py viven en esta carpeta pero no
+        # deben importarse como addons. En ejecutables congelados, en cambio,
+        # se importan únicamente los nombres declarados en SRTIME_ENABLED_ADDONS.
+        if not enabled_addons and not has_filesystem_manifest:
+            continue
 
         try:
-            if os.path.exists(manifest_path):
+            if has_filesystem_manifest:
                 # Desarrollo / instalación no congelada: cargar desde archivo
                 # para descubrir addons incorporados sin un registro central.
                 spec = importlib.util.spec_from_file_location(
@@ -100,6 +108,10 @@ def get_available_parsers():
             "is_driver": info["is_driver"],
             "is_parser": info["is_parser"],
             "connection_fields": info.get("connection_fields"),
+            "capabilities": info["manifest"].get("capabilities") or {},
+            # Las capacidades de presentación no dependen del nombre comercial
+            # del addon. Permiten que Web y Desktop oculten rutas no instaladas.
+            "ui_features": info["manifest"].get("ui_features") or {},
         }
     return result
 

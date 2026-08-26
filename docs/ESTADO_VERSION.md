@@ -1,6 +1,6 @@
 # Estado de versión de SRTime
 
-## Versión actual: Beta operativa 0.9.0-beta.2
+## Versión actual: Beta operativa 0.9.0-beta.4
 
 SRTime se clasifica como **Beta**, no como Alfa ni como versión final 1.0.
 
@@ -44,6 +44,9 @@ Plan de trabajo pendiente para la paridad de escritorio Windows/SQLite:
 
 - **Alfa**: cambios frecuentes, sin flujo de usuario estable. SRTime ya superó
   esta etapa.
+- **Beta operativa 0.9.0-beta.4**: incorpora la integración ZKTeco, privilegios
+  de terminal y la importación USB nativa `att.dat`; queda lista para el build
+  Web Nuitka posterior a la validación pre-build.
 - **Beta operativa 0.9.0-beta.2**: flujo funcional validado en
   pseudo-producción, sujeto aún a las condiciones de promoción a 1.0. Estado
   actual.

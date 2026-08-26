@@ -3,6 +3,10 @@ from datetime import date, time
 from services.addons.base_driver import BiometricDriver
 
 
+DEFAULT_CONNECTION_TIMEOUT = 3
+DEFAULT_CONNECTION_RETRIES = 3
+
+
 class ZKTecoDriver(BiometricDriver):
     display_name = "ZKTeco"
 
@@ -19,6 +23,9 @@ class ZKTecoDriver(BiometricDriver):
     def connect(self, params: dict):
         ip = ""
         port = 4370
+        timeout = DEFAULT_CONNECTION_TIMEOUT
+        retries = DEFAULT_CONNECTION_RETRIES
+        last_error = None
         try:
             from zk import ZK
 
@@ -26,12 +33,25 @@ class ZKTecoDriver(BiometricDriver):
             if not ip:
                 raise ValueError("La dirección IP de la terminal es obligatoria")
             port = int(params.get("port", 4370))
-            # Mantener exactamente el formato de conexión validado con el
-            # dispositivo: ZK('IP', port=4370). PyZK aplica sus defaults.
-            self.zk = ZK(ip, port=port)
-            self.conn = self.zk.connect()
+            timeout = int(params.get("timeout") or DEFAULT_CONNECTION_TIMEOUT)
+            retries = max(1, int(params.get("retries") or DEFAULT_CONNECTION_RETRIES))
+            # Mantener el contrato pyzk validado con el dispositivo
+            # (ZK('IP', port=4370)), agregando sólo timeout configurable para
+            # que la UI no quede bloqueada 60s cuando la terminal/red no responde.
+            for attempt in range(1, retries + 1):
+                try:
+                    self.zk = ZK(ip, port=port, timeout=timeout)
+                    self.conn = self.zk.connect()
+                    return
+                except Exception as exc:
+                    last_error = exc
+                    self.disconnect()
+            raise last_error or RuntimeError("La terminal no respondió")
         except Exception as e:
-            raise Exception(f"Error al conectar con ZKTeco en {ip}:{port} - {str(e)}")
+            raise ConnectionError(
+                f"Error al conectar con ZKTeco en {ip}:{port} "
+                f"tras {retries} intentos de {timeout}s - {str(e)}"
+            ) from e
 
     def _load_attendance(self):
         if not self.conn:
@@ -55,15 +75,38 @@ class ZKTecoDriver(BiometricDriver):
                 d = dt.date()
                 t = dt.time()
 
-                mark_type = int(att.status)
-                if mark_type not in (0, 1):
-                    mark_type = 0
+                mark_type = self._mark_type_from_punch(getattr(att, "punch", 0))
+                status = self._safe_int(getattr(att, "status", 0), 0)
 
-                flags = "0100100"
+                # SRTime conserva 7 chars de metadata como el formato base.
+                # ZKTeco separa ``status`` (modo/estado de verificación) de
+                # ``punch`` (tipo de marcación). La dirección Entrada/Salida
+                # nunca debe salir de ``status``.
+                flags = f"ZK{status:05d}"[-7:]
 
                 yield identifier, d, t, mark_type, flags
         except Exception as e:
             raise Exception(f"Error al normalizar asistencias: {str(e)}") from e
+
+    @staticmethod
+    def _safe_int(value, default: int = 0) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    @classmethod
+    def _mark_type_from_punch(cls, punch) -> int:
+        """Normaliza el punch ZKTeco al contrato SRTime/TM-MR001.
+
+        Valores comunes de firmware ZK:
+        0 Check-In, 1 Check-Out, 2 Break-Out, 3 Break-In,
+        4 Overtime-In, 5 Overtime-Out.
+        """
+        value = cls._safe_int(punch, 0)
+        if value in {1, 2, 5}:
+            return 1
+        return 0
 
     def get_terminal_users(self) -> list[dict]:
         if not self.conn:
@@ -85,15 +128,18 @@ class ZKTecoDriver(BiometricDriver):
             raise Exception(f"Error al leer usuarios de ZKTeco: {str(e)}") from e
 
     def update_terminal_user_name(self, user: dict, name: str) -> None:
+        self.update_terminal_user_profile(user, name, int(user["privilege"]))
+
+    def update_terminal_user_profile(self, user: dict, name: str, privilege: int) -> None:
         if not self.conn:
             raise Exception("No hay conexión activa con el dispositivo.")
         # ``set_user`` actualiza por UID. Reenviar todos los atributos evita
-        # alterar privilegio, contraseña, grupo, tarjeta o user_id del reloj.
+        # alterar contraseña, grupo, tarjeta, UID o user_id del reloj.
         self.conn.set_user(
             uid=int(user["uid"]),
             user_id=str(user["user_id"]),
             name=name,
-            privilege=int(user["privilege"]),
+            privilege=int(privilege),
             password=str(user.get("password") or ""),
             group_id=str(user.get("group_id") or ""),
             card=int(user.get("card") or 0),

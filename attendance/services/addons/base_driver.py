@@ -41,6 +41,10 @@ class BiometricDriver:
         """Actualiza sólo el nombre conservando el resto del perfil del reloj."""
         raise NotImplementedError("El driver no admite gestión de usuarios")
 
+    def update_terminal_user_profile(self, user: dict, name: str, privilege: int) -> None:
+        """Actualiza nombre y privilegio conservando UID, user_id y credenciales."""
+        self.update_terminal_user_name(user, name)
+
     def get_terminal_user_name_max_bytes(self) -> Optional[int]:
         """Límite de nombre del equipo, si el protocolo lo informa."""
         return None

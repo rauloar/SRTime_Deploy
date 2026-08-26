@@ -8,6 +8,14 @@ manifest = {
     ),
     "driver_class": "SundialDriver",
     "parser_class": "SundialParser",
+    "ui_features": {
+        "file_import": True,
+        "terminal_management": False,
+        "network_import": False,
+        "file_extensions": [".txt"],
+        "file_name_patterns": ["TM-MR001.txt"],
+        "file_format_hint": "TM-MR001.txt de Sundial ERTeckno",
+    },
     "connection_fields": [
         {
             "name": "tecknocomm_exe",

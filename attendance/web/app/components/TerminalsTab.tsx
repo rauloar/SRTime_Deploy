@@ -314,10 +314,10 @@ export default function TerminalsTab() {
     setSyncingNames(true)
     try {
       const { data } = await api.post(`/api/terminals/${t.id}/sync-user-names`)
-      alert(`✅ Nombres sincronizados: ${data.updated} actualizados de ${data.matched} empleados vinculados.`)
+      alert(`✅ Perfiles sincronizados: ${data.updated} actualizados de ${data.matched} empleados vinculados. Privilegios: ${data.privilege_updated || 0}.`)
       await loadDeviceUsers(t)
     } catch (e) {
-      alert(getErrorMessage(e, "No se pudieron sincronizar los nombres."))
+      alert(getErrorMessage(e, "No se pudieron sincronizar los perfiles de terminal."))
     } finally {
       setSyncingNames(false)
     }
@@ -547,10 +547,10 @@ export default function TerminalsTab() {
               </div>
               {capabilities.terminal_users && <section style={{ marginTop: 18, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                  <div><strong><Users size={15} style={{ verticalAlign: "-2px" }} /> Usuarios de terminal</strong><div style={{ color: "var(--text-secondary)", fontSize: 12, marginTop: 3 }}>UID, ID y privilegio pertenecen al reloj. SRTime sólo actualiza el nombre.</div></div>
+                  <div><strong><Users size={15} style={{ verticalAlign: "-2px" }} /> Usuarios de terminal</strong><div style={{ color: "var(--text-secondary)", fontSize: 12, marginTop: 3 }}>UID e ID pertenecen al reloj. SRTime sincroniza nombre y privilegio USER/ADMIN desde Empleados.</div></div>
                   <div style={{ display: "flex", gap: 7 }}>
                     <button className="btn" onClick={() => loadDeviceUsers(t)} disabled={loadingDeviceUsers}><Download size={14} /> {loadingDeviceUsers ? "Leyendo..." : "Bajar usuarios"}</button>
-                    {capabilities.terminal_user_name_sync && <button className="btn btn-primary" onClick={() => syncNames(t)} disabled={syncingNames || !t.is_active}><Upload size={14} /> {syncingNames ? "Subiendo..." : "Sincronizar nombres"}</button>}
+                    {capabilities.terminal_user_name_sync && <button className="btn btn-primary" onClick={() => syncNames(t)} disabled={syncingNames || !t.is_active}><Upload size={14} /> {syncingNames ? "Subiendo..." : "Sincronizar perfiles"}</button>}
                   </div>
                 </div>
                 {deviceUsers.length > 0 && <div className="table-wrapper" style={{ marginTop: 12, maxHeight: 240, overflow: "auto" }}><table className="data-table"><thead><tr><th>UID</th><th>ID</th><th>Nombre en terminal</th><th>Privilegio de terminal</th></tr></thead><tbody>{deviceUsers.map(user => <tr key={`${user.uid}-${user.user_id}`}><td>{user.uid}</td><td>{user.user_id}</td><td>{user.name}</td><td>{user.privilege_label}</td></tr>)}</tbody></table></div>}

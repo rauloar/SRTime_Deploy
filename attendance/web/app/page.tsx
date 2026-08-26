@@ -1,5 +1,5 @@
 "use client"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { useAuth } from "./context/AuthContext"
 import axios from "axios"
 import Image from "next/image"
@@ -15,15 +15,19 @@ import TerminalsTab from "./components/TerminalsTab"
 import ControlCenterTab from "./components/ControlCenterTab"
 import { Users, Clock, ArrowLeftRight, CheckSquare, Sun, Moon, LogOut, ShieldCheck, FileUp, MonitorSmartphone, UserX, Settings } from "lucide-react"
 
-const TABS = [
-  { id: "import",    label: "Importar",             Icon: FileUp },
-  { id: "terminals", label: "Terminales y Biométricos",Icon: MonitorSmartphone },
+const CORE_TABS = [
   { id: "users",     label: "Empleados",            Icon: Users },
   { id: "shifts",    label: "Turnos Horarios",      Icon: Clock },
   { id: "movements", label: "Movimientos",          Icon: ArrowLeftRight },
   { id: "processed", label: "Movimientos Procesados", Icon: CheckSquare },
   { id: "absences",  label: "Ausencias",             Icon: UserX },
 ]
+
+interface AddonUiFeatures {
+  file_import?: boolean
+  terminal_management?: boolean
+  network_import?: boolean
+}
 
 type Theme = "light" | "dark"
 const PASSWORD_PATTERN = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{8,}$/
@@ -38,8 +42,10 @@ function getErrorMessage(error: unknown, fallback: string) {
 }
 
 export default function Home() {
-  const { token, username, role, mustChangePassword, changePassword, logout } = useAuth()
+  const { token, username, role, mustChangePassword, changePassword, logout, api } = useAuth()
   const [activeTab, setActiveTab] = useState("import")
+  const [addonUi, setAddonUi] = useState<AddonUiFeatures>({})
+  const [addonUiLoaded, setAddonUiLoaded] = useState(false)
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [passwordError, setPasswordError] = useState("")
@@ -47,9 +53,42 @@ export default function Home() {
   // Start with light (safe SSR default); real value set in useEffect
   const [theme, setTheme] = useState<Theme>("light")
 
-  const tabs = role === "root"
-    ? [...TABS, { id: "auth_users", label: "Usuarios Autorizados", Icon: ShieldCheck }, { id: "control", label: "Control Center", Icon: Settings }]
-    : TABS
+  const hasImport = addonUi.file_import || addonUi.network_import
+  const tabs = useMemo(() => [
+      ...(hasImport ? [{ id: "import", label: "Importar", Icon: FileUp }] : []),
+      ...(addonUi.terminal_management ? [{ id: "terminals", label: "Terminales y Biométricos", Icon: MonitorSmartphone }] : []),
+      ...CORE_TABS,
+      ...(role === "root" ? [{ id: "auth_users", label: "Usuarios Autorizados", Icon: ShieldCheck }, { id: "control", label: "Control Center", Icon: Settings }] : []),
+    ], [addonUi.terminal_management, hasImport, role])
+
+  useEffect(() => {
+    if (!token) {
+      setAddonUi({})
+      setAddonUiLoaded(false)
+      return
+    }
+    let cancelled = false
+    api.get("/api/import/parsers")
+      .then(({ data }) => {
+        if (cancelled) return
+        const features = (data.parsers || []).reduce((all: AddonUiFeatures, parser: { ui_features?: AddonUiFeatures }) => ({
+          file_import: all.file_import || parser.ui_features?.file_import,
+          terminal_management: all.terminal_management || parser.ui_features?.terminal_management,
+          network_import: all.network_import || parser.ui_features?.network_import,
+        }), {})
+        setAddonUi(features)
+      })
+      .catch(() => { if (!cancelled) setAddonUi({}) })
+      .finally(() => { if (!cancelled) setAddonUiLoaded(true) })
+    return () => { cancelled = true }
+  }, [api, token])
+
+  useEffect(() => {
+    if (!addonUiLoaded) return
+    if (!tabs.some(tab => tab.id === activeTab)) {
+      setActiveTab(tabs[0]?.id || "users")
+    }
+  }, [activeTab, addonUiLoaded, tabs])
 
   useEffect(() => {
     // Read OS preference on mount and apply
@@ -162,8 +201,8 @@ export default function Home() {
       <div className="main-area">
         <div className="content-wrapper">
           {activeTab === "users"      && <UsersTab />}
-          {activeTab === "import"     && <ImportTab />}
-          {activeTab === "terminals"  && <TerminalsTab />}
+          {activeTab === "import"     && hasImport && <ImportTab fileImport={Boolean(addonUi.file_import)} networkImport={Boolean(addonUi.network_import)} />}
+          {activeTab === "terminals"  && addonUi.terminal_management && <TerminalsTab />}
           {activeTab === "shifts"     && <ShiftsTab />}
           {activeTab === "movements"  && <MovementsTab />}
           {activeTab === "processed"  && <ProcessedTab />}

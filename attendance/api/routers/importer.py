@@ -19,6 +19,36 @@ from core.operation_status import operation_status
 router = APIRouter()
 
 
+def _file_extensions_for_parser(parser_name: str | None) -> set[str]:
+    """Obtiene extensiones permitidas desde el manifest del parser.
+
+    El contrato vive en cada addon para que nuevos formatos no requieran
+    condicionales por marca en el router.
+    """
+    import services.addons
+
+    if not parser_name:
+        return {".txt"}
+    info = services.addons.get_addon_info(parser_name)
+    if not info or not info.get("parser_class"):
+        raise HTTPException(status_code=400, detail=f"Parser '{parser_name}' no encontrado")
+    features = (info.get("manifest") or {}).get("ui_features") or {}
+    extensions = {str(value).lower() for value in features.get("file_extensions", [])}
+    return extensions or {".txt"}
+
+
+def _validate_uploaded_extension(filename: str, parser_name: str | None) -> str:
+    suffix = Path(filename).suffix.lower()
+    allowed_extensions = _file_extensions_for_parser(parser_name)
+    if suffix not in allowed_extensions:
+        allowed = ", ".join(sorted(allowed_extensions))
+        raise HTTPException(
+            status_code=400,
+            detail=f"El formato seleccionado admite: {allowed}",
+        )
+    return suffix
+
+
 class _ImportProgress:
     def __init__(self, job_id: str, total: int):
         self.job_id = job_id
@@ -68,7 +98,8 @@ def list_parsers(current_user: AuthUser = Depends(get_current_user)):
             "is_driver": info["is_driver"],
             "is_parser": info["is_parser"],
             "connection_fields": info["connection_fields"],
-            "capabilities": (info.get("manifest") or {}).get("capabilities") or {},
+            "capabilities": info.get("capabilities") or {},
+            "ui_features": info.get("ui_features") or {},
         })
     return {"parsers": res}
 
@@ -86,11 +117,10 @@ async def start_import_txt_job(
 ):
     """Queue file ingestion so the UI can show real progress while it runs."""
     filename = (file.filename or "").strip()
-    if Path(filename).suffix.lower() != ".txt":
-        raise HTTPException(status_code=400, detail="Solo se aceptan archivos .txt")
+    suffix = _validate_uploaded_extension(filename, parser_name)
     max_bytes = int(os.getenv("MAX_IMPORT_SIZE_BYTES", str(10 * 1024 * 1024)))
     bytes_written = 0
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as tmp:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         while chunk := await file.read(1024 * 1024):
             bytes_written += len(chunk)
             if bytes_written > max_bytes:
@@ -130,9 +160,7 @@ async def import_txt_file(
     Usa el parser de addon si se especifica, o el formato SRTime por defecto.
     """
     filename = (file.filename or "").strip()
-    suffix = Path(filename).suffix.lower()
-    if suffix != ".txt":
-        raise HTTPException(status_code=400, detail="Solo se aceptan archivos .txt")
+    suffix = _validate_uploaded_extension(filename, parser_name)
 
     temp_path = None
     try:

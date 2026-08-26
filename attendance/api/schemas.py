@@ -1,6 +1,8 @@
 from typing import Optional, List
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from datetime import date, time
+
+from models.employee import TERMINAL_PRIVILEGES, TERMINAL_PRIVILEGE_USER
 
 # --- USERS ---
 class UserBase(BaseModel):
@@ -9,6 +11,14 @@ class UserBase(BaseModel):
     last_name: Optional[str] = None
     is_active: bool = True
     shift_id: Optional[int] = None
+    terminal_privilege: int = TERMINAL_PRIVILEGE_USER
+
+    @field_validator("terminal_privilege")
+    @classmethod
+    def validate_terminal_privilege(cls, value: int) -> int:
+        if value not in TERMINAL_PRIVILEGES:
+            raise ValueError("terminal_privilege must be 0 (USER) or 14 (ADMIN)")
+        return value
 
 class UserCreate(UserBase):
     pass
@@ -75,6 +85,14 @@ class UserBulkImportRow(BaseModel):
     last_name: Optional[str] = None
     is_active: bool = True
     shift_id: Optional[int] = None
+    terminal_privilege: int = TERMINAL_PRIVILEGE_USER
+
+    @field_validator("terminal_privilege")
+    @classmethod
+    def validate_terminal_privilege(cls, value: int) -> int:
+        if value not in TERMINAL_PRIVILEGES:
+            raise ValueError("terminal_privilege must be 0 (USER) or 14 (ADMIN)")
+        return value
 
 class Token(BaseModel):
     access_token: str

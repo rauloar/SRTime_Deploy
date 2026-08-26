@@ -37,13 +37,18 @@ de ejecutar el instalador.
 2. Aceptar la ubicación propuesta:
 
    ```text
-   C:\Service Reloj\SRTime
+   C:\Service Reloj\SRTime_web
    ```
 
-3. Esperar a que finalice la verificación del host, la copia del paquete y el
-   registro del servicio Windows `SRTimeWeb`.
-4. El instalador crea un acceso directo de escritorio que abre
+3. Seleccionar los drivers de ingesta iniciales: **Sundial / TM-MR001**,
+   **ZKTeco** o **Sundial + ZKTeco**. Ambos drivers se instalan; esta opción
+   sólo define `SRTIME_ENABLED_ADDONS` en `config\.env`.
+4. Esperar a que finalice la verificación del host, la copia del paquete, el
+   registro y el inicio del servicio Windows `SRTimeWeb`.
+5. El instalador crea un acceso directo de escritorio que abre
    `http://127.0.0.1:8000`.
+6. Al finalizar, el instalador no abre el navegador. Reiniciar Windows antes
+   del primer setup para probar el arranque real del servicio.
 
 La instalación crea `config\.env` localmente. Propone PostgreSQL en
 `127.0.0.1:5432`, base `srtime_db`, y deja vacíos `DB_USER` y `DB_PASS`.
@@ -53,7 +58,7 @@ incluye en el instalador.
 
 ## 3. Primera configuración de SRTime
 
-1. Abrir el acceso directo **SRTime Web** o navegar a
+1. Después del reinicio, abrir el acceso directo **SRTime Web** o navegar a
    `http://127.0.0.1:8000`.
 2. En el wizard, ingresar host, puerto, usuario, contraseña y nombre de base
    PostgreSQL que correspondan a la instalación.
@@ -95,13 +100,16 @@ Stop-Service SRTimeWeb
 Start-Service SRTimeWeb
 ```
 
-Los logs se encuentran en `C:\Service Reloj\SRTime\logs`. La revisión previa
+Los logs se encuentran en `C:\Service Reloj\SRTime_web\logs`. La revisión previa
 del instalador queda registrada como `installer-preflight.log`.
 
 ## 6. Actualización o desinstalación
 
 Para actualizar, ejecutar el nuevo instalador como administrador sobre la
 instalación existente. El instalador conserva `config\.env`, logs y backups.
+Si ya existe una instalación con el mismo `AppId`, el asistente entra en modo
+mantenimiento y ofrece reparar, reinstalar/actualizar o desinstalar. Durante
+una reparación o reinstalación detiene y vuelve a registrar `SRTimeWeb`.
 
 Antes de desinstalar o actualizar una instalación con datos, crear y comprobar
 un backup PostgreSQL. La desinstalación quita el servicio y los binarios, pero

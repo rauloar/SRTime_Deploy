@@ -10,7 +10,7 @@ class ZKTecoParser(AttendanceParser):
 
     Formato típico ZKTeco USB export:
     1           2025-03-15 08:30:00 1   0   1   0
-    (user_id    timestamp           status  verify  ...)
+    (user_id    timestamp           status punch ...)
     """
     display_name = "ZKTeco (Archivo USB)"
 
@@ -30,12 +30,15 @@ class ZKTecoParser(AttendanceParser):
             d = dt.date()
             t = dt.time()
 
-            # status (IN/OUT)
-            mark_type = int(parts[3]) if len(parts) > 3 else 0
-            if mark_type not in (0, 1):
-                mark_type = 0
+            # PyZK separa ``status`` del ``punch``. Para no romper archivos
+            # legacy de 4 columnas, se usa parts[4] si existe y parts[3] como
+            # fallback histórico.
+            punch_raw = parts[4] if len(parts) > 4 else parts[3]
+            punch = int(punch_raw)
+            mark_type = 1 if punch in {1, 2, 5} else 0
 
-            flags = "0100100"
+            status = int(parts[3]) if len(parts) > 3 else 0
+            flags = f"ZK{status:05d}"[-7:]
 
             return identifier, d, t, mark_type, flags
         except Exception:

@@ -228,8 +228,20 @@ def test_terminal(
         logger.info(f"Terminal test OK: {terminal.name} ({terminal.ip})",
                     extra={"user": current_user.username, "action": "terminal_test"})
         return result
-    except (TerminalOperationError, OSError, RuntimeError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception(
+            "Terminal connectivity test failed",
+            extra={
+                "user": current_user.username,
+                "action": "terminal_test_failed",
+                "terminal_id": terminal.id,
+                "terminal_name": terminal.name,
+                "driver_name": terminal.driver_name,
+                "ip": terminal.ip,
+                "port": terminal.port,
+            },
+        )
+        raise HTTPException(status_code=400, detail="No hay conectividad con la terminal") from exc
 
 
 @router.post("/{terminal_id}/sync")
