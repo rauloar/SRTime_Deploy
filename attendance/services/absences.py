@@ -88,6 +88,63 @@ class AbsenceService:
             self.db.commit()
         return created
 
+    def justify_selected(
+        self,
+        record_ids: list[int],
+        reason: str,
+        *,
+        is_root: bool,
+        requested_by: str,
+    ) -> dict[str, int]:
+        """Justifica o solicita justificación para ausencias seleccionadas.
+
+        El rango de fechas pertenece a la UI como filtro. La operación real se
+        aplica sólo sobre registros existentes seleccionados por RR.HH. para
+        evitar justificar días donde luego apareció una fichada real.
+        """
+        clean_ids = list(dict.fromkeys(record_ids))
+        if not clean_ids:
+            return {"updated": 0, "requested": 0, "skipped": 0}
+
+        records = {
+            row.id: row
+            for row in self.db.query(ProcessedAttendance).filter(
+                ProcessedAttendance.id.in_(clean_ids),
+                absence_workflow_filter(),
+            ).all()
+        }
+
+        from services.justification import JustificationService
+
+        justification_service = JustificationService(self.db)
+        updated = 0
+        requested = 0
+        skipped = 0
+
+        for record_id in clean_ids:
+            record = records.get(record_id)
+            if not record or record.status == "JUSTIFICADO":
+                skipped += 1
+                continue
+
+            if is_root:
+                if record.status == "AUSENTE" or (
+                    record.status == "PENDIENTE" and record.previous_status == "AUSENTE"
+                ):
+                    justification_service.apply_absence_direct(record, reason)
+                    updated += 1
+                else:
+                    skipped += 1
+                continue
+
+            if record.status == "AUSENTE":
+                justification_service.request_absence(record, reason, requested_by)
+                requested += 1
+            else:
+                skipped += 1
+
+        return {"updated": updated, "requested": requested, "skipped": skipped}
+
     def _holiday_sets(self) -> tuple[set[date], set[tuple[int, int]]]:
         fixed: set[date] = set()
         recurring: set[tuple[int, int]] = set()

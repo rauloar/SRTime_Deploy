@@ -11,7 +11,7 @@ logger = get_logger(__name__)
 
 from api.deps import get_db, get_current_user, require_root, require_supervisor_or_root
 from api.schemas import UserResponse, UserCreate, UserBulkImportRow
-from models.employee import TERMINAL_PRIVILEGE_ADMIN, TERMINAL_PRIVILEGE_USER, TERMINAL_PRIVILEGES, User as EmployeeModel
+from models.employee import SHIFT_ASSIGNMENT_MANUAL, TERMINAL_PRIVILEGE_ADMIN, TERMINAL_PRIVILEGE_USER, TERMINAL_PRIVILEGES, User as EmployeeModel
 from models.shift import Shift
 from models.user import AuthUser
 from services.export_helpers import build_excel_workbook, streaming_excel_response
@@ -108,6 +108,8 @@ def create_user(user: UserCreate, db: Session = Depends(get_db), current_user: A
         last_name=user.last_name,
         is_active=user.is_active,
         shift_id=user.shift_id,
+        group_id=user.group_id,
+        shift_assignment_source=SHIFT_ASSIGNMENT_MANUAL,
         terminal_privilege=user.terminal_privilege,
     )
     db.add(new_employee)
@@ -129,7 +131,9 @@ def update_user(user_id: int, user: UserUpdate, db: Session = Depends(get_db), c
     if user.first_name is not None: db_user.first_name = user.first_name
     if user.last_name is not None: db_user.last_name = user.last_name
     if user.is_active is not None: db_user.is_active = user.is_active
-    if "shift_id" in user.model_fields_set: db_user.shift_id = user.shift_id
+    if "shift_id" in user.model_fields_set:
+        db_user.shift_id = user.shift_id
+        db_user.shift_assignment_source = SHIFT_ASSIGNMENT_MANUAL
     if user.terminal_privilege is not None:
         if user.terminal_privilege not in TERMINAL_PRIVILEGES:
             raise HTTPException(status_code=400, detail="terminal_privilege must be 0 (USER) or 14 (ADMIN)")
@@ -167,6 +171,7 @@ def bulk_import_users(
             last_name=u.last_name,
             is_active=u.is_active,
             shift_id=u.shift_id,
+            shift_assignment_source=SHIFT_ASSIGNMENT_MANUAL,
             terminal_privilege=u.terminal_privilege,
         )
         db.add(employee)
@@ -226,6 +231,7 @@ async def import_users_csv(
             employee.first_name = (first_name or "").strip() or None
             employee.last_name = (last_name or "").strip() or None
             employee.shift_id = shift_id
+            employee.shift_assignment_source = SHIFT_ASSIGNMENT_MANUAL
             employee.terminal_privilege = terminal_privilege
             employee.is_active = is_active
             updated += 1
@@ -235,6 +241,7 @@ async def import_users_csv(
                 first_name=(first_name or "").strip() or None,
                 last_name=(last_name or "").strip() or None,
                 shift_id=shift_id,
+                shift_assignment_source=SHIFT_ASSIGNMENT_MANUAL,
                 terminal_privilege=terminal_privilege,
                 is_active=is_active,
             ))

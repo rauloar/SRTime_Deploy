@@ -2,7 +2,9 @@
 
 **Fecha:** 26 de agosto de 2026
 **Estado:** build Web Nuitka generado para validación QA.
-**Alcance:** versión Web/FastAPI con PostgreSQL como motor operativo y compatibilidad SQLite para Desktop.
+**Alcance:** suite SRTime `v0.9.0-beta.4`: Web/FastAPI con PostgreSQL como motor
+operativo y Desktop PySide6 compatible con SQLite o PostgreSQL. El build Nuitka
+es un artefacto de esta versión de suite, no una versión Web independiente.
 
 ## 1. Objetivo de la fase
 
@@ -16,6 +18,16 @@ Terminal / archivo → addon normalizador → AttendanceLog (raw) → motor de a
 No se agregó una tabla paralela para terminales, ni se procesa asistencia en forma
 automática al descargar registros.
 
+El procesamiento de asistencia materializa también las ausencias: si un empleado
+activo tiene turno asignado y no posee movimientos en una jornada laboral dentro
+del rango procesado, se crea un registro `AUSENTE` en `processed_attendance`. La
+operación es idempotente y no duplica ausencias existentes.
+
+La justificación masiva de ausencias no se aplica por rango completo de forma
+ciega. La UI usa el período como filtro y exige seleccionar con checkbox las
+fechas concretas que RR.HH. quiere justificar. Esto evita marcar como vacaciones,
+enfermedad u otra licencia un día donde el empleado sí tuvo movimientos reales.
+
 ## 2. Cambios funcionales
 
 ### 2.1 Addons habilitados por configuración
@@ -23,8 +35,11 @@ automática al descargar registros.
 - La selección de addons se controla por `SRTIME_ENABLED_ADDONS` en `config/.env`.
 - En el perfil actual están habilitados solamente `sundial,zkteco`.
 - Sundial conserva la importación de archivos `TM-MR001.txt`.
-- ZKTeco expone gestión de terminal y descarga de red; su importación USB queda
-  deshabilitada en la interfaz para no duplicar el flujo Sundial.
+- En Sundial/TM-MR001 sólo se interpreta `mark_type` como estado del punch:
+  `0` Entrada y `1` Salida. Sus `flags` se conservan para trazabilidad, sin
+  convertirlas en método de verificación.
+- ZKTeco expone gestión de terminal, descarga de red e importación USB nativa
+  `att.dat`; el parser se selecciona automáticamente al elegir ese archivo.
 - Hikvision y ZKTeco Remote Agent no se muestran mientras no sean habilitados
   explícitamente por configuración y validados por QA.
 
@@ -34,6 +49,8 @@ automática al descargar registros.
   - `0`, `3`, `4` → Entrada.
   - `1`, `2`, `5` → Salida.
 - `att.status` se conserva como metadata en `flags`; no determina Entrada/Salida.
+  En ZKTeco representa el método de verificación del punch:
+  `0` Face ID, `1` huella, `2` credencial y `3` contraseña.
 - El parser de exportaciones USB usa el mismo criterio y conserva compatibilidad
   con archivos históricos que no incluyen la columna `punch`.
 - La descarga continúa ingresando por el importador común y mantiene la
@@ -46,7 +63,7 @@ automática al descargar registros.
 ### 2.3 Conectividad de terminales
 
 - El driver usa pyzk sobre TCP, con IP y puerto configurados en la terminal.
-- Timeout predeterminado: **3 segundos**.
+- Timeout predeterminado: **5 segundos**.
 - Reintentos predeterminados: **3**.
 - Ante falla, la interfaz recibe: **“No hay conectividad con la terminal”**.
 - El log FastAPI conserva excepción y traceback para diagnóstico; las credenciales
@@ -136,6 +153,7 @@ No hay cambio de formato en `AttendanceLog` ni migración destructiva de datos r
 | Addon ZKTeco | `attendance/services/addons/zkteco/driver.py`, `parser.py`, `__manifest__.py` |
 | API | `attendance/api/routers/terminals.py`, `users.py`, `attendance/api/schemas.py` |
 | Web | `attendance/web/app/components/TerminalsTab.tsx`, `UsersTab.tsx`, `ImportTab.tsx` |
+| PySide6 | `attendance/ui/tabs/import_tab.py`, `users_tab.py`, `terminals_tab.py` |
 | SQLite | `attendance/core/init_db.py`, `attendance/migrate_sqlite.py` |
 
 ## 5. Configuración requerida
@@ -164,7 +182,7 @@ ingresan desde la UI. No se deja hardcodeada una IP de dispositivo en el código
 |---|---|
 | Compilación Python de servicios modificados | Correcta |
 | Pruebas ZKTeco específicas | 10 aprobadas |
-| Suite Python completa en SQLite aislado | 117 aprobadas, 1 omitida |
+| Suite Python completa en SQLite aislado | 118 aprobadas, 1 omitida |
 | Conexión real pyzk a iFace800/ID | Validada manualmente por QA y desde el driver SRTime fuera del sandbox |
 | Servidor fuente actual | Activo en `0.0.0.0:8000` |
 | Build Web Nuitka | Generado para `v0.9.0-beta.4` en `deploy/web/dist/SRTime-Web/` |
@@ -172,7 +190,28 @@ ingresan desde la UI. No se deja hardcodeada una IP de dispositivo en el código
 Las advertencias actuales de la suite son deprecaciones de `TestClient` y del
 método legacy `Query.get()`; no son fallos funcionales de esta fase.
 
-## 7. Criterio para siguiente build Nuitka
+## 7. Protección de esquema en actualizaciones Web
+
+Se incorporó un preflight de esquema para el instalador Web. Antes de una
+actualización, el binario evalúa la estructura PostgreSQL sin modificarla y
+clasifica la base como vacía, SRTime completa no versionada, versión Alembic
+conocida o incompatible.
+
+- Una estructura parcial o no reconocida se bloquea antes del backup y de la
+  migración; nunca se sella como `head`.
+- Una revisión Alembic conocida puede seguir el upgrade incremental normal.
+- Después de migrar se valida la presencia de las tablas y columnas actuales.
+- El instalador corta la actualización y no inicia el servicio nuevo cuando el
+  preflight o la migración devuelve error.
+
+Componentes: `attendance/core/schema_preflight.py`,
+`deploy/web/run_api.py`, `backup-and-migrate-update.ps1` y `SRTime-Web.iss`.
+
+Validación automatizada: cuatro pruebas de regresión cubren base vacía,
+esquema parcial no versionado, esquema completo sin metadata Alembic y revisión
+Alembic desconocida.
+
+## 8. Criterio para siguiente build Nuitka
 
 Antes de distribuir el build, QA debe validar desde código fuente y luego desde
 el paquete compilado:

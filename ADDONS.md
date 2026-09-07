@@ -122,11 +122,11 @@ con `__manifest__.py` y los expone vía `get_available_addons()`.
 |-------|-------|---------|
 | `ip` | Dirección IP | Configuración obligatoria |
 | `port` | Puerto | `4370` |
-| `timeout` | Timeout de conexión | `3` segundos |
+| `timeout` | Timeout de conexión | `5` segundos |
 
 **Flujo de red (Pull):**
 ```
-ZKTecoDriver.connect()     → pyzk ZK(ip, port, timeout=3).connect()
+ZKTecoDriver.connect()     → pyzk ZK(ip, port, timeout=5).connect()
                            → conn.disable_device()
 ZKTecoDriver.get_attendance_logs()
                            → conn.get_attendance()
@@ -136,14 +136,28 @@ ZKTecoDriver.disconnect()  → conn.enable_device() + conn.disconnect()
 ```
 **No crea archivos.** Escribe directo a BD via `_ingest_rows()`.
 
-La prueba de conectividad hace 3 intentos de 3 segundos. Si la terminal no
+La prueba de conectividad hace 3 intentos de 5 segundos. Si la terminal no
 responde, la API devuelve el mensaje funcional "No hay conectividad con la
 terminal" y el log conserva el traceback técnico completo.
 
 **Importante:** en pyzk, `punch` representa la dirección funcional de la marcación
 para SRTime (`0/3/4 = Entrada`, `1/2/5 = Salida`). `status` no debe usarse para
-Entrada/Salida; se conserva como metadata compacta en `flags` porque depende del
-firmware/modelo y puede representar modo o estado de verificación.
+Entrada/Salida; se conserva como metadata compacta en `flags`.
+
+Para ZKTeco, el par que pyzk imprime como `(status, punch)` se interpreta así:
+
+| Campo | Valor | Significado |
+|-------|------:|-------------|
+| `status` | `0` | Face ID |
+| `status` | `1` | Huella |
+| `status` | `2` | Credencial |
+| `status` | `3` | Contraseña |
+| `punch` | `0` | Entrada |
+| `punch` | `1` | Salida |
+| `punch` | `2` | Salida intermedia |
+| `punch` | `3` | Entrada intermedia |
+| `punch` | `4` | Entrada extra |
+| `punch` | `5` | Salida extra |
 
 **Flujo de archivo (USB export):**
 ```
@@ -229,6 +243,11 @@ hora_raw   = raw[21:25]     # HHMM
 mark_type  = int(raw[25])   # 0=IN, 1=OUT
 flags      = raw[26:33]     # 7 chars
 ```
+
+SRTime no interpreta las `flags` Sundial como método de verificación ni como
+subtipo de movimiento. Para este driver, el único estado funcional del punch es
+`mark_type`: `0` Entrada y `1` Salida. Las `flags` se conservan únicamente para
+trazabilidad del dato crudo.
 
 ---
 
@@ -557,3 +576,12 @@ else:
 - Identificado: commits individuales en `_ingest_rows()` son ineficientes con archivos grandes
 - Identificado: Hikvision `mark_type` siempre 0 → fallback alternado del engine
 - Plan de 5 tareas definido con prioridades
+
+### Sesión 2026-08-26 — Paridad PySide6 con ZKTeco y Sundial
+
+- PySide6 descubre extensiones y parsers desde los manifests: acepta
+  `TM-MR001.txt` mediante Sundial y `att.dat` mediante ZKTeco.
+- La descarga Desktop delega en `services.terminals.pull_logs`; incorpora por
+  ello la misma actualización de perfiles de terminal que FastAPI.
+- La ficha de Terminales permite consultar usuarios y sincronizar nombre y
+  privilegio `USER`/`ADMIN` hacia ZKTeco, preservando `uid` y `user_id`.

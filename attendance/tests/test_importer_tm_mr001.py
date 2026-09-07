@@ -4,6 +4,7 @@ from pathlib import Path
 
 from models.attendance import AttendanceLog
 from models.employee import User
+from services.addons.sundial.parser import SundialParser
 from services.importer_service import import_att_logs
 
 
@@ -50,3 +51,18 @@ def test_reimporting_tm_mr001_is_deduplicated(test_db):
     assert (nuevos, duplicados, total) == (0, 6, 6)
     assert test_db.query(AttendanceLog).count() == 6
     assert test_db.query(User).count() == 3
+
+
+def test_sundial_tm_mr001_only_uses_mark_type_for_entry_exit_state():
+    """Sundial no interpreta método de verificación; sólo mark_type 0/1."""
+    parser = SundialParser()
+
+    entrada = parser.parse_line("000000000999999030926123400100100")
+    salida = parser.parse_line("000000000999999030926123510100100")
+
+    assert entrada is not None
+    assert salida is not None
+    assert entrada[3] == 0
+    assert salida[3] == 1
+    assert entrada[4] == "0100100"
+    assert salida[4] == "0100100"

@@ -19,6 +19,7 @@ manifest = {
         "terminal_users": True,
         "terminal_user_name_sync": True,
         "terminal_user_privilege_sync": True,
+        "clear_attendance_memory": True,
     },
     "terminal_user_privileges": {
         "0": "Usuario de terminal",
@@ -27,6 +28,6 @@ manifest = {
     "connection_fields": [
         {"name": "ip", "label": "Dirección IP", "type": "text", "default": "", "required": True},
         {"name": "port", "label": "Puerto", "type": "number", "default": "4370"},
-        {"name": "timeout", "label": "Timeout de conexión (seg)", "type": "number", "default": "3"},
+        {"name": "timeout", "label": "Timeout de conexión (seg)", "type": "number", "default": "5"},
     ],
 }

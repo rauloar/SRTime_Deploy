@@ -1,7 +1,8 @@
 import os
 from core.database import engine, Base
 from models import user, attendance
-from models.employee import TERMINAL_PRIVILEGE_USER, User
+from models.employee import SHIFT_ASSIGNMENT_MANUAL, TERMINAL_PRIVILEGE_USER, User
+from models.employee_group import EmployeeGroup  # noqa: F401 — registers EmployeeGroup with Base.metadata
 from models.holiday import Holiday  # noqa: F401 — registers Holiday with Base.metadata
 from sqlalchemy.orm import Session
 from sqlalchemy import inspect, text
@@ -54,6 +55,12 @@ def init_database(target_engine=None, defer_admin_setup: bool = False):
     if "terminal_privilege" not in users_cols:
         session.execute(text(f"ALTER TABLE users ADD COLUMN terminal_privilege INTEGER DEFAULT {TERMINAL_PRIVILEGE_USER} NOT NULL"))
         session.commit()
+    if "group_id" not in users_cols:
+        session.execute(text("ALTER TABLE users ADD COLUMN group_id INTEGER"))
+        session.commit()
+    if "shift_assignment_source" not in users_cols:
+        session.execute(text(f"ALTER TABLE users ADD COLUMN shift_assignment_source VARCHAR(20) DEFAULT '{SHIFT_ASSIGNMENT_MANUAL}' NOT NULL"))
+        session.commit()
 
     attendance_cols = {c["name"] for c in inspect(db_engine).get_columns("attendance_log")}
     if "is_processed" not in attendance_cols:
@@ -101,6 +108,10 @@ def init_database(target_engine=None, defer_admin_setup: bool = False):
     session.execute(text("UPDATE auth_user SET is_active = TRUE WHERE is_active IS NULL"))
     session.execute(text("UPDATE auth_user SET token_version = 0 WHERE token_version IS NULL"))
     session.execute(text("UPDATE attendance_log SET is_processed = FALSE WHERE is_processed IS NULL"))
+    session.execute(text(
+        f"UPDATE users SET shift_assignment_source = '{SHIFT_ASSIGNMENT_MANUAL}' "
+        "WHERE shift_assignment_source IS NULL OR shift_assignment_source = ''"
+    ))
     session.execute(text(
         "DELETE FROM attendance_log "
         "WHERE raw_identifier = '' AND date IS NULL AND time IS NULL AND mark_type IS NULL"

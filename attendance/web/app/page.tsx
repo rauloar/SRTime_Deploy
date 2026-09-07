@@ -4,6 +4,7 @@ import { useAuth } from "./context/AuthContext"
 import axios from "axios"
 import Image from "next/image"
 import LoginPage from "./components/LoginPage"
+import DashboardTab from "./components/DashboardTab"
 import ImportTab from "./components/ImportTab"
 import UsersTab from "./components/UsersTab"
 import ShiftsTab from "./components/ShiftsTab"
@@ -13,7 +14,7 @@ import MovementsTab from "./components/MovementsTab"
 import AuthUsersTab from "./components/AuthUsersTab"
 import TerminalsTab from "./components/TerminalsTab"
 import ControlCenterTab from "./components/ControlCenterTab"
-import { Users, Clock, ArrowLeftRight, CheckSquare, Sun, Moon, LogOut, ShieldCheck, FileUp, MonitorSmartphone, UserX, Settings } from "lucide-react"
+import { Users, Clock, ArrowLeftRight, CheckSquare, Sun, Moon, LogOut, ShieldCheck, FileUp, MonitorSmartphone, UserX, Settings, LayoutDashboard } from "lucide-react"
 
 const CORE_TABS = [
   { id: "users",     label: "Empleados",            Icon: Users },
@@ -43,7 +44,7 @@ function getErrorMessage(error: unknown, fallback: string) {
 
 export default function Home() {
   const { token, username, role, mustChangePassword, changePassword, logout, api } = useAuth()
-  const [activeTab, setActiveTab] = useState("import")
+  const [activeTab, setActiveTab] = useState("dashboard")
   const [addonUi, setAddonUi] = useState<AddonUiFeatures>({})
   const [addonUiLoaded, setAddonUiLoaded] = useState(false)
   const [newPassword, setNewPassword] = useState("")
@@ -55,6 +56,7 @@ export default function Home() {
 
   const hasImport = addonUi.file_import || addonUi.network_import
   const tabs = useMemo(() => [
+      { id: "dashboard", label: "Dashboard", Icon: LayoutDashboard },
       ...(hasImport ? [{ id: "import", label: "Importar", Icon: FileUp }] : []),
       ...(addonUi.terminal_management ? [{ id: "terminals", label: "Terminales y Biométricos", Icon: MonitorSmartphone }] : []),
       ...CORE_TABS,
@@ -89,6 +91,17 @@ export default function Home() {
       setActiveTab(tabs[0]?.id || "users")
     }
   }, [activeTab, addonUiLoaded, tabs])
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ tab?: string }>).detail
+      if (detail?.tab && tabs.some(tab => tab.id === detail.tab)) {
+        setActiveTab(detail.tab)
+      }
+    }
+    window.addEventListener("srtime:navigate-tab", handler)
+    return () => window.removeEventListener("srtime:navigate-tab", handler)
+  }, [tabs])
 
   useEffect(() => {
     // Read OS preference on mount and apply
@@ -201,6 +214,7 @@ export default function Home() {
       <div className="main-area">
         <div className="content-wrapper">
           {activeTab === "users"      && <UsersTab />}
+          {activeTab === "dashboard"  && <DashboardTab />}
           {activeTab === "import"     && hasImport && <ImportTab fileImport={Boolean(addonUi.file_import)} networkImport={Boolean(addonUi.network_import)} />}
           {activeTab === "terminals"  && addonUi.terminal_management && <TerminalsTab />}
           {activeTab === "shifts"     && <ShiftsTab />}

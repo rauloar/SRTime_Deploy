@@ -33,6 +33,10 @@ class BiometricDriver:
         """Sincroniza la hora y fecha del dispositivo con la actual."""
         return False
 
+    def clear_attendance_logs(self) -> bool:
+        """Borra la memoria de marcaciones del equipo, si el driver lo soporta."""
+        raise NotImplementedError("El driver no admite borrar la memoria de marcaciones")
+
     def get_terminal_users(self) -> list[dict]:
         """Lista usuarios del equipo. Add-ons sin gestión devuelven error."""
         raise NotImplementedError("El driver no admite gestión de usuarios")

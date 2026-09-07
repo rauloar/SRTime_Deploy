@@ -1,5 +1,9 @@
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QMessageBox, QHBoxLayout, QPushButton, QInputDialog, QStyle
-from models.employee import User
+from models.employee import (
+    TERMINAL_PRIVILEGE_ADMIN,
+    TERMINAL_PRIVILEGE_USER,
+    User,
+)
 from models.user import AuthUser
 from models.shift import Shift
 from PySide6.QtWidgets import QSizePolicy
@@ -33,6 +37,11 @@ class UsersTab(QWidget):
         self.btn_export_excel.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton))
         self.btn_export_excel.clicked.connect(self.export_excel)
         layout.addWidget(self.btn_export_excel)
+
+        self.btn_export_csv = QPushButton("Exportar CSV")
+        self.btn_export_csv.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton))
+        self.btn_export_csv.clicked.connect(self.export_csv)
+        layout.addWidget(self.btn_export_csv)
 
         self.btn_import_csv = QPushButton("Importar desde CSV")
         self.btn_import_csv.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton))
@@ -69,9 +78,10 @@ class UsersTab(QWidget):
                     user.identifier,
                     user.first_name or "",
                     user.last_name or "",
-                    "Sí" if user.is_active else "No"
+                    "Sí" if user.is_active else "No",
+                    self._terminal_privilege_label(user.terminal_privilege),
                 ])
-            df = pd.DataFrame(data, columns=["Identificador", "Nombre", "Apellido", "Activo"])
+            df = pd.DataFrame(data, columns=["Identificador", "Nombre", "Apellido", "Activo", "Privilegio Terminal"])
             df.to_excel(path, index=False)
         # Layout is only defined in __init__, do not call here.
 
@@ -85,8 +95,8 @@ class UsersTab(QWidget):
             shifts_by_id = {shift.id: shift for shift in shifts}
         self.table.clearContents()
         self.table.setRowCount(len(users))
-        self.table.setColumnCount(7)
-        self.table.setHorizontalHeaderLabels(["Identificador", "Nombre", "Apellido", "Turno", "Activo", "Editar", "Eliminar"])
+        self.table.setColumnCount(8)
+        self.table.setHorizontalHeaderLabels(["Identificador", "Nombre", "Apellido", "Turno", "Activo", "Privilegio terminal", "Editar", "Eliminar"])
         for row, user in enumerate(users):
             self.table.setItem(row, 0, QTableWidgetItem(user.identifier))
             self.table.setItem(row, 1, QTableWidgetItem(user.first_name or ""))
@@ -97,16 +107,17 @@ class UsersTab(QWidget):
             self.table.setItem(row, 3, QTableWidgetItem(shift_name))
             
             self.table.setItem(row, 4, QTableWidgetItem("Sí" if user.is_active else "No"))
+            self.table.setItem(row, 5, QTableWidgetItem(self._terminal_privilege_label(user.terminal_privilege)))
             # Botón Editar
             btn_edit = QPushButton("Editar")
             btn_edit.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton))
             btn_edit.clicked.connect(lambda _, u_id=user.id: self.edit_user_by_id(u_id))
-            self.table.setCellWidget(row, 5, btn_edit)
+            self.table.setCellWidget(row, 6, btn_edit)
             # Botón Eliminar
             btn_delete = QPushButton("Eliminar")
             btn_delete.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogDiscardButton))
             btn_delete.clicked.connect(lambda _, u_id=user.id: self.delete_user_by_id(u_id))
-            self.table.setCellWidget(row, 6, btn_delete)
+            self.table.setCellWidget(row, 7, btn_delete)
         if hasattr(self.table, 'adjust_table_columns'):
             self.table.adjust_table_columns()
         self.table.setSortingEnabled(True)
@@ -138,6 +149,8 @@ class UsersTab(QWidget):
         cb_active = QComboBox()
         cb_active.addItems(["Sí", "No"])
         cb_active.setCurrentIndex(0 if user.is_active else 1)
+
+        cb_terminal_privilege = self._terminal_privilege_combo(user.terminal_privilege)
         
         layout.addWidget(QLabel("Identificador:"))
         layout.addWidget(le_id)
@@ -149,6 +162,8 @@ class UsersTab(QWidget):
         layout.addWidget(cb_shift)
         layout.addWidget(QLabel("Activo:"))
         layout.addWidget(cb_active)
+        layout.addWidget(QLabel("Privilegio en terminal biométrica:"))
+        layout.addWidget(cb_terminal_privilege)
         
         btns = QHBoxLayout()
         btn_ok = QPushButton("Guardar")
@@ -172,6 +187,7 @@ class UsersTab(QWidget):
                 
             user.shift_id = cb_shift.currentData()
             user.is_active = (cb_active.currentText() == "Sí")
+            user.terminal_privilege = cb_terminal_privilege.currentData()
             self.session.commit()
             dialog.accept()
             QMessageBox.information(self, "Usuario editado", f"Usuario actualizado a '{new_id}'.")
@@ -211,6 +227,7 @@ class UsersTab(QWidget):
 
         cb_active = QComboBox()
         cb_active.addItems(["Sí", "No"])
+        cb_terminal_privilege = self._terminal_privilege_combo()
         
         layout.addWidget(QLabel("Identificador (Obligatorio):"))
         layout.addWidget(le_id)
@@ -222,6 +239,8 @@ class UsersTab(QWidget):
         layout.addWidget(cb_shift)
         layout.addWidget(QLabel("Activo:"))
         layout.addWidget(cb_active)
+        layout.addWidget(QLabel("Privilegio en terminal biométrica:"))
+        layout.addWidget(cb_terminal_privilege)
         
         btns = QHBoxLayout()
         btn_ok = QPushButton("Guardar")
@@ -244,7 +263,8 @@ class UsersTab(QWidget):
                 first_name=le_first.text(), 
                 last_name=le_last.text(), 
                 is_active=(cb_active.currentText()=="Sí"),
-                shift_id=cb_shift.currentData()
+                shift_id=cb_shift.currentData(),
+                terminal_privilege=cb_terminal_privilege.currentData(),
             )
             self.session.add(user)
             self.session.commit()
@@ -270,48 +290,104 @@ class UsersTab(QWidget):
         try:
             with open(path, newline="", encoding="utf-8-sig") as f:
                 reader = csv.DictReader(f)
-                required = {"identifier"}
-                if not required.issubset({h.lower() for h in (reader.fieldnames or [])}):
+                header_map = {h.lower().replace(" ", "_"): h for h in (reader.fieldnames or [])}
+                if not (header_map.get("identifier") or header_map.get("identificador")):
                     QMessageBox.critical(self, "Error CSV",
-                        "El archivo debe tener al menos la columna 'identifier'.\n"
-                        "Columnas opcionales: first_name, last_name, is_active (true/false).")
+                        "El archivo debe tener la columna 'Identificador'.\n"
+                        "Formato: Identificador, Nombre, Apellido, Turno, Privilegio Terminal, Activo.")
                     return
 
-                # Normalise header names to lowercase
-                norm_fields = {h.lower(): h for h in (reader.fieldnames or [])}
+                shifts_by_name = {
+                    shift.name.strip().lower(): shift.id
+                    for shift in self.session.query(Shift).all()
+                }
 
                 for line_num, row in enumerate(reader, 2):
-                    norm = {k.lower(): v.strip() for k, v in row.items()}
-                    identifier = norm.get("identifier", "").strip()
+                    norm = {k.lower().replace(" ", "_"): (v or "").strip() for k, v in row.items()}
+                    identifier = (norm.get("identifier") or norm.get("identificador") or "").strip().zfill(15)
                     if not identifier:
                         errors += 1
                         error_lines.append(f"Línea {line_num}: identifier vacío")
                         continue
-                    if self.session.query(User).filter_by(identifier=identifier).first():
-                        skipped += 1
+                    is_active_raw = (norm.get("is_active") or norm.get("activo") or "true").lower()
+                    is_active = is_active_raw in ("true", "1", "si", "sí", "yes", "activo")
+                    privilege_raw = norm.get("terminal_privilege") or norm.get("privilegio_terminal") or "USER"
+                    terminal_privilege = self._parse_terminal_privilege(privilege_raw)
+                    if terminal_privilege is None:
+                        errors += 1
+                        error_lines.append(f"Línea {line_num}: privilegio de terminal inválido")
                         continue
-                    is_active_raw = norm.get("is_active", "true").lower()
-                    is_active = is_active_raw not in ("false", "0", "no")
-                    emp = User(
-                        identifier=identifier,
-                        first_name=norm.get("first_name") or None,
-                        last_name=norm.get("last_name") or None,
-                        is_active=is_active,
-                    )
-                    self.session.add(emp)
-                    created += 1
+                    employee = self.session.query(User).filter_by(identifier=identifier).first()
+                    values = {
+                        "first_name": norm.get("first_name") or norm.get("nombre") or None,
+                        "last_name": norm.get("last_name") or norm.get("apellido") or None,
+                        "is_active": is_active,
+                        "shift_id": shifts_by_name.get((norm.get("shift") or norm.get("turno") or "").lower()),
+                        "terminal_privilege": terminal_privilege,
+                    }
+                    if employee:
+                        for field, value in values.items():
+                            setattr(employee, field, value)
+                        skipped += 1
+                    else:
+                        self.session.add(User(identifier=identifier, **values))
+                        created += 1
 
             self.session.commit()
         except Exception as e:
             QMessageBox.critical(self, "Error al importar", str(e))
             return
 
-        msg = f"Importación completada.\n\nCreados: {created}\nOmitidos (ya existen): {skipped}\nErrores: {errors}"
+        msg = f"Importación completada.\n\nCreados: {created}\nActualizados: {skipped}\nErrores: {errors}"
         if error_lines:
             msg += "\n\n" + "\n".join(error_lines[:10])
         QMessageBox.information(self, "Importación CSV", msg)
         if created > 0:
             self.load_data()
+
+    @staticmethod
+    def _terminal_privilege_label(value):
+        return "ADMIN" if value == TERMINAL_PRIVILEGE_ADMIN else "USER"
+
+    @staticmethod
+    def _parse_terminal_privilege(value):
+        normalized = str(value or "").strip().upper()
+        if normalized in {"", "0", "USER", "USUARIO", "USUARIO DE TERMINAL"}:
+            return TERMINAL_PRIVILEGE_USER
+        if normalized in {"14", "ADMIN", "ADMINISTRADOR", "ADMINISTRADOR DE TERMINAL"}:
+            return TERMINAL_PRIVILEGE_ADMIN
+        return None
+
+    def _terminal_privilege_combo(self, value=TERMINAL_PRIVILEGE_USER):
+        from PySide6.QtWidgets import QComboBox
+        combo = QComboBox()
+        combo.addItem("USER — usuario de terminal", TERMINAL_PRIVILEGE_USER)
+        combo.addItem("ADMIN — administrador de terminal", TERMINAL_PRIVILEGE_ADMIN)
+        combo.setCurrentIndex(1 if value == TERMINAL_PRIVILEGE_ADMIN else 0)
+        return combo
+
+    def export_csv(self):
+        from PySide6.QtWidgets import QFileDialog
+        import csv
+
+        path, _ = QFileDialog.getSaveFileName(self, "Guardar CSV", "empleados.csv", "CSV Files (*.csv)")
+        if not path:
+            return
+        if not path.lower().endswith(".csv"):
+            path += ".csv"
+        shifts = {shift.id: shift.name for shift in self.session.query(Shift).all()}
+        with open(path, "w", newline="", encoding="utf-8-sig") as file:
+            writer = csv.DictWriter(file, fieldnames=["Identificador", "Nombre", "Apellido", "Turno", "Privilegio Terminal", "Activo"])
+            writer.writeheader()
+            for employee in self.session.query(User).order_by(User.identifier).all():
+                writer.writerow({
+                    "Identificador": employee.identifier,
+                    "Nombre": employee.first_name or "",
+                    "Apellido": employee.last_name or "",
+                    "Turno": shifts.get(employee.shift_id, "Sin Turno"),
+                    "Privilegio Terminal": self._terminal_privilege_label(employee.terminal_privilege),
+                    "Activo": "Si" if employee.is_active else "No",
+                })
 
     def edit_user(self):
         row = self.table.currentRow()

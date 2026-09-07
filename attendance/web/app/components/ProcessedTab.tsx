@@ -2,11 +2,10 @@
 import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "../context/AuthContext"
 import axios from "axios"
-import { RefreshCw, Wrench, Play, RotateCcw } from "lucide-react"
+import { RefreshCw, Play, RotateCcw } from "lucide-react"
 import Pagination from "./Pagination"
-import { downloadFromApi } from "../utils/download"
+import { downloadCsv, downloadFromApi } from "../utils/download"
 import OperationProgress, { OperationJob } from "./OperationProgress"
-import AttendanceCorrectionModal from "./AttendanceCorrectionModal"
 
 interface ProcessedRecord {
   id: number; employee_id: number; date: string;
@@ -40,11 +39,9 @@ export default function ProcessedTab() {
   const [dateStart, setDateStart] = useState(daysAgo(30))
   const [dateEnd, setDateEnd]     = useState(today())
   const [empFilter, setEmpFilter] = useState("")
-  const [selected, setSelected]   = useState<ProcessedRecord | null>(null)
   const [actionMsg, setActionMsg] = useState("")
   const [processing, setProcessing] = useState<"pending" | "all" | null>(null)
   const [job, setJob] = useState<OperationJob | null>(null)
-  const [selectedRowId, setSelectedRowId] = useState<number | null>(null)
   const [page, setPage]           = useState(1)
   const [pageSize, setPageSize]   = useState(50)
 
@@ -88,6 +85,18 @@ export default function ProcessedTab() {
   const paginated = filtered.slice((page - 1) * pageSize, page * pageSize)
 
   function exportCsv() {
+    const headers = [
+      "Empleado",
+      "Fecha",
+      "Primera Entrada",
+      "Última Salida",
+      "Horas Totales",
+      "Tardanza (Min)",
+      "Salida Ant. (Min)",
+      "Hs Extra (Min)",
+      "Estado",
+      "Justificación",
+    ]
     const rows = filtered.map(r => ({
       Empleado: nameOf(r.employee_id),
       Fecha: r.date,
@@ -100,42 +109,7 @@ export default function ProcessedTab() {
       Estado: r.status,
       Justificación: r.justification || "",
     }))
-
-    const header = [
-      "Empleado",
-      "Fecha",
-      "Primera Entrada",
-      "Última Salida",
-      "Horas Totales",
-      "Tardanza (Min)",
-      "Salida Ant. (Min)",
-      "Hs Extra (Min)",
-      "Estado",
-      "Justificación",
-    ]
-    const lines = [
-      header.join(","),
-      ...rows.map(r => [
-        r.Empleado,
-        r.Fecha,
-        r["Primera Entrada"],
-        r["Última Salida"],
-        r["Horas Totales"],
-        r["Tardanza (Min)"],
-        r["Salida Ant. (Min)"],
-        r["Hs Extra (Min)"],
-        r.Estado,
-        r.Justificación,
-      ].map(v => `"${String(v).replaceAll('"', '""')}"`).join(",")),
-    ]
-
-    const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8;" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = "asistencia_procesada.csv"
-    a.click()
-    URL.revokeObjectURL(url)
+    downloadCsv(headers, rows, "asistencia_procesada.csv")
   }
 
   async function exportExcel() {
@@ -143,37 +117,6 @@ export default function ProcessedTab() {
       date_start: dateStart,
       date_end: dateEnd,
     })
-  }
-
-  useEffect(() => {
-    if (selectedRowId == null) return
-    const exists = records.some(r => r.id === selectedRowId)
-    if (!exists) setSelectedRowId(null)
-  }, [records, selectedRowId])
-
-  function openJustify(r: ProcessedRecord) {
-    if (r.status === "OK") {
-      const proceed = window.confirm("Este registro ya está OK. ¿Deseas justificarlo de todos modos?")
-      if (!proceed) return
-    }
-    setSelected(r)
-  }
-
-  function justifySelectedRow() {
-    if (selectedRowId == null) {
-      setActionMsg("Selecciona una fila para justificar.")
-      return
-    }
-    const rec = records.find(r => r.id === selectedRowId)
-    if (!rec) {
-      setActionMsg("La fila seleccionada ya no está disponible.")
-      return
-    }
-    if (rec.status === "AUSENTE" || rec.previous_status === "AUSENTE") {
-      setActionMsg("Las ausencias se justifican desde la pestaña Ausencias.")
-      return
-    }
-    openJustify(rec)
   }
 
   async function runProcess(mode: "pending" | "all") {
@@ -190,22 +133,6 @@ export default function ProcessedTab() {
 
   return (
     <div>
-      {selected && (
-        <AttendanceCorrectionModal
-          title="Justificar asistencia"
-          context={`${selected.date} — ${nameOf(selected.employee_id)}`}
-          firstIn={selected.first_in}
-          lastOut={selected.last_out}
-          justification={selected.justification}
-          onClose={() => setSelected(null)}
-          onSave={async values => {
-            await api.patch(`/api/processed/${selected.id}/justify`, { first_in: values.firstIn, last_out: values.lastOut, justification: values.justification })
-            setSelected(null)
-            await load()
-          }}
-        />
-      )}
-
       <div className="filter-bar">
         <label>Desde:</label>
         <input type="date" value={dateStart} onChange={e => setDateStart(e.target.value)} />
@@ -214,18 +141,18 @@ export default function ProcessedTab() {
         <label>Empleado:</label>
         <input type="text" value={empFilter} onChange={e => setEmpFilter(e.target.value)} placeholder="Filtrar nombre..." style={{ width: 180 }} />
         <button className="btn btn-primary" onClick={() => runProcess("pending")} disabled={processing !== null}>
-          <Play size={14} /> {processing === "pending" ? "Procesando..." : "Procesar Pendientes"}
+          <Play size={14} /> {processing === "pending" ? "Procesando..." : "Procesar Movimientos pendientes"}
         </button>
         <button className="btn" onClick={() => runProcess("all")} disabled={processing !== null}>
           <RotateCcw size={14} /> {processing === "all" ? "Reprocesando..." : "Reprocesar Histórico Completo"}
-        </button>
-        <button className="btn" onClick={justifySelectedRow}>
-          <Wrench size={14} /> Justificar Fila Seleccionada
         </button>
         <button className="btn" onClick={exportCsv}>Exportar CSV</button>
         <button className="btn" onClick={exportExcel}>Exportar Excel</button>
         <button className="btn" onClick={load} disabled={loading}><RefreshCw size={14} /> Actualizar</button>
       </div>
+      <p className="processed-action-help">
+        Procesar Movimientos pendientes toma las fichadas nuevas, calcula asistencias y marca ausencias para empleados activos con turno y sin movimientos. Reprocesar histórico completo vuelve a calcular asistencias ya procesadas y está reservado para usuarios root.
+      </p>
 
       <OperationProgress job={job} />
 
@@ -239,17 +166,13 @@ export default function ProcessedTab() {
                 <tr>
                   <th>Empleado</th><th>Fecha</th><th>1ra Entrada</th><th>Última Salida</th>
                   <th>Horas</th><th>Tardanza</th><th>Sal. Ant.</th><th>Hs Extra</th>
-                  <th>Estado</th><th>Justificación</th><th>Acción</th>
+                  <th>Estado</th><th>Justificación</th>
                 </tr>
               </thead>
               <tbody>
-                {paginated.length === 0 && <tr><td colSpan={11} style={{ textAlign: "center", opacity: 0.5, padding: 20 }}>Sin registros en el rango seleccionado</td></tr>}
+                {paginated.length === 0 && <tr><td colSpan={10} style={{ textAlign: "center", opacity: 0.5, padding: 20 }}>Sin registros en el rango seleccionado</td></tr>}
                 {paginated.map(r => (
-                  <tr
-                    key={r.id}
-                    onClick={() => setSelectedRowId(r.id)}
-                    style={{ cursor: "pointer", backgroundColor: selectedRowId === r.id ? "rgba(0, 120, 215, 0.10)" : undefined }}
-                  >
+                  <tr key={r.id}>
                     <td>{nameOf(r.employee_id)}</td>
                     <td>{r.date}</td>
                     <td>{r.first_in || "--:--"}</td>
@@ -262,11 +185,6 @@ export default function ProcessedTab() {
                     <td style={{ fontSize: 12, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {r.justification || <span style={{ opacity: 0.35 }}>—</span>}
                     </td>
-                    <td>{r.status !== "AUSENTE" && r.previous_status !== "AUSENTE" &&
-                      <button className="btn" style={{ padding: "4px 10px", fontSize: 12, whiteSpace: "nowrap" }} onClick={() => openJustify(r)}>
-                        <Wrench size={13} /> Justificar
-                      </button>
-                    }</td>
                   </tr>
                 ))}
               </tbody>

@@ -2,7 +2,11 @@
 
 ## Alcance
 
-Este documento describe el instalador Windows de SRTime Web, correspondiente a la version `v0.9.0-beta.3`. El instalador entrega la aplicacion Web compilada con Nuitka, el frontend Next.js exportado como archivos estaticos, los scripts operativos y el servicio Windows `SRTimeWeb`.
+Este documento describe el instalador Windows del artefacto Web de la suite
+SRTime `v0.9.0-beta.4`. El instalador entrega la aplicacion Web compilada con
+Nuitka, el frontend Next.js exportado como archivos estaticos, los scripts
+operativos y el servicio Windows `SRTimeWeb`. El tag corresponde a la suite
+completa, no solamente al artefacto Web.
 
 La version Web usa PostgreSQL como motor de base de datos. No instala ni empaqueta la version de escritorio PySide6; esa version se distribuye por separado y se compila con PyInstaller.
 
@@ -68,7 +72,10 @@ La seleccion se guarda en:
 SRTIME_ENABLED_ADDONS=sundial,zkteco
 ```
 
-El archivo generado es `C:\Service Reloj\SRTime_web\config\.env`. La seleccion puede modificarse luego a mano y se aplica reiniciando el servicio `SRTimeWeb`.
+El archivo generado es `C:\Service Reloj\SRTime_web\config\.env`. En una
+actualización, la elección explícita del asistente actualiza únicamente
+`SRTIME_ENABLED_ADDONS`; conserva credenciales, conexión PostgreSQL, secretos,
+logs y backups. El nuevo perfil se aplica al reiniciar el servicio `SRTimeWeb`.
 
 ## Configuracion local
 
@@ -166,11 +173,24 @@ srtime_db_test
 
 Esta base conserva el esquema SRTime actualizado y es la unica base local que debe modificarse en futuras pruebas evolutivas. Las bases temporales antiguas de SRTime deben eliminarse para evitar confusiones entre entornos.
 
-## Actualizacion y desinstalacion
+## Actualizacion, preflight de esquema y desinstalacion
 
 El instalador conserva `config\.env`, `logs` y `backups`. Una actualizacion no debe sobrescribir credenciales locales ni evidencia operativa. Si se ejecuta nuevamente sobre una instalacion existente, Inno Setup muestra el flujo de mantenimiento con opciones de reparar, reinstalar/actualizar o desinstalar.
 
 La desinstalacion detiene y elimina el servicio `SRTimeWeb`. Los datos PostgreSQL no se eliminan automaticamente.
+
+En modo **Actualizar**, el instalador sigue dos fases. Primero genera y verifica
+un dump PostgreSQL con SHA-256 mientras el servicio anterior continúa operativo.
+Después detiene el servicio, ejecuta el preflight de solo lectura y aplica
+Alembic; solamente si ambas comprobaciones resultan satisfactorias registra e
+inicia el servicio con los binarios nuevos. El preflight acepta únicamente una
+base vacía, una base SRTime completa creada por el wizard pero aún sin metadata
+Alembic, o una revisión Alembic reconocida por el paquete. Bloquea una base
+parcial sin versionar, una revisión desconocida y una base que declara estar en
+`head` pero no contiene las tablas o columnas actuales. El diagnóstico no expone
+credenciales: queda en `logs\database-update.log` y el popup indica el estado
+funcional. En caso de fallo se conserva el dump verificado y se debe restaurar o
+preparar una migración controlada según [el contrato de migración](PLAN_CONTRATO_MIGRACION_CLIENTES.md).
 
 ## Seguridad y gitignore
 

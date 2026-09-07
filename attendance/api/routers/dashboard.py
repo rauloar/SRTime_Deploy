@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from datetime import date, timedelta
+from datetime import timedelta
 
 from core.logging_config import get_logger
 logger = get_logger(__name__)
 
 from api.deps import get_db, get_current_user
+from core.timezone import local_today
 from models.user import AuthUser
 
 router = APIRouter()
@@ -20,7 +21,7 @@ def get_dashboard_summary(
     from models.processed_attendance import ProcessedAttendance
     from models.holiday import Holiday
 
-    today = date.today()
+    today = local_today()
     month_start = today.replace(day=1)
     week_start = today - timedelta(days=6)
     next30 = today + timedelta(days=30)

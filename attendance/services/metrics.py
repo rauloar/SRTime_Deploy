@@ -3,6 +3,7 @@ from typing import Optional, Tuple
 
 from sqlalchemy.orm import Session
 
+from core.timezone import local_datetime
 from models.employee import User as EmployeeModel
 from models.shift import Shift
 
@@ -22,7 +23,7 @@ class MetricsCalculator:
         shift: Optional[Shift] = None,
         is_expected_out: bool = False,
     ) -> datetime:
-        dt = datetime.combine(day, t)
+        dt = local_datetime(day, t)
         if shift and shift.is_overnight_shift and is_expected_out:
             if t < shift.expected_in:
                 dt += timedelta(days=1)

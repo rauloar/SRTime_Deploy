@@ -12,7 +12,11 @@ class SundialParser(AttendanceParser):
       [15:21] fecha       — DDMMYY  (ej: "010324" = 01/03/2024)
       [21:25] hora        — HHMM    (ej: "0614"   = 06:14)
       [25]    mark_type   — 0=Entrada, 1=Salida
-      [26:33] flags       — 7 chars de estado (ej: "0100100")
+      [26:33] flags       — 7 chars crudos conservados para trazabilidad.
+
+    A diferencia de ZKTeco, Sundial/TM-MR001 no aporta un campo separado para
+    método de verificación. SRTime sólo interpreta el estado del punch
+    Entrada/Salida desde ``mark_type``.
     """
     display_name = "Sundial ERTeckno (TM-MR001.Txt)"
 
