@@ -389,6 +389,34 @@ Validaciones ya ejecutadas durante el trabajo:
 
 Estado: ✅ ejecutado correctamente.
 
+#### Entorno Python canónico del branch
+
+El entorno Python válido para validar este branch es:
+
+```powershell
+C:\Proyectos\SRTime\.venv-test\Scripts\python.exe
+```
+
+No usar `.venv`, Python global ni entornos heredados para pytest, arranque manual
+del servidor fuente o build Nuitka. Si `.venv-test` no existe o queda
+inconsistente, debe reconstruirse desde `requirements.txt` dentro de
+`C:\Proyectos\SRTime` y volver a validarse antes de mergear.
+
+Validación esperada:
+
+```powershell
+C:\Proyectos\SRTime\.venv-test\Scripts\python.exe -c "import sys, zk; print(sys.executable); print(zk.__file__)"
+```
+
+Debe mostrar `C:\Proyectos\SRTime\.venv-test\Scripts\python.exe` y `zk` dentro de
+`C:\Proyectos\SRTime\.venv-test\Lib\site-packages`.
+
+El venv no se commitea ni se mergea como carpeta. Lo que se lleva al merge es el
+contrato reproducible: `requirements.txt`, scripts/documentación que apuntan al
+venv correcto y la validación previa. Después del merge se reconstruye o reutiliza
+`.venv-test`, se repiten pytest/build frontend y recién ahí se ejecuta el
+pre-build Nuitka.
+
 Ejecutado desde `C:\Proyectos\SRTime`:
 
 ```powershell
@@ -399,7 +427,7 @@ C:\Proyectos\SRTime\.venv-test\Scripts\python.exe -m pytest attendance\tests -q
 Resultado:
 
 ```text
-142 passed, 1 skipped
+146 passed, 1 skipped
 ```
 
 Ejecutado desde `C:\Proyectos\SRTime\attendance\web`:

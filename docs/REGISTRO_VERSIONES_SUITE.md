@@ -10,6 +10,13 @@ Este registro identifica las entregas de la suite completa. Los instaladores Web
 - **Release**: tag y artefactos publicados con migración y documentación verificadas.
 - **Retirada**: no debe usarse para instalaciones nuevas.
 
+## Convención de entorno para branches de la suite
+
+- El venv operativo del branch `codex-analytics-zoneinfo-dashboard` es `.venv-test`.
+- No usar `.venv` ni Python global para validar, iniciar servidor fuente o preparar Nuitka.
+- El venv no forma parte del versionado Git; se versionan `requirements.txt`, documentación y scripts.
+- Antes de mergear a la línea principal: reconstruir/verificar `.venv-test`, correr pytest completo, build frontend y recién después iniciar el flujo pre-build Nuitka.
+
 ## Historial
 
 | Suite | Commit/tag | Estado | Alcance destacado | Migraciones y compatibilidad |
