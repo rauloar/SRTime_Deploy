@@ -13,6 +13,7 @@ from models.processed_attendance import ProcessedAttendance
 from models.holiday import Holiday
 from services.validators import AttendanceValidator, ProcessedAttendanceValidator
 from services.metrics import MetricsCalculator
+from services.absences import AbsenceService
 
 
 logger = logging.getLogger(__name__)
@@ -216,6 +217,16 @@ class AttendanceEngine:
                     continue
             
             self.session.commit()
+
+            if grouped_logs:
+                days = [key[1] for key in grouped_logs]
+                created_absences = AbsenceService(self.session).sync(min(days), max(days))
+                if created_absences:
+                    logger.info(
+                        "Absence sync created %s absent days while processing attendance",
+                        created_absences,
+                    )
+
             if progress_callback:
                 progress_callback(processed_count, total_days)
             logger.info(f"Processing complete: {processed_count} days processed, "

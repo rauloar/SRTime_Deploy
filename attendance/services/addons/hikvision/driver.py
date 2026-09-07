@@ -17,6 +17,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, date, time
 from typing import Iterator, Tuple
 
+from core.timezone import local_now
 from services.addons.base_driver import BiometricDriver
 
 
@@ -120,7 +121,7 @@ class HikvisionDriver(BiometricDriver):
         """
         self.connect(params)
         try:
-            now = datetime.now()
+            now = local_now()
             # Formato ISO 8601 requerido por ISAPI
             iso_time = now.strftime("%Y-%m-%dT%H:%M:%S")
 

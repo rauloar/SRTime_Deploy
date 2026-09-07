@@ -53,6 +53,7 @@ class _Connection:
     def __init__(self):
         self.attendance_calls = 0
         self.set_calls = []
+        self.clear_calls = 0
 
     def get_attendance(self):
         self.attendance_calls += 1
@@ -63,6 +64,9 @@ class _Connection:
 
     def set_user(self, **kwargs):
         self.set_calls.append(kwargs)
+
+    def clear_attendance(self):
+        self.clear_calls += 1
 
 
 def test_zkteco_management_preserves_terminal_identity_and_privileges():
@@ -111,6 +115,42 @@ def test_zkteco_file_parser_uses_punch_when_available():
     assert row[3] == 1
 
 
+@pytest.mark.parametrize(
+    ("punch", "expected_mark_type"),
+    [
+        (0, 0),  # Entrada
+        (1, 1),  # Salida
+        (2, 1),  # Salida intermedia
+        (3, 0),  # Entrada intermedia
+        (4, 0),  # Entrada extra
+        (5, 1),  # Salida extra
+    ],
+)
+def test_zkteco_file_parser_maps_all_punch_values_to_srtime_direction(punch, expected_mark_type):
+    row = ZKTecoParser().parse_line(f"99999 2026-09-03 12:31:34 0 {punch} 0 0")
+
+    assert row is not None
+    assert row[3] == expected_mark_type
+    assert row[4] == "ZK00000"
+
+
+@pytest.mark.parametrize(
+    ("status", "expected_flags"),
+    [
+        (0, "ZK00000"),  # Face ID
+        (1, "ZK00001"),  # Huella
+        (2, "ZK00002"),  # Credencial
+        (3, "ZK00003"),  # Contraseña
+    ],
+)
+def test_zkteco_file_parser_preserves_verification_method_in_flags(status, expected_flags):
+    row = ZKTecoParser().parse_line(f"99999 2026-09-03 12:31:34 {status} 0 0 0")
+
+    assert row is not None
+    assert row[3] == 0
+    assert row[4] == expected_flags
+
+
 def test_zkteco_parser_accepts_the_native_usb_att_dat_format():
     row = ZKTecoParser().parse_line("99999\t2025-05-13\t17:00:00\t1\t1\t0\t0")
 
@@ -127,11 +167,21 @@ def test_zkteco_manifest_declares_only_the_validated_connection_fields():
 
     assert set(fields) == {"ip", "port", "timeout"}
     assert fields["port"]["default"] == "4370"
-    assert fields["timeout"]["default"] == "3"
+    assert fields["timeout"]["default"] == "5"
     assert manifest["ui_features"]["file_import"] is True
     assert manifest["ui_features"]["file_extensions"] == [".dat"]
     assert manifest["capabilities"]["terminal_users"] is True
     assert manifest["capabilities"]["terminal_user_privilege_sync"] is True
+    assert manifest["capabilities"]["clear_attendance_memory"] is True
+
+
+def test_zkteco_driver_can_clear_attendance_memory_after_verified_pull():
+    connection = _Connection()
+    driver = ZKTecoDriver()
+    driver.conn = connection
+
+    assert driver.clear_attendance_logs() is True
+    assert connection.clear_calls == 1
 
 
 def test_zkteco_connect_uses_the_validated_pyzk_call(monkeypatch):
@@ -152,7 +202,7 @@ def test_zkteco_connect_uses_the_validated_pyzk_call(monkeypatch):
 
     assert captured == {
         "args": ("192.0.2.201",),
-        "kwargs": {"port": 4370, "timeout": 3},
+        "kwargs": {"port": 4370, "timeout": 5},
     }
 
 
@@ -171,13 +221,13 @@ def test_zkteco_connect_retries_three_times_with_short_timeout(monkeypatch):
     monkeypatch.setitem(sys.modules, "zk", SimpleNamespace(ZK=_ZK))
     driver = ZKTecoDriver()
 
-    with pytest.raises(ConnectionError, match="tras 3 intentos de 3s"):
+    with pytest.raises(ConnectionError, match="tras 3 intentos de 5s"):
         driver.connect({"ip": "192.0.2.201", "port": "4370"})
 
     assert attempts == [
-        (("192.0.2.201",), {"port": 4370, "timeout": 3}),
-        (("192.0.2.201",), {"port": 4370, "timeout": 3}),
-        (("192.0.2.201",), {"port": 4370, "timeout": 3}),
+        (("192.0.2.201",), {"port": 4370, "timeout": 5}),
+        (("192.0.2.201",), {"port": 4370, "timeout": 5}),
+        (("192.0.2.201",), {"port": 4370, "timeout": 5}),
     ]
 
 
@@ -272,6 +322,45 @@ def test_zkteco_pull_seeds_missing_profiles_without_overwriting_srtime_names(tes
     assert (completed.first_name, completed.last_name, completed.terminal_privilege) == ("Ana", "Pérez", 14)
     assert (created.first_name, created.last_name, created.terminal_privilege) == ("Nombre del reloj", None, 0)
     assert (preserved.first_name, preserved.last_name, preserved.terminal_privilege) == ("Nombre SRTime", "Gestionado", 0)
+
+
+def test_terminal_pull_can_clear_device_memory_when_driver_declares_capability(test_db, monkeypatch):
+    class _ClearableDriver:
+        display_name = "ZKTeco"
+
+        def __init__(self):
+            self.cleared = False
+
+        def connect(self, _params):
+            pass
+
+        def disconnect(self):
+            pass
+
+        def get_terminal_users(self):
+            return []
+
+        def get_attendance_log_count(self):
+            return 0
+
+        def get_attendance_logs(self):
+            return iter(())
+
+        def clear_attendance_logs(self):
+            self.cleared = True
+            return True
+
+    driver = _ClearableDriver()
+    terminal = DeviceTerminal(name="Reloj", driver_name="ZKTeco", ip="127.0.0.1", port=4370)
+    test_db.add(terminal)
+    test_db.commit()
+    monkeypatch.setattr(terminals, "get_addon_info", lambda _terminal: {
+        "manifest": {"capabilities": {"clear_attendance_memory": True}}
+    })
+    monkeypatch.setattr(terminals, "get_driver_instance", lambda _terminal: driver)
+
+    assert terminals.pull_logs(terminal, test_db, clear_device_memory=True)[:3] == (0, 0, 0)
+    assert driver.cleared is True
 
 
 def test_terminal_management_api_exposes_only_safe_device_user_data(monkeypatch):
@@ -384,7 +473,7 @@ def test_terminal_test_returns_user_friendly_connectivity_error(monkeypatch):
             test_session.close()
 
     def fail_connection(_terminal):
-        raise ConnectionError("Error al conectar con ZKTeco en 192.0.2.201:4370 tras 3 intentos de 3s - timed out")
+        raise ConnectionError("Error al conectar con ZKTeco en 192.0.2.201:4370 tras 3 intentos de 5s - timed out")
 
     monkeypatch.setattr(terminal_router, "service_test_connection", fail_connection)
     app.dependency_overrides[get_db] = override_db

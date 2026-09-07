@@ -2,7 +2,7 @@ import os
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget,
     QTableWidgetItem, QHeaderView, QMessageBox, QDialog, QFormLayout, 
-    QLineEdit, QComboBox, QCheckBox, QApplication
+    QLineEdit, QComboBox, QCheckBox, QApplication, QGroupBox, QTextEdit
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
@@ -129,6 +129,26 @@ class TerminalsTab(QWidget):
             header.setSectionResizeMode(1, QHeaderView.Stretch)
             
         layout.addWidget(self.table)
+
+        # Ficha inferior: expone las operaciones extendidas sin duplicar la
+        # comunicación pyzk. Todo se delega a services.terminals.
+        self.detail_group = QGroupBox("Detalle de terminal")
+        detail_layout = QVBoxLayout(self.detail_group)
+        self.detail_label = QTextEdit()
+        self.detail_label.setReadOnly(True)
+        self.detail_label.setMaximumHeight(110)
+        detail_layout.addWidget(self.detail_label)
+        detail_actions = QHBoxLayout()
+        self.btn_list_users = QPushButton("Ver usuarios de terminal")
+        self.btn_list_users.clicked.connect(self.list_terminal_users)
+        detail_actions.addWidget(self.btn_list_users)
+        self.btn_sync_profiles = QPushButton("Sincronizar perfiles hacia terminal")
+        self.btn_sync_profiles.clicked.connect(self.sync_terminal_profiles)
+        detail_actions.addWidget(self.btn_sync_profiles)
+        detail_layout.addLayout(detail_actions)
+        layout.addWidget(self.detail_group)
+        self.selected_terminal_id = None
+        self.table.itemSelectionChanged.connect(self._select_terminal_from_table)
         self.load_data()
 
     def get_driver_instance(self, driver_name):
@@ -188,6 +208,82 @@ class TerminalsTab(QWidget):
             
         self.table.resizeColumnToContents(6)
         self.table.resizeColumnToContents(7)
+        if terminals:
+            self.table.selectRow(0)
+        else:
+            self._show_terminal_detail(None)
+
+    def _select_terminal_from_table(self):
+        row = self.table.currentRow()
+        item = self.table.item(row, 0) if row >= 0 else None
+        terminal_id = int(item.text()) if item else None
+        terminal = self.session.get(DeviceTerminal, terminal_id) if terminal_id else None
+        self._show_terminal_detail(terminal)
+
+    def _show_terminal_detail(self, terminal):
+        self.selected_terminal_id = terminal.id if terminal else None
+        enabled = terminal is not None and terminal.is_active
+        self.btn_list_users.setEnabled(enabled)
+        self.btn_sync_profiles.setEnabled(enabled)
+        if terminal is None:
+            self.detail_label.setText("Seleccione una terminal para ver sus detalles y operaciones extendidas.")
+            return
+        self.detail_label.setText(
+            f"Nombre: {terminal.name}\nDriver: {terminal.driver_name}\n"
+            f"Conexión: {terminal.ip or '-'}:{terminal.port or '-'}\n"
+            f"Serie: {terminal.serial_number or 'Sin verificar'}\n"
+            f"Última descarga: {terminal.last_sync or 'Nunca'}"
+        )
+
+    def _selected_terminal(self):
+        if not self.selected_terminal_id:
+            QMessageBox.warning(self, "Terminal", "Seleccione una terminal activa.")
+            return None
+        terminal = self.session.get(DeviceTerminal, self.selected_terminal_id)
+        if not terminal or not terminal.is_active:
+            QMessageBox.warning(self, "Terminal", "La terminal seleccionada no está activa.")
+            return None
+        return terminal
+
+    def list_terminal_users(self):
+        terminal = self._selected_terminal()
+        if terminal is None:
+            return
+        try:
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+            from services.terminals import list_terminal_users
+            result = list_terminal_users(terminal)
+            users = result.get("users", [])
+            lines = [f"{u['user_id']} | {u['name'] or '-'} | {u['privilege_label']}" for u in users]
+            QMessageBox.information(self, "Usuarios en terminal", f"Total: {len(users)}\n\n" + "\n".join(lines[:100]))
+        except Exception as exc:
+            QMessageBox.critical(self, "Usuarios de terminal", f"No se pudieron leer los usuarios:\n{exc}")
+        finally:
+            QApplication.restoreOverrideCursor()
+
+    def sync_terminal_profiles(self):
+        terminal = self._selected_terminal()
+        if terminal is None:
+            return
+        answer = QMessageBox.question(
+            self, "Sincronizar perfiles",
+            "Se actualizarán nombre y privilegio (USER/ADMIN) desde SRTime hacia los usuarios existentes de la terminal. UID e ID se preservan. ¿Continuar?",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+            from services.terminals import sync_terminal_user_names
+            result = sync_terminal_user_names(terminal, self.session)
+            QMessageBox.information(
+                self, "Perfiles sincronizados",
+                f"Usuarios en terminal: {result['terminal_users']}\nCoincidentes: {result['matched']}\n"
+                f"Actualizados: {result['updated']}\nPrivilegios actualizados: {result['privilege_updated']}",
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Sincronizar perfiles", f"No se pudo sincronizar:\n{exc}")
+        finally:
+            QApplication.restoreOverrideCursor()
 
     def ping_terminal(self, t_id):
         terminal = self.session.query(DeviceTerminal).get(t_id)

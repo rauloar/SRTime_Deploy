@@ -9,6 +9,7 @@ from models.terminal import DeviceTerminal
 from models.employee import TERMINAL_PRIVILEGE_ADMIN, TERMINAL_PRIVILEGE_USER, User
 from core.credentials import decrypt_credential, encrypt_credential
 from core.logging_config import get_logger
+from core.timezone import local_now
 
 
 SECRET_FIELDS = frozenset({"password", "db_password", "token", "api_token", "secret", "api_key"})
@@ -181,16 +182,25 @@ def _seed_terminal_employee_profiles(driver, session) -> dict[str, int]:
     return {"created": created, "completed": completed, "preserved": preserved}
 
 
-def pull_logs(terminal: DeviceTerminal, session, progress_signal=None):
+def pull_logs(terminal: DeviceTerminal, session, progress_signal=None, clear_device_memory: bool = False):
     from services.importer_service import import_from_driver
 
     driver = get_driver_instance(terminal)
     profile_result = {"created": 0, "completed": 0, "preserved": 0}
+    clear_result = {"cleared": False}
 
     def on_connected(connected_driver) -> None:
         nonlocal profile_result
         if supports_capability(terminal, "terminal_users"):
             profile_result = _seed_terminal_employee_profiles(connected_driver, session)
+
+    def after_ingested(connected_driver, ingest_result) -> None:
+        if not clear_device_memory:
+            return
+        if not supports_capability(terminal, "clear_attendance_memory"):
+            raise TerminalOperationError("El driver no admite borrar la memoria de marcaciones")
+        connected_driver.clear_attendance_logs()
+        clear_result["cleared"] = True
 
     result = import_from_driver(
         driver,
@@ -198,11 +208,17 @@ def pull_logs(terminal: DeviceTerminal, session, progress_signal=None):
         session,
         progress_signal=progress_signal,
         on_connected=on_connected,
+        after_ingested=after_ingested,
     )
-    terminal.last_sync = datetime.now()
+    terminal.last_sync = local_now().replace(tzinfo=None)
     session.commit()
     if any(profile_result.values()):
         logger.info("Terminal employee profiles synchronized during pull: %s", profile_result)
+    if clear_result["cleared"]:
+        logger.warning(
+            "Terminal attendance memory cleared after successful pull",
+            extra={"action": "terminal_clear_attendance_memory", "terminal_id": terminal.id},
+        )
     return result
 
 

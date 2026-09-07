@@ -201,6 +201,7 @@ def import_from_driver(
     session,
     progress_signal=None,
     on_connected=None,
+    after_ingested=None,
 ):
     """
     Ingesta Pull desde cualquier driver de red (ZKTeco, Hikvision, etc.).
@@ -231,6 +232,8 @@ def import_from_driver(
             source_label=driver_instance.display_name,
             progress_signal=progress_signal,
         )
+        if after_ingested:
+            after_ingested(driver_instance, result)
 
     except Exception:
         session.rollback()

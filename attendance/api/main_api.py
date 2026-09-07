@@ -21,7 +21,7 @@ from core.limiter import limiter
 setup_logging()
 logger = get_logger("api")
 
-from api.routers import absences, auth, users, shifts, processed, movements, auth_users, importer, terminals, holidays, dashboard, reports, setup, control
+from api.routers import absences, analytics, auth, users, employee_groups, shifts, processed, movements, auth_users, importer, terminals, holidays, dashboard, reports, setup, control
 
 
 @asynccontextmanager
@@ -128,6 +128,7 @@ app.include_router(setup.router, prefix="/api/setup", tags=["Initial Setup"])
 app.include_router(auth_users.router, prefix="/api/auth-users", tags=["Authorized Users"])
 app.include_router(importer.router, prefix="/api/import", tags=["Import"])
 app.include_router(users.router, prefix="/api/users", tags=["Employees Management"])
+app.include_router(employee_groups.router, prefix="/api/employee-groups", tags=["Employee Groups"])
 app.include_router(shifts.router, prefix="/api/shifts", tags=["Shifts"])
 app.include_router(processed.router, prefix="/api/processed", tags=["Processed Attendance"])
 app.include_router(absences.router, prefix="/api/absences", tags=["Absences"])
@@ -135,6 +136,7 @@ app.include_router(movements.router, prefix="/api/movements", tags=["Raw Movemen
 app.include_router(terminals.router, prefix="/api/terminals", tags=["Device Terminals"])
 app.include_router(holidays.router, prefix="/api/holidays", tags=["Holidays"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
+app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
 app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])
 app.include_router(control.router, prefix="/api/control", tags=["Control Center"])
 

@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext"
 import axios from "axios"
 import { Plus, RefreshCw, Pencil, Trash2, X, Fingerprint, Activity, Download, Clock, CalendarClock, Users, Upload, Wifi } from "lucide-react"
 import Pagination from "./Pagination"
+import AppDialog from "./AppDialog"
 
 interface Terminal {
   id: number;
@@ -141,6 +142,8 @@ export default function TerminalsTab() {
   const [deviceUsersLimit, setDeviceUsersLimit] = useState<number | null>(null)
   const [loadingDeviceUsers, setLoadingDeviceUsers] = useState(false)
   const [syncingNames, setSyncingNames] = useState(false)
+  const [terminalToDelete, setTerminalToDelete] = useState<Terminal | null>(null)
+  const [clearMemoryAfterPull, setClearMemoryAfterPull] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -227,10 +230,10 @@ export default function TerminalsTab() {
   }
 
   async function handleDelete(t: Terminal) {
-    if (!confirm(`¿Eliminar la terminal '${t.name}' definitivamente?`)) return
     try {
       await api.delete(`/api/terminals/${t.id}`)
       if (selectedTerminalId === t.id) setSelectedTerminalId(null)
+      setTerminalToDelete(null)
       load()
     } catch (e) {
       alert(getErrorMessage(e, "Error al eliminar la terminal."))
@@ -287,11 +290,13 @@ export default function TerminalsTab() {
   async function pullLogs(t: Terminal) {
     setPullingId(t.id)
     try {
-      const { data } = await api.post(`/api/terminals/${t.id}/pull/jobs`)
+      const { data } = await api.post(`/api/terminals/${t.id}/pull/jobs`, {
+        clear_device_memory: clearMemoryAfterPull,
+      })
       setPullJob({ ...data, terminalId: t.id })
       void pollPullJob(t.id, data.id)
     } catch (e) {
-      alert(getErrorMessage(e, "No se pudieron descargar los movimientos raw."))
+      alert(getErrorMessage(e, "No se pudieron descargar los movimientos pendientes."))
       load()
       setPullingId(null)
     }
@@ -441,7 +446,7 @@ export default function TerminalsTab() {
       {scheduleTerminal && (
         <Modal title={`Automatización · ${scheduleTerminal.name}`} onClose={() => setScheduleTerminal(null)}>
           <p style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 0 }}>
-            La descarga automática solo guarda movimientos raw. El procesamiento de asistencias se mantiene manual.
+            La descarga automática solo guarda movimientos pendientes de procesar. El procesamiento de asistencias se mantiene manual.
           </p>
           <div className="form-group" style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
             <input id="schedule-enabled" type="checkbox" checked={schedule.enabled} onChange={e => setSchedule(p => ({ ...p, enabled: e.target.checked }))} style={{ width: "auto" }} />
@@ -485,6 +490,24 @@ export default function TerminalsTab() {
         </Modal>
       )}
 
+      {terminalToDelete && (
+        <AppDialog
+          title="Eliminar terminal"
+          onClose={() => setTerminalToDelete(null)}
+          actions={[
+            { label: "Cancelar", onClick: () => setTerminalToDelete(null) },
+            { label: "Eliminar terminal", variant: "danger", onClick: () => handleDelete(terminalToDelete) },
+          ]}
+        >
+          <p style={{ color: "var(--text-secondary)", fontSize: 13 }}>
+            ¿Está seguro que quiere eliminar la terminal?
+          </p>
+          <p style={{ color: "var(--text-secondary)", fontSize: 13, marginTop: 8 }}>
+            Esta acción elimina el registro de SRTime. No borra la memoria física del equipo.
+          </p>
+        </AppDialog>
+      )}
+
       <div className="toolbar">
         <button className="btn btn-primary" onClick={openAdd}><Plus size={15} /> Registrar Terminal</button>
         <button className="btn" onClick={load} disabled={loading}><RefreshCw size={14} /></button>
@@ -497,8 +520,8 @@ export default function TerminalsTab() {
               <thead><tr><th>Estado</th><th>Ubicación</th><th>Tecnología</th><th>Red</th><th>Serie</th><th>Última descarga</th><th>Automatización</th><th>Acciones</th></tr></thead>
               <tbody>
                 {paginated.length === 0 && <tr><td colSpan={8} style={{ textAlign: "center", opacity: .5, padding: 28 }}>No hay terminales conectadas. Registra tu equipo biométrico arriba.</td></tr>}
-                {paginated.map(t => <tr key={t.id} onClick={() => selectTerminal(t.id)} style={{ cursor: "pointer", opacity: t.is_active ? 1 : .55, background: selectedTerminalId === t.id ? "var(--bg-hover)" : undefined }}>
-                  <td style={{ textAlign: "center" }}><Activity size={18} color={t.is_active ? "var(--status-active)" : "var(--status-error)"} /></td>
+                {paginated.map(t => <tr key={t.id} onClick={() => selectTerminal(t.id)} style={{ cursor: "pointer", opacity: t.is_active ? 1 : .55, background: selectedTerminalId === t.id ? "var(--bg-highlight)" : undefined }}>
+                  <td><span className={`badge ${t.is_active ? "badge-ok" : "badge-error"}`}><Activity size={12} /> {t.is_active ? "Activa" : "Inactiva"}</span></td>
                   <td><strong>{t.name}</strong></td>
                   <td><Fingerprint size={13} style={{ verticalAlign: "-2px" }} /> {t.driver_name}</td>
                   <td>{String(t.connection_params?.ip || t.ip || "—")}:{String(t.connection_params?.port || t.port || "—")}</td>
@@ -510,6 +533,8 @@ export default function TerminalsTab() {
                       <button className="btn" title="Conectar y probar; la conexión se cierra al finalizar" onClick={() => testConnection(t.id)} disabled={testingId === t.id || !t.is_active}><Wifi size={13} /></button>
                       <button className="btn" title="Actualizar fecha y hora" onClick={() => syncTime(t.id)} disabled={syncingId === t.id || !t.is_active}><Clock size={13} /></button>
                       <button className="btn btn-primary" title="Bajar registros y desconectar al finalizar" onClick={() => pullLogs(t)} disabled={pullingId === t.id || !t.is_active}><Download size={13} /></button>
+                      <button className="btn" title="Editar terminal" onClick={() => openEdit(t)}><Pencil size={13} /></button>
+                      <button className="btn btn-danger" title="Eliminar terminal" onClick={() => setTerminalToDelete(t)}><Trash2 size={13} /></button>
                     </div>
                   </td>
                 </tr>)}
@@ -521,7 +546,7 @@ export default function TerminalsTab() {
             const scheduleState = t.pull_schedule
             const capabilities = getCapabilities(t.driver_name)
             const isPulling = pullJob?.terminalId === t.id && (pullJob.state === "queued" || pullJob.state === "running")
-            const statusColor = scheduleState?.last_status === "error" ? "var(--status-error)" : "var(--status-active)"
+            const statusColor = scheduleState?.last_status === "error" ? "var(--status-error)" : "var(--status-ok)"
             return <section className="table-wrapper" style={{ marginTop: 18, padding: 20 }}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
                 <div><strong style={{ fontSize: 17 }}>{t.name}</strong><div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 4 }}>Administración de terminal · {t.driver_name}</div></div>
@@ -535,22 +560,26 @@ export default function TerminalsTab() {
               {scheduleState?.last_error && <p style={{ color: "var(--status-error)", fontSize: 12, margin: "0 0 12px" }}>Último error: {scheduleState.last_error}</p>}
               {isPulling && <div style={{ margin: "0 0 14px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--text-secondary)", marginBottom: 5 }}><span>{pullJob.message}</span><span>{pullJob.total ? `${pullJob.percent}%` : "Preparando"}</span></div>
-                <div style={{ height: 8, borderRadius: 5, background: "var(--bg-hover)", overflow: "hidden" }}><div style={{ height: "100%", width: `${pullJob.percent || 2}%`, background: "var(--primary)", transition: "width .25s" }} /></div>
+                <div style={{ height: 8, borderRadius: 5, background: "var(--bg-main)", overflow: "hidden" }}><div style={{ height: "100%", width: `${pullJob.percent || 2}%`, background: "var(--primary)", transition: "width .25s" }} /></div>
               </div>}
+              {capabilities.clear_attendance_memory && (
+                <label className="checkbox-inline" style={{ marginBottom: 12 }}>
+                  <input type="checkbox" checked={clearMemoryAfterPull} onChange={event => setClearMemoryAfterPull(event.target.checked)} />
+                  Borrar memoria de la terminal después de bajar registros
+                </label>
+              )}
               <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
                 <button className="btn btn-primary" onClick={() => pullLogs(t)} disabled={pullingId === t.id || !t.is_active}><Download size={14} /> {pullingId === t.id ? "Descargando..." : "Bajar registros"}</button>
                 <button className="btn" onClick={() => openSchedule(t)}><CalendarClock size={14} /> Programar</button>
                 <button className="btn" onClick={() => testConnection(t.id)} disabled={testingId === t.id || syncingId === t.id || pullingId === t.id || !t.is_active}><Wifi size={14} /> {testingId === t.id ? "Conectando..." : "Conectar"}</button>
                 <button className="btn" onClick={() => syncTime(t.id)} disabled={testingId === t.id || syncingId === t.id || pullingId === t.id || !t.is_active}><Clock size={14} /> {syncingId === t.id ? "Sincronizando..." : "Reloj"}</button>
-                <button className="btn" onClick={() => openEdit(t)}><Pencil size={14} /> Editar</button>
-                <button className="btn btn-danger" onClick={() => handleDelete(t)}><Trash2 size={14} /> Borrar</button>
               </div>
-              {capabilities.terminal_users && <section style={{ marginTop: 18, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
+              {capabilities.terminal_users && <section style={{ marginTop: 18, paddingTop: 16, borderTop: "1px solid var(--border-color)" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
                   <div><strong><Users size={15} style={{ verticalAlign: "-2px" }} /> Usuarios de terminal</strong><div style={{ color: "var(--text-secondary)", fontSize: 12, marginTop: 3 }}>UID e ID pertenecen al reloj. SRTime sincroniza nombre y privilegio USER/ADMIN desde Empleados.</div></div>
                   <div style={{ display: "flex", gap: 7 }}>
                     <button className="btn" onClick={() => loadDeviceUsers(t)} disabled={loadingDeviceUsers}><Download size={14} /> {loadingDeviceUsers ? "Leyendo..." : "Bajar usuarios"}</button>
-                    {capabilities.terminal_user_name_sync && <button className="btn btn-primary" onClick={() => syncNames(t)} disabled={syncingNames || !t.is_active}><Upload size={14} /> {syncingNames ? "Subiendo..." : "Sincronizar perfiles"}</button>}
+                    {capabilities.terminal_user_name_sync && <button className="btn btn-primary" onClick={() => syncNames(t)} disabled={syncingNames || !t.is_active}><Upload size={14} /> {syncingNames ? "Subiendo..." : "Subir usuarios"}</button>}
                   </div>
                 </div>
                 {deviceUsers.length > 0 && <div className="table-wrapper" style={{ marginTop: 12, maxHeight: 240, overflow: "auto" }}><table className="data-table"><thead><tr><th>UID</th><th>ID</th><th>Nombre en terminal</th><th>Privilegio de terminal</th></tr></thead><tbody>{deviceUsers.map(user => <tr key={`${user.uid}-${user.user_id}`}><td>{user.uid}</td><td>{user.user_id}</td><td>{user.name}</td><td>{user.privilege_label}</td></tr>)}</tbody></table></div>}

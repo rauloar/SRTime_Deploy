@@ -254,7 +254,11 @@ class ProcessedTab(QWidget):
             QMessageBox.critical(self, "Error al Procesar", f"Hubo un problema:\n{error_msg}")
         else:
             txt = "Novedades" if count > 0 else "No había fichadas nuevas"
-            QMessageBox.information(self, "Proceso Completado", f"{txt}. Se procesaron {count} flujos diarios.")
+            QMessageBox.information(
+                self,
+                "Proceso Completado",
+                f"{txt}. Se procesaron {count} flujos diarios y se sincronizaron ausencias del rango.",
+            )
             self.load_data()
 
     # ── Root: justificación directa ────────────────────────────────────────

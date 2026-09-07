@@ -1,7 +1,7 @@
 # Instalación de SRTime Web en Windows
 
-Esta guía corresponde al instalador `SRTime-Web-Setup.exe`, que entrega SRTime
-Web como un servicio Windows y conserva sus dependencias compiladas en una
+Esta guía corresponde al instalador `SRTime-Web-Setup.exe` de la versión
+`v0.9.0-beta.4`, que entrega SRTime Web como un servicio Windows y conserva sus dependencias compiladas en una
 estructura de carpetas. No requiere Python ni Node.js en el equipo cliente.
 
 ## Requisitos previos
@@ -42,7 +42,8 @@ de ejecutar el instalador.
 
 3. Seleccionar los drivers de ingesta iniciales: **Sundial / TM-MR001**,
    **ZKTeco** o **Sundial + ZKTeco**. Ambos drivers se instalan; esta opción
-   sólo define `SRTIME_ENABLED_ADDONS` en `config\.env`.
+   define `SRTIME_ENABLED_ADDONS` en `config\.env`. En una actualización, la
+   selección reemplaza ese único valor y conserva las credenciales existentes.
 4. Esperar a que finalice la verificación del host, la copia del paquete, el
    registro y el inicio del servicio Windows `SRTimeWeb`.
 5. El instalador crea un acceso directo de escritorio que abre
@@ -114,3 +115,11 @@ una reparación o reinstalación detiene y vuelve a registrar `SRTimeWeb`.
 Antes de desinstalar o actualizar una instalación con datos, crear y comprobar
 un backup PostgreSQL. La desinstalación quita el servicio y los binarios, pero
 no elimina automáticamente configuración ni evidencia operativa local.
+
+En una actualización, SRTime primero crea un dump verificable sin interrumpir el
+servicio actual. Luego lo detiene, comprueba que el esquema sea compatible y
+aplica la migración antes de iniciar la versión nueva. Si detecta una base
+parcial, una revisión desconocida o una estructura que declara estar actualizada
+pero no lo está, detiene la actualización de la base; no la rellena ni la marca
+como nueva. El motivo queda en `logs\database-update.log`. Resolver el caso con
+el backup y el plan de migración controlada antes de reintentar.

@@ -2,7 +2,7 @@ from typing import Optional, List
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from datetime import date, time
 
-from models.employee import TERMINAL_PRIVILEGES, TERMINAL_PRIVILEGE_USER
+from models.employee import SHIFT_ASSIGNMENT_MANUAL, SHIFT_ASSIGNMENT_SOURCES, TERMINAL_PRIVILEGES, TERMINAL_PRIVILEGE_USER
 
 # --- USERS ---
 class UserBase(BaseModel):
@@ -11,6 +11,8 @@ class UserBase(BaseModel):
     last_name: Optional[str] = None
     is_active: bool = True
     shift_id: Optional[int] = None
+    group_id: Optional[int] = None
+    shift_assignment_source: str = SHIFT_ASSIGNMENT_MANUAL
     terminal_privilege: int = TERMINAL_PRIVILEGE_USER
 
     @field_validator("terminal_privilege")
@@ -19,6 +21,14 @@ class UserBase(BaseModel):
         if value not in TERMINAL_PRIVILEGES:
             raise ValueError("terminal_privilege must be 0 (USER) or 14 (ADMIN)")
         return value
+
+    @field_validator("shift_assignment_source")
+    @classmethod
+    def validate_shift_assignment_source(cls, value: str) -> str:
+        normalized = (value or SHIFT_ASSIGNMENT_MANUAL).upper()
+        if normalized not in SHIFT_ASSIGNMENT_SOURCES:
+            raise ValueError("shift_assignment_source must be MANUAL or GROUP")
+        return normalized
 
 class UserCreate(UserBase):
     pass
@@ -85,6 +95,8 @@ class UserBulkImportRow(BaseModel):
     last_name: Optional[str] = None
     is_active: bool = True
     shift_id: Optional[int] = None
+    group_id: Optional[int] = None
+    shift_assignment_source: str = SHIFT_ASSIGNMENT_MANUAL
     terminal_privilege: int = TERMINAL_PRIVILEGE_USER
 
     @field_validator("terminal_privilege")

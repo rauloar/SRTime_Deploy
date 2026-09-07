@@ -44,11 +44,16 @@ class _TerminalPullProgress:
         )
 
 
-def _run_terminal_pull_job(job_id: str, terminal_id: int, username: str) -> None:
+def _run_terminal_pull_job(job_id: str, terminal_id: int, username: str, clear_device_memory: bool = False) -> None:
     db = SessionLocal()
     try:
         terminal = get_terminal_or_404(terminal_id, db)
-        result = service_pull_logs(terminal, db, progress_signal=_TerminalPullProgress(job_id))
+        result = service_pull_logs(
+            terminal,
+            db,
+            progress_signal=_TerminalPullProgress(job_id),
+            clear_device_memory=clear_device_memory,
+        )
         terminal.last_pull_status = "ok"
         terminal.last_pull_error = None
         db.commit()
@@ -102,6 +107,10 @@ class TerminalScheduleUpdate(BaseModel):
     end_date: Optional[date] = None
     window_start: Optional[time] = None
     window_end: Optional[time] = None
+
+
+class TerminalPullRequest(BaseModel):
+    clear_device_memory: bool = False
 
 
 @router.get("/")
@@ -264,6 +273,7 @@ def sync_terminal_time(
 @router.post("/{terminal_id}/pull")
 def pull_terminal_logs_now(
     terminal_id: int,
+    payload: TerminalPullRequest | None = None,
     db: Session = Depends(get_db),
     current_user: AuthUser = Depends(require_supervisor_or_root),
 ):
@@ -272,7 +282,11 @@ def pull_terminal_logs_now(
     if not terminal.is_active:
         raise HTTPException(status_code=400, detail="La terminal está inactiva")
     try:
-        nuevos, duplicados, total, logs_msgs = service_pull_logs(terminal, db)
+        nuevos, duplicados, total, logs_msgs = service_pull_logs(
+            terminal,
+            db,
+            clear_device_memory=bool(payload and payload.clear_device_memory),
+        )
         terminal.last_pull_status = "ok"
         terminal.last_pull_error = None
         db.commit()
@@ -291,6 +305,7 @@ def pull_terminal_logs_now(
 def start_terminal_pull_job(
     terminal_id: int,
     background_tasks: BackgroundTasks,
+    payload: TerminalPullRequest | None = None,
     db: Session = Depends(get_db),
     current_user: AuthUser = Depends(require_supervisor_or_root),
 ):
@@ -298,7 +313,13 @@ def start_terminal_pull_job(
     if not terminal.is_active:
         raise HTTPException(status_code=400, detail="La terminal está inactiva")
     job = operation_status.create("terminal_pull", f"Descarga en cola: {terminal.name}")
-    background_tasks.add_task(_run_terminal_pull_job, job["id"], terminal.id, current_user.username)
+    background_tasks.add_task(
+        _run_terminal_pull_job,
+        job["id"],
+        terminal.id,
+        current_user.username,
+        bool(payload and payload.clear_device_memory),
+    )
     return job
 
 

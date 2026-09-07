@@ -15,6 +15,7 @@ from unittest.mock import MagicMock
 from core.database import Base
 from models.attendance import AttendanceLog
 from models.employee import User
+from models.employee_group import EmployeeGroup  # noqa: F401 — registers FK target
 from models.shift import Shift
 from models.processed_attendance import ProcessedAttendance
 

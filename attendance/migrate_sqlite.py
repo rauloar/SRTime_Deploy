@@ -45,9 +45,6 @@ def configured_sqlite_path() -> Path:
     return db_path if db_path.is_absolute() else Path(BASE_DIR) / db_path
 
 
-DB_PATH = configured_sqlite_path()
-
-
 def hash_password(password: str) -> str:
     """Hash password using bcrypt."""
     return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
@@ -169,7 +166,34 @@ def migrate_users(cur: sqlite3.Cursor, changed: list[str]) -> None:
     if add_column_if_missing(cur, "users", "terminal_privilege", "terminal_privilege INTEGER DEFAULT 0"):
         changed.append("users.terminal_privilege")
 
+    if add_column_if_missing(cur, "users", "group_id", "group_id INTEGER"):
+        changed.append("users.group_id")
+
+    if add_column_if_missing(cur, "users", "shift_assignment_source", "shift_assignment_source VARCHAR(20) DEFAULT 'MANUAL'"):
+        changed.append("users.shift_assignment_source")
+
     cur.execute("UPDATE users SET terminal_privilege = 0 WHERE terminal_privilege IS NULL")
+    cur.execute("UPDATE users SET shift_assignment_source = 'MANUAL' WHERE shift_assignment_source IS NULL OR shift_assignment_source = ''")
+
+
+def migrate_employee_groups(cur: sqlite3.Cursor, changed: list[str]) -> None:
+    """Ensure employee groups table exists for bulk shift assignment."""
+    if table_exists(cur, "employee_group"):
+        return
+    cur.execute(
+        """
+        CREATE TABLE employee_group (
+            id INTEGER PRIMARY KEY,
+            name VARCHAR(100) NOT NULL UNIQUE,
+            description VARCHAR,
+            shift_id INTEGER,
+            is_active BOOLEAN DEFAULT 1 NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+            FOREIGN KEY(shift_id) REFERENCES shifts(id)
+        )
+        """
+    )
+    changed.append("employee_group (table)")
 
 
 def migrate_shifts(cur: sqlite3.Cursor, changed: list[str]) -> None:
@@ -319,6 +343,7 @@ def migrate(db_path: Path) -> None:
     try:
         # Apply all migrations in order
         migrate_auth_user(cur, changed)
+        migrate_employee_groups(cur, changed)
         migrate_users(cur, changed)
         migrate_shifts(cur, changed)
         migrate_attendance_log(cur, changed)
@@ -356,7 +381,7 @@ def migrate(db_path: Path) -> None:
 
 if __name__ == "__main__":
     try:
-        migrate(DB_PATH)
+        migrate(configured_sqlite_path())
         sys.exit(0)
     except Exception as e:
         print(f"[ERROR] Migration failed: {e}", file=sys.stderr)

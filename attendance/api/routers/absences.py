@@ -8,9 +8,11 @@ from sqlalchemy.orm import Session
 from api.deps import get_current_user, get_db, require_root, require_supervisor_or_root
 from api.schemas import ProcessedAttendanceResponse
 from core.logging_config import get_logger
+from models.employee import User as EmployeeModel
 from models.processed_attendance import ProcessedAttendance
 from models.user import AuthUser
 from services.absences import AbsenceService, absence_workflow_filter, attendance_attention_filter
+from services.export_helpers import build_excel_workbook, streaming_excel_response
 from services.justification import JustificationService
 
 logger = get_logger(__name__)
@@ -26,6 +28,11 @@ class AbsenceJustificationRequest(BaseModel):
     justification: str = Field(min_length=1, max_length=2000)
 
 
+class BulkAbsenceJustificationRequest(BaseModel):
+    record_ids: List[int] = Field(min_length=1, max_length=1000)
+    justification: str = Field(min_length=1, max_length=2000)
+
+
 def _get_absence_or_404(db: Session, record_id: int) -> ProcessedAttendance:
     record = db.query(ProcessedAttendance).filter(
         ProcessedAttendance.id == record_id,
@@ -34,6 +41,33 @@ def _get_absence_or_404(db: Session, record_id: int) -> ProcessedAttendance:
     if not record:
         raise HTTPException(status_code=404, detail="Absence record not found")
     return record
+
+
+def _attention_query(
+    db: Session,
+    date_start: Optional[date] = None,
+    date_end: Optional[date] = None,
+    employee_id: Optional[int] = None,
+    status: Optional[str] = None,
+):
+    query = db.query(ProcessedAttendance).filter(attendance_attention_filter())
+    if date_start:
+        query = query.filter(ProcessedAttendance.date >= date_start)
+    if date_end:
+        query = query.filter(ProcessedAttendance.date <= date_end)
+    if employee_id:
+        query = query.filter(ProcessedAttendance.employee_id == employee_id)
+    if status:
+        query = query.filter(ProcessedAttendance.status == status.upper())
+    return query
+
+
+def _format_time(value) -> str:
+    return value.strftime("%H:%M") if value else ""
+
+
+def _employee_name(employee: EmployeeModel) -> str:
+    return f"{employee.last_name or ''}, {employee.first_name or ''}".strip(", ") or employee.identifier
 
 
 @router.get("/", response_model=List[ProcessedAttendanceResponse])
@@ -46,16 +80,62 @@ def read_absences(
     db: Session = Depends(get_db),
     current_user: AuthUser = Depends(get_current_user),
 ):
-    query = db.query(ProcessedAttendance).filter(attendance_attention_filter())
-    if date_start:
-        query = query.filter(ProcessedAttendance.date >= date_start)
-    if date_end:
-        query = query.filter(ProcessedAttendance.date <= date_end)
-    if employee_id:
-        query = query.filter(ProcessedAttendance.employee_id == employee_id)
-    if status:
-        query = query.filter(ProcessedAttendance.status == status.upper())
+    query = _attention_query(db, date_start, date_end, employee_id, status)
     return query.order_by(ProcessedAttendance.date.desc(), ProcessedAttendance.employee_id).limit(limit).all()
+
+
+@router.get("/export")
+def export_absences(
+    date_start: Optional[date] = Query(None),
+    date_end: Optional[date] = Query(None),
+    employee_id: Optional[int] = Query(None),
+    status: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: AuthUser = Depends(get_current_user),
+):
+    query = _attention_query(db, date_start, date_end, employee_id, status).join(
+        EmployeeModel,
+        ProcessedAttendance.employee_id == EmployeeModel.id,
+    )
+    rows = query.with_entities(ProcessedAttendance, EmployeeModel).order_by(
+        ProcessedAttendance.date.desc(),
+        EmployeeModel.last_name,
+        EmployeeModel.first_name,
+    ).all()
+
+    headers = [
+        "Empleado",
+        "Fecha",
+        "Entrada",
+        "Salida",
+        "Horas",
+        "Tardanza (Min)",
+        "Salida Ant. (Min)",
+        "Hs Extra (Min)",
+        "Estado",
+        "Motivo",
+        "Solicitado por",
+    ]
+    data_rows = [
+        [
+            _employee_name(employee),
+            str(record.date),
+            _format_time(record.first_in),
+            _format_time(record.last_out),
+            record.total_hours,
+            record.tardiness_minutes,
+            record.early_departure_minutes,
+            record.overtime_minutes,
+            record.status,
+            record.justification or record.pending_justification or "",
+            record.requested_by or "",
+        ]
+        for record, employee in rows
+    ]
+
+    wb = build_excel_workbook("Ausencias", headers, data_rows)
+    filename = f"ausencias_{date_start or 'all'}_{date_end or 'all'}.xlsx"
+    return streaming_excel_response(wb, filename)
 
 
 @router.post("/reprocess")
@@ -74,6 +154,32 @@ def reprocess_absences(
     created = AbsenceService(db).sync(body.date_start, body.date_end)
     logger.info("Absences reprocessed", extra={"user": current_user.username, "action": "reprocess_absences", "detail": str(created)})
     return {"ok": True, "created_absences": created}
+
+
+@router.post("/bulk-justify")
+def justify_selected_absences(
+    body: BulkAbsenceJustificationRequest,
+    db: Session = Depends(get_db),
+    current_user: AuthUser = Depends(require_supervisor_or_root),
+):
+    result = AbsenceService(db).justify_selected(
+        body.record_ids,
+        body.justification.strip(),
+        is_root=current_user.role == "root",
+        requested_by=current_user.username,
+    )
+    if result["updated"] == 0 and result["requested"] == 0:
+        raise HTTPException(status_code=400, detail="No selectable absence records were updated")
+
+    logger.info(
+        "Selected absences justified",
+        extra={
+            "user": current_user.username,
+            "action": "bulk_justify_absences",
+            "detail": str(result),
+        },
+    )
+    return {"ok": True, **result}
 
 
 @router.patch("/{record_id}/justify", response_model=ProcessedAttendanceResponse)

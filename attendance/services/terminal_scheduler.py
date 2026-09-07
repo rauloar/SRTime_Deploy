@@ -13,6 +13,7 @@ from typing import Optional
 
 from core.database import SessionLocal
 from core.logging_config import get_logger
+from core.timezone import local_now
 from models.terminal import DeviceTerminal
 from services.terminals import pull_logs
 
@@ -23,7 +24,7 @@ _run_lock = Lock()
 
 
 def schedule_next_pull(terminal: DeviceTerminal, now: datetime | None = None) -> None:
-    now = now or datetime.now()
+    now = now or local_now().replace(tzinfo=None)
     if terminal.pull_schedule_mode == "weekly":
         weekdays = {int(day) for day in (terminal.pull_schedule_weekdays or []) if 0 <= int(day) <= 6}
         run_time = terminal.pull_schedule_time
@@ -64,7 +65,7 @@ def run_due_pulls() -> int:
     db = SessionLocal()
     completed = 0
     try:
-        now = datetime.now()
+        now = local_now().replace(tzinfo=None)
         due = (
             db.query(DeviceTerminal)
             .filter(

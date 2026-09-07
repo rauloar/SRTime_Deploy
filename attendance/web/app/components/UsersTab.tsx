@@ -4,10 +4,11 @@ import { useAuth } from "../context/AuthContext"
 import axios from "axios"
 import { Plus, RefreshCw, Pencil, Trash2, X, Search, Upload } from "lucide-react"
 import Pagination from "./Pagination"
-import { downloadFromApi } from "../utils/download"
+import { downloadCsv, downloadFromApi } from "../utils/download"
 
-interface User { id: number; identifier: string; first_name: string | null; last_name: string | null; is_active: boolean; shift_id: number | null; terminal_privilege: number }
+interface User { id: number; identifier: string; first_name: string | null; last_name: string | null; is_active: boolean; shift_id: number | null; group_id: number | null; shift_assignment_source: string; terminal_privilege: number }
 interface Shift { id: number; name: string }
+interface EmployeeGroup { id: number; name: string; description: string | null; shift_id: number | null; is_active: boolean; employee_count: number }
 const EMPTY: Partial<User> = { identifier: "", first_name: "", last_name: "", is_active: true, shift_id: null, terminal_privilege: 0 }
 const TERMINAL_PRIVILEGES = [
   { value: 0, label: "USER" },
@@ -40,6 +41,7 @@ export default function UsersTab() {
   const { api } = useAuth()
   const [users, setUsers]   = useState<User[]>([])
   const [shifts, setShifts] = useState<Shift[]>([])
+  const [groups, setGroups] = useState<EmployeeGroup[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch]   = useState("")
   const [modal, setModal]     = useState<"add" | "edit" | null>(null)
@@ -48,12 +50,17 @@ export default function UsersTab() {
   const [error, setError]     = useState("")
   const [page, setPage]       = useState(1)
   const [pageSize, setPageSize] = useState(20)
+  const [selectedUserIds, setSelectedUserIds] = useState<number[]>([])
+  const [selectedGroupId, setSelectedGroupId] = useState<number | "">("")
+  const [overrideManual, setOverrideManual] = useState(false)
+  const [groupForm, setGroupForm] = useState({ name: "", description: "", shift_id: "" as number | "" })
+  const [groupSaving, setGroupSaving] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [u, s] = await Promise.all([api.get("/api/users/?limit=2000"), api.get("/api/shifts/")])
-    setUsers(u.data); setShifts(s.data); setLoading(false)
+    const [u, s, g] = await Promise.all([api.get("/api/users/?limit=2000"), api.get("/api/shifts/"), api.get("/api/employee-groups/")])
+    setUsers(u.data); setShifts(s.data); setGroups(g.data); setLoading(false)
   }, [api])
 
   useEffect(() => { load() }, [load])
@@ -64,9 +71,14 @@ export default function UsersTab() {
   )
   const paginated = filtered.slice((page - 1) * pageSize, page * pageSize)
   const shiftName = (id: number | null) => id ? (shifts.find(s => s.id === id)?.name || "Sin Turno") : "Sin Turno"
+  const groupName = (id: number | null) => id ? (groups.find(g => g.id === id)?.name || "Sin Grupo") : "Sin Grupo"
+  const sourceLabel = (source: string | null | undefined) => source === "GROUP" ? "Grupo" : "Manual"
   const terminalPrivilegeLabel = (value: number | null | undefined) => value === 14 ? "ADMIN" : "USER"
+  const pageSelected = paginated.length > 0 && paginated.every(u => selectedUserIds.includes(u.id))
+  const activeGroups = groups.filter(g => g.is_active)
 
   function exportCsv() {
+    const headers = ["Identificador", "Nombre", "Apellido", "Turno", "Privilegio Terminal", "Activo"]
     const rows = filtered.map(u => ({
       Identificador: u.identifier,
       Nombre: u.first_name || "",
@@ -75,19 +87,7 @@ export default function UsersTab() {
       "Privilegio Terminal": terminalPrivilegeLabel(u.terminal_privilege),
       Activo: u.is_active ? "Si" : "No",
     }))
-
-    const header = ["Identificador", "Nombre", "Apellido", "Turno", "Privilegio Terminal", "Activo"]
-    const lines = [
-      header.join(","),
-      ...rows.map(r => [r.Identificador, r.Nombre, r.Apellido, r.Turno, r["Privilegio Terminal"], r.Activo].map(v => `"${String(v).replaceAll('"', '""')}"`).join(",")),
-    ]
-    const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8;" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = "empleados.csv"
-    a.click()
-    URL.revokeObjectURL(url)
+    downloadCsv(headers, rows, "empleados.csv")
   }
 
   async function exportExcel() {
@@ -107,6 +107,74 @@ export default function UsersTab() {
     } finally {
       setSaving(false)
       if (fileInputRef.current) fileInputRef.current.value = ""
+    }
+  }
+
+  function toggleSelected(userId: number) {
+    setSelectedUserIds(prev => prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId])
+  }
+
+  function togglePageSelected() {
+    const pageIds = paginated.map(u => u.id)
+    if (pageSelected) {
+      setSelectedUserIds(prev => prev.filter(id => !pageIds.includes(id)))
+    } else {
+      setSelectedUserIds(prev => Array.from(new Set([...prev, ...pageIds])))
+    }
+  }
+
+  async function createEmployeeGroup() {
+    if (!groupForm.name.trim()) { setError("El nombre del grupo es obligatorio."); return }
+    setGroupSaving(true); setError("")
+    try {
+      const { data } = await api.post("/api/employee-groups/", {
+        name: groupForm.name,
+        description: groupForm.description || null,
+        shift_id: groupForm.shift_id === "" ? null : Number(groupForm.shift_id),
+        is_active: true,
+      })
+      setGroupForm({ name: "", description: "", shift_id: "" })
+      setSelectedGroupId(data.id)
+      await load()
+    } catch (e: unknown) {
+      setError(getErrorMessage(e, "No se pudo crear el grupo."))
+    } finally {
+      setGroupSaving(false)
+    }
+  }
+
+  async function assignSelectedToGroup() {
+    if (!selectedGroupId) { setError("Seleccioná un grupo para asignar empleados."); return }
+    if (selectedUserIds.length === 0) { setError("Seleccioná al menos un empleado."); return }
+    setGroupSaving(true); setError("")
+    try {
+      const { data } = await api.post(`/api/employee-groups/${selectedGroupId}/assign`, {
+        user_ids: selectedUserIds,
+        override_manual: overrideManual,
+      })
+      alert(`✅ Grupo aplicado. ${data.assigned} asignados, ${data.shift_updated} turnos actualizados, ${data.manual_preserved} manuales preservados.`)
+      setSelectedUserIds([])
+      await load()
+    } catch (e: unknown) {
+      setError(getErrorMessage(e, "No se pudo asignar el grupo."))
+    } finally {
+      setGroupSaving(false)
+    }
+  }
+
+  async function applySelectedGroupShift() {
+    if (!selectedGroupId) { setError("Seleccioná un grupo."); return }
+    setGroupSaving(true); setError("")
+    try {
+      const { data } = await api.post(`/api/employee-groups/${selectedGroupId}/apply-shift`, {
+        include_manual: overrideManual,
+      })
+      alert(`✅ Turno del grupo aplicado. ${data.shift_updated} turnos actualizados, ${data.manual_preserved} manuales preservados.`)
+      await load()
+    } catch (e: unknown) {
+      setError(getErrorMessage(e, "No se pudo aplicar el turno del grupo."))
+    } finally {
+      setGroupSaving(false)
     }
   }
 
@@ -182,21 +250,79 @@ export default function UsersTab() {
         <button className="btn" onClick={load} disabled={loading}><RefreshCw size={14} /></button>
       </div>
 
+      <div className="employee-group-panel">
+        <div>
+          <h3>Grupos de Empleados</h3>
+          <p>Asignación masiva de turnos sin romper cambios manuales. El motor sigue procesando por turno del empleado.</p>
+          <p className="employee-group-help">
+            Uso rápido: cree un grupo, seleccione empleados en la tabla, elija el grupo y pulse “Asignar seleccionados”.
+            La opción “Sobrescribir turnos manuales” permite que el turno del grupo reemplace un turno cargado directamente en la ficha del empleado.
+            Si no se marca, esos turnos manuales se conservan.
+          </p>
+        </div>
+        <div className="employee-group-grid">
+          <Field label="Nuevo grupo">
+            <input value={groupForm.name} onChange={e => setGroupForm(p => ({ ...p, name: e.target.value }))} placeholder="Ej: Fábrica" />
+          </Field>
+          <Field label="Descripción">
+            <input value={groupForm.description} onChange={e => setGroupForm(p => ({ ...p, description: e.target.value }))} placeholder="Opcional" />
+          </Field>
+          <Field label="Turno del grupo">
+            <select value={groupForm.shift_id} onChange={e => setGroupForm(p => ({ ...p, shift_id: e.target.value ? Number(e.target.value) : "" }))}>
+              <option value="">Sin turno</option>
+              {shifts.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </Field>
+          <div className="employee-group-actions">
+            <button className="btn btn-primary" onClick={createEmployeeGroup} disabled={groupSaving}><Plus size={14} /> Crear grupo</button>
+          </div>
+        </div>
+        <div className="employee-group-grid">
+          <Field label="Grupo para empleados seleccionados">
+            <select value={selectedGroupId} onChange={e => setSelectedGroupId(e.target.value ? Number(e.target.value) : "")}>
+              <option value="">Seleccionar grupo</option>
+              {activeGroups.map(g => <option key={g.id} value={g.id}>{g.name} · {shiftName(g.shift_id)} · {g.employee_count} empleados</option>)}
+            </select>
+          </Field>
+          <label className="checkbox-inline">
+            <input type="checkbox" checked={overrideManual} onChange={e => setOverrideManual(e.target.checked)} />
+            Sobrescribir turnos manuales del empleado
+          </label>
+          <div className="employee-group-actions">
+            <button className="btn" onClick={assignSelectedToGroup} disabled={groupSaving || selectedUserIds.length === 0}>Asignar seleccionados ({selectedUserIds.length})</button>
+            <button className="btn" onClick={applySelectedGroupShift} disabled={groupSaving || !selectedGroupId}>Aplicar turno al grupo</button>
+          </div>
+        </div>
+        {activeGroups.length > 0 && (
+          <div className="employee-group-summary">
+            <div className="employee-group-summary-title">Grupos</div>
+            <div className="employee-group-list">
+              {activeGroups.map(g => (
+                <span key={g.id} className="employee-group-chip employee-group-chip-strong">{g.name} · {shiftName(g.shift_id)} · {g.employee_count}</span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
       {loading ? <p style={{ padding: 20, opacity: 0.6 }}>Cargando empleados...</p> : (
         <>
           <div className="table-wrapper">
             <table className="data-table">
               <thead>
-                <tr><th>Identificador</th><th>Nombre</th><th>Apellido</th><th>Turno</th><th>Privilegio Terminal</th><th>Activo</th><th>Acciones</th></tr>
+                <tr><th><input type="checkbox" checked={pageSelected} onChange={togglePageSelected} aria-label="Seleccionar página" /></th><th>Identificador</th><th>Nombre</th><th>Apellido</th><th>Grupo</th><th>Turno</th><th>Origen</th><th>Privilegio Terminal</th><th>Activo</th><th>Acciones</th></tr>
               </thead>
               <tbody>
-                {paginated.length === 0 && <tr><td colSpan={7} style={{ textAlign: "center", opacity: 0.5, padding: 20 }}>Sin resultados</td></tr>}
+                {paginated.length === 0 && <tr><td colSpan={10} style={{ textAlign: "center", opacity: 0.5, padding: 20 }}>Sin resultados</td></tr>}
                 {paginated.map(u => (
                   <tr key={u.id}>
+                    <td><input type="checkbox" checked={selectedUserIds.includes(u.id)} onChange={() => toggleSelected(u.id)} aria-label={`Seleccionar ${u.identifier}`} /></td>
                     <td><code style={{ fontSize: 12 }}>{u.identifier}</code></td>
                     <td>{u.first_name || <span style={{ opacity: 0.4 }}>—</span>}</td>
                     <td>{u.last_name || <span style={{ opacity: 0.4 }}>—</span>}</td>
+                    <td>{groupName(u.group_id)}</td>
                     <td>{shiftName(u.shift_id)}</td>
+                    <td><span className={`badge ${u.shift_assignment_source === "GROUP" ? "badge-justificado" : "badge-ok"}`}>{sourceLabel(u.shift_assignment_source)}</span></td>
                     <td><span className={`badge ${u.terminal_privilege === 14 ? "badge-incompleto" : "badge-ok"}`}>{terminalPrivilegeLabel(u.terminal_privilege)}</span></td>
                     <td><span className={`badge ${u.is_active ? "badge-ok" : "badge-error"}`}>{u.is_active ? "Activo" : "Inactivo"}</span></td>
                     <td style={{ display: "flex", gap: 6 }}>

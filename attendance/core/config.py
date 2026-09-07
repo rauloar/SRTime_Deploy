@@ -23,7 +23,12 @@ def resolve_env_path() -> Path:
     if explicit:
         return Path(explicit)
 
-    if getattr(sys, "frozen", False) or "__compiled__" in globals():
+    # El ejecutable PyInstaller de escritorio guarda su perfil junto a
+    # ``SRTime.exe``. Nuitka Web conserva config/.env dos niveles arriba.
+    if getattr(sys, "frozen", False):
+        return Path(sys.argv[0]).resolve().parent / ".env"
+
+    if "__compiled__" in globals():
         return Path(sys.argv[0]).resolve().parent.parent / "config" / ".env"
 
     return PROJECT_ROOT / "config" / ".env"

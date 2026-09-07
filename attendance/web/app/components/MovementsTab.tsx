@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useMemo } from "react"
 import { useAuth } from "../context/AuthContext"
 import { Search, RefreshCw, LogIn, LogOut } from "lucide-react"
 import Pagination from "./Pagination"
-import { downloadFromApi } from "../utils/download"
+import { downloadCsv, downloadFromApi, type CsvRow } from "../utils/download"
 
 interface Movement {
   id: number; raw_identifier: string; employee_id: number | null
@@ -133,8 +133,8 @@ export default function MovementsTab() {
   }
 
   function exportCsv() {
-    let rows = []
-    let header = []
+    let rows: CsvRow[] = []
+    let headers: string[] = []
     
     if (viewMode === "vertical") {
       rows = filtered.map(m => ({
@@ -144,29 +144,18 @@ export default function MovementsTab() {
         Hora: m.time || "",
         Movimiento: m.mark_type === 0 ? "ENTRADA" : m.mark_type === 1 ? "SALIDA" : "",
       }))
-      header = ["Identificador", "Nombre", "Fecha", "Hora", "Movimiento"]
+      headers = ["Identificador", "Nombre", "Fecha", "Hora", "Movimiento"]
     } else {
       rows = groupedMovements.map(g => ({
         Identificador: g.identifier,
         Nombre: g.name,
         Fecha: g.date,
-        Hora: g.inTime,
-        Movimiento: g.outTime,
+        Entrada: g.inTime,
+        Salida: g.outTime,
       }))
-      header = ["Identificador", "Nombre", "Fecha", "Entrada", "Salida"]
+      headers = ["Identificador", "Nombre", "Fecha", "Entrada", "Salida"]
     }
-
-    const lines = [
-      header.join(","),
-      ...rows.map(r => [r.Identificador, r.Nombre, r.Fecha, r.Hora, r.Movimiento].map(v => `"${String(v).replaceAll('"', '""')}"`).join(",")),
-    ]
-    const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8;" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = "movimientos.csv"
-    a.click()
-    URL.revokeObjectURL(url)
+    downloadCsv(headers, rows, "movimientos.csv")
   }
 
   async function exportExcel() {

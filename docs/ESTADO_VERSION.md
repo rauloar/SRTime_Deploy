@@ -1,8 +1,27 @@
 # Estado de versión de SRTime
 
+## Gobierno de versiones
+
+SRTime se versiona como una **suite única**: Web/FastAPI/PostgreSQL y Desktop/PySide6/SQLite comparten el tag de la suite, aunque sus builds e instaladores sean distintos. Las personalizaciones de clientes se aíslan como extensiones con compatibilidad declarada; no deben convertirse en forks permanentes del núcleo.
+
+- [Política de versionado de la suite y variantes de cliente](POLITICA_VERSIONADO_SUITE_Y_VARIANTES_CLIENTE.md)
+- [Registro de versiones de la suite](REGISTRO_VERSIONES_SUITE.md)
+- [Contrato de migración de datos de clientes](PLAN_CONTRATO_MIGRACION_CLIENTES.md)
+
 ## Versión actual: Beta operativa 0.9.0-beta.4
 
 SRTime se clasifica como **Beta**, no como Alfa ni como versión final 1.0.
+
+## Regla de versionado de suite
+
+Cada tag identifica la **suite SRTime completa**: núcleo compartido, modelos,
+migraciones, Web/FastAPI y Desktop/PySide6. Los paquetes Nuitka y PyInstaller
+son artefactos de distribución del mismo tag, aunque se validen o generen en
+momentos diferentes. No se crean versiones separadas por interfaz.
+
+Las mejoras particulares de un cliente se deben entregar como extensiones
+compatibles con un tag base, no como forks persistentes. El plan de migración y
+actualización se documenta en `docs/PLAN_CONTRATO_MIGRACION_CLIENTES.md`.
 
 La aplicación ya permite un flujo de uso completo: instalación local con
 PostgreSQL, creación del administrador, inicio de sesión, importación
@@ -37,17 +56,18 @@ La promoción a **1.0.0** requiere evidencia aprobada de:
    actual es local en memoria y está diseñado para la ejecución QA de un solo
    proceso; una instalación multiworker requiere persistencia compartida.
 
-Plan de trabajo pendiente para la paridad de escritorio Windows/SQLite:
-`docs/PLAN_ALINEACION_WINDOWS_SQLITE.md`.
+La paridad de código fuente Windows/SQLite ya incorpora formatos de importación,
+privilegios de terminal y operaciones ZKTeco. El pendiente es la validación QA
+Desktop y el nuevo empaquetado PyInstaller `--onedir` multi-driver, documentado
+en `docs/HOJA_TECNICA_PARIDAD_PYSIDE6_WEB.md`.
 
 ## Criterio de cambio de versión
 
 - **Alfa**: cambios frecuentes, sin flujo de usuario estable. SRTime ya superó
   esta etapa.
 - **Beta operativa 0.9.0-beta.4**: incorpora la integración ZKTeco, privilegios
-  de terminal y la importación USB nativa `att.dat`; queda lista para el build
-  Web Nuitka posterior a la validación pre-build.
-- **Beta operativa 0.9.0-beta.2**: flujo funcional validado en
-  pseudo-producción, sujeto aún a las condiciones de promoción a 1.0. Estado
-  actual.
+  de terminal, la importación USB nativa `att.dat` y el build Web Nuitka para
+  validación QA. El build Desktop multi-driver queda pendiente de QA fuente.
+- **Beta operativa 0.9.0-beta.2**: flujo funcional validado previamente en
+  pseudo-producción; fue reemplazada por `0.9.0-beta.4` como referencia actual.
 - **1.0.0**: condiciones anteriores cumplidas y aprobadas por QA/operaciones.

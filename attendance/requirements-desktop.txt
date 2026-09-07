@@ -1,0 +1,4 @@
+# Dependencies required to run and package the PySide6 desktop distribution.
+-r ../requirements.txt
+PyInstaller==6.19.0
+PySide6==6.10.2

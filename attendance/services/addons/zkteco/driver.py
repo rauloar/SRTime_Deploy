@@ -3,7 +3,7 @@ from datetime import date, time
 from services.addons.base_driver import BiometricDriver
 
 
-DEFAULT_CONNECTION_TIMEOUT = 3
+DEFAULT_CONNECTION_TIMEOUT = 5
 DEFAULT_CONNECTION_RETRIES = 3
 
 
@@ -177,13 +177,21 @@ class ZKTecoDriver(BiometricDriver):
             self.disconnect()
 
     def sync_time(self, params: dict) -> bool:
-        from datetime import datetime
+        from core.timezone import local_now
+
         self.connect(params)
         try:
-            self.conn.set_time(datetime.now())
+            self.conn.set_time(local_now().replace(tzinfo=None))
             return True
         finally:
             self.disconnect()
+
+    def clear_attendance_logs(self) -> bool:
+        if not self.conn:
+            raise Exception("No hay conexión activa con el dispositivo.")
+        self.conn.clear_attendance()
+        self._attendance_cache = None
+        return True
 
     def disconnect(self):
         if self.conn:

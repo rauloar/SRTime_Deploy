@@ -6,6 +6,7 @@ from datetime import datetime, time as Time, time, date
 from sqlalchemy.orm import Session
 from models.attendance import AttendanceLog
 from typing import List, Tuple, Optional, Dict
+from core.timezone import local_datetime, local_today
 
 
 class AttendanceValidator:
@@ -44,7 +45,7 @@ class AttendanceValidator:
             return False, f"Invalid time: {log.time}"
         
         # Validar que no sea fecha futura
-        today = datetime.now().date()
+        today = local_today()
         if log.date > today:
             return False, f"Attendance log date in future: {log.date}"
         
@@ -95,12 +96,11 @@ class AttendanceValidator:
             return result
         
         for i in range(len(daily_logs) - 1):
-            from datetime import datetime
             time_from = daily_logs[i].time
             time_to = daily_logs[i + 1].time
             
-            dt_from = datetime.combine(datetime.now().date(), time_from)
-            dt_to = datetime.combine(datetime.now().date(), time_to)
+            dt_from = local_datetime(local_today(), time_from)
+            dt_to = local_datetime(local_today(), time_to)
             
             gap_hours = (dt_to - dt_from).total_seconds() / 3600.0
             
@@ -132,9 +132,8 @@ class AttendanceValidator:
             return False, f"OUT time ({out_log.time}) must be after IN time ({in_log.time})"
         
         # Máximo 12 horas de diferencia (safeguard)
-        from datetime import datetime
-        dt_in = datetime.combine(datetime.now().date(), in_log.time)
-        dt_out = datetime.combine(datetime.now().date(), out_log.time)
+        dt_in = local_datetime(local_today(), in_log.time)
+        dt_out = local_datetime(local_today(), out_log.time)
         
         hours = (dt_out - dt_in).total_seconds() / 3600.0
         if hours > 24:
