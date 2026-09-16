@@ -81,10 +81,12 @@ def test_analytics_overview_uses_explicit_denominators(test_db, sample_shift):
     dashboard = AttendanceAnalytics(test_db).dashboard(date(2026, 7, 1), date(2026, 7, 31))
     cards = {card["key"]: card for card in dashboard["overview"]["cards"]}
 
-    assert cards["expected"]["count"] == 2
-    assert cards["ok"]["denominator"] == 2
-    assert cards["ok"]["percentage"] == 50.0
-    assert cards["absent"]["count"] == 1
+    assert dashboard["overview"]["expected_count"] == 2
+    assert cards["compliance_rate"]["denominator"] == 2
+    assert cards["compliance_rate"]["percentage"] == 50.0
+    assert cards["unjustified_absence_rate"]["count"] == 1
+    assert cards["unjustified_absence_rate"]["percentage"] == 50.0
+    assert cards["avg_tardiness_per_employee"]["unit"] == "min"
     assert cards["employees_without_shift"]["count"] == 1
     assert cards["employees_without_shift"]["denominator"] == 2
 

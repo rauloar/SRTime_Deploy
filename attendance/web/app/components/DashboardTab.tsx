@@ -1,31 +1,33 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import type { CSSProperties } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useAuth } from "../context/AuthContext"
-import { AlertTriangle, ArrowRight, CalendarDays, Clock3, Database, MonitorSmartphone, RefreshCw, Search, Timer, Users } from "lucide-react"
+import { AlertTriangle, ArrowRight, CalendarDays, Clock3, Database, MonitorSmartphone, RefreshCw, Timer, Users } from "lucide-react"
+import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 
 interface Option { id: number; name: string }
+interface EmployeeOption { id: number; identifier: string; name: string }
 interface DashboardCard {
   key: string
   label: string
   count: number
+  value: number
+  unit: string
   percentage: number
   denominator: number
   period: { date_start: string; date_end: string }
   data_freshness: string
   severity: string
+  description?: string
 }
 interface ActionItem { label: string; severity: string; count: number; target_tab: string; drilldown: Record<string, string | number | null> }
-interface GroupStatus { group_id: number | null; group_name: string; expected_count: number; status_counts: Record<string, number>; rates: Record<string, number> }
-interface TrendPoint { date: string; denominator: number; normal_rate: number; absence_rate: number; incomplete_rate: number; pending_rate: number }
-interface HeatmapCell { group: string; date: string; expected_count: number; novelty_count: number; novelty_rate: number }
-interface RecentActivity { date: string; time: string; employee: string; event_type: string; terminal: string; status: string; source: string }
+interface TrendPoint { date: string; denominator: number; compliance_rate: number; normal_rate: number; absence_rate: number; incomplete_rate: number; pending_rate: number; justified_rate: number }
 interface DeviceHealth { terminal_id: number; name: string; driver_name: string; status: string; severity: string; last_sync: string | null; activity_count: number; minutes_since_sync: number | null }
-interface DataQuality { unknown_events: number; duplicate_events: number; pending_raw_events: number; late_events: number; recent_import_sources: { source: string; count: number }[]; notes: string[] }
 interface DashboardData {
   period: { date_start: string; date_end: string; timezone?: string }
   filters: Record<string, string | number | null>
-  filter_options: { groups: Option[]; shifts: Option[]; terminals: Option[]; statuses: string[]; branches: string[]; sectors: string[] }
+  filter_options: { groups: Option[]; shifts: Option[]; terminals: Option[]; employees: EmployeeOption[]; statuses: string[]; branches: string[]; sectors: string[] }
   generated_at: string
   overview: {
     cards: DashboardCard[]
@@ -36,17 +38,23 @@ interface DashboardData {
     total_tardiness_minutes: number
     total_overtime_minutes: number
   }
+  summary: {
+    current_week_hours: number
+    current_month_hours: number
+    total_hours: number
+  }
   action_items: ActionItem[]
-  status_by_group: GroupStatus[]
   trends: TrendPoint[]
-  heatmap: HeatmapCell[]
-  recent_activity: RecentActivity[]
-  data_quality: DataQuality
   device_health: DeviceHealth[]
   status_counts: Record<string, number>
 }
 
-const STATUS_ORDER = ["OK", "INCOMPLETO", "AUSENTE", "PENDIENTE", "JUSTIFICADO", "FERIADO"]
+const PRIMARY_CARD_KEYS = ["compliance_rate", "unjustified_absence_rate", "incomplete_rate", "avg_tardiness_per_employee"]
+const HOURS_OPTIONS = [
+  { value: "period", label: "Período filtrado" },
+  { value: "week", label: "Semana actual" },
+  { value: "month", label: "Mes actual" },
+] as const
 const nf = new Intl.NumberFormat("es-AR")
 const pf = new Intl.NumberFormat("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const today = () => new Date().toISOString().slice(0, 10)
@@ -65,10 +73,8 @@ export default function DashboardTab() {
   const [dateEnd, setDateEnd] = useState(today())
   const [days, setDays] = useState("30")
   const [groupId, setGroupId] = useState("")
-  const [shiftId, setShiftId] = useState("")
-  const [terminalId, setTerminalId] = useState("")
-  const [status, setStatus] = useState("")
   const [employee, setEmployee] = useState("")
+  const [hoursScope, setHoursScope] = useState<(typeof HOURS_OPTIONS)[number]["value"]>("period")
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -80,9 +86,6 @@ export default function DashboardTab() {
           date_end: dateEnd,
           days: days || undefined,
           group_id: groupId || undefined,
-          shift_id: shiftId || undefined,
-          terminal_id: terminalId || undefined,
-          status: status || undefined,
           employee: employee || undefined,
         },
       })
@@ -92,24 +95,32 @@ export default function DashboardTab() {
     } finally {
       setLoading(false)
     }
-  }, [api, dateStart, dateEnd, days, groupId, shiftId, terminalId, status, employee])
+  }, [api, dateStart, dateEnd, days, groupId, employee])
 
   useEffect(() => { void load() }, [load])
-
-  const maxTrend = useMemo(() => Math.max(100, ...(data?.trends.flatMap(item => [item.normal_rate, item.absence_rate, item.incomplete_rate, item.pending_rate]) || [0])), [data])
-  const visibleHeatmapDates = useMemo(() => Array.from(new Set((data?.heatmap || []).map(item => item.date))).slice(-14), [data])
-  const visibleHeatmapGroups = useMemo(() => Array.from(new Set((data?.heatmap || []).map(item => item.group))).slice(0, 8), [data])
 
   function navigateTo(tab: string) {
     window.dispatchEvent(new CustomEvent("srtime:navigate-tab", { detail: { tab } }))
   }
+
+  const primaryCards = data?.overview.cards.filter(card => PRIMARY_CARD_KEYS.includes(card.key)) || []
+  const actionItems = data?.action_items.filter(item => item.count > 0).slice(0, 4) || []
+  const terminalIssues = data?.device_health.filter(item => item.severity !== "info").slice(0, 4) || []
+  const healthyTerminals = data?.device_health.filter(item => item.severity === "info").length || 0
+  const selectedGroupName = groupId ? data?.filter_options.groups.find(item => String(item.id) === groupId)?.name || "Grupo seleccionado" : "Todos los grupos"
+  const selectedEmployee = employee.trim() || "Todas las personas"
+  const selectedHours = data ? (
+    hoursScope === "week" ? data.summary.current_week_hours :
+    hoursScope === "month" ? data.summary.current_month_hours :
+    data.overview.total_hours
+  ) : 0
 
   return (
     <div className="dashboard-tab fade-in">
       <div className="tab-header">
         <div>
           <h2>Dashboard</h2>
-          <p>Consola de RR. HH. y supervisión. Analytics sólo lee datos ya procesados y movimientos existentes.</p>
+          <p>Resumen ejecutivo de asistencia: pocas señales, lectura rápida y acceso directo a lo que requiere acción.</p>
         </div>
         <button className="btn" onClick={() => void load()} disabled={loading}><RefreshCw size={14} /> Actualizar</button>
       </div>
@@ -125,10 +136,7 @@ export default function DashboardTab() {
         <label>Desde:</label><input type="date" value={dateStart} onChange={event => { setDays(""); setDateStart(event.target.value) }} />
         <label>Hasta:</label><input type="date" value={dateEnd} onChange={event => { setDays(""); setDateEnd(event.target.value) }} />
         <label>Grupo:</label><select value={groupId} onChange={event => setGroupId(event.target.value)}><option value="">Todos</option>{data?.filter_options.groups.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
-        <label>Turno:</label><select value={shiftId} onChange={event => setShiftId(event.target.value)}><option value="">Todos</option>{data?.filter_options.shifts.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
-        <label>Terminal:</label><select value={terminalId} onChange={event => setTerminalId(event.target.value)}><option value="">Todas</option>{data?.filter_options.terminals.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
-        <label>Estado:</label><select value={status} onChange={event => setStatus(event.target.value)}><option value="">Todos</option>{STATUS_ORDER.map(item => <option key={item} value={item}>{item}</option>)}</select>
-        <label>Empleado/legajo:</label><div className="dashboard-search"><Search size={13} /><input value={employee} onChange={event => setEmployee(event.target.value)} placeholder="Buscar..." /></div>
+        <label>Persona:</label><select value={employee} onChange={event => setEmployee(event.target.value)}><option value="">Todas</option>{data?.filter_options.employees.map(item => <option key={item.id} value={item.identifier}>{item.name} · {item.identifier}</option>)}</select>
       </div>
 
       {loading && <p className="dashboard-muted">Cargando tablero...</p>}
@@ -139,123 +147,93 @@ export default function DashboardTab() {
         </p>
 
         <div className="dashboard-kpi-grid">
-          {data.overview.cards.map(card => <KpiCard key={card.key} card={card} />)}
+          {primaryCards.map(card => <KpiCard key={card.key} card={card} />)}
         </div>
 
-        <section className="dashboard-panel dashboard-action-panel">
-          <h3>Requiere acción</h3>
-          <div className="dashboard-action-grid">
-            {data.action_items.map(item => (
-              <button className={`dashboard-action-card severity-${item.severity}`} key={item.label} onClick={() => navigateTo(item.target_tab)}>
-                <span>{item.label}</span>
-                <strong>{nf.format(item.count)}</strong>
-                <small>Severidad {item.severity} <ArrowRight size={12} /></small>
-              </button>
-            ))}
+        <section className="dashboard-panel dashboard-hours-panel">
+          <div className="dashboard-panel-title-row">
+            <div>
+              <h3>Horas trabajadas</h3>
+              <p className="dashboard-muted">Filtrado por {selectedGroupName} · {selectedEmployee}</p>
+            </div>
+            <select value={hoursScope} onChange={event => setHoursScope(event.target.value as typeof hoursScope)}>
+              {HOURS_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </div>
+          <div className="dashboard-hours-grid">
+            <div className="dashboard-hours-main">
+              <span>{HOURS_OPTIONS.find(item => item.value === hoursScope)?.label}</span>
+              <strong>{pf.format(selectedHours)} h</strong>
+            </div>
+            <Metric label="Empleados activos" value={data.overview.active_employees} />
+            <Metric label="Terminales activas" value={data.overview.active_terminals} />
+            <Metric label="Movimientos pendientes" value={data.overview.raw_pending} />
           </div>
         </section>
 
         <div className="dashboard-grid" style={{ marginTop: 14 }}>
-          <section className="dashboard-panel">
-            <h3>Estado por grupo</h3>
-            {data.status_by_group.length === 0 ? <p className="dashboard-muted">Sin jornadas procesadas para el filtro.</p> : (
-              <div className="dashboard-group-table">
-                {data.status_by_group.map(group => (
-                  <div className="dashboard-group-row" key={group.group_name}>
-                    <div><strong>{group.group_name}</strong><span>{nf.format(group.expected_count)} jornadas esperadas</span></div>
-                    <StackedBar counts={group.status_counts} total={group.expected_count} />
-                  </div>
+          <section className="dashboard-panel dashboard-action-panel">
+            <h3>Requiere acción</h3>
+            {actionItems.length === 0 ? <p className="dashboard-muted">Sin novedades críticas para el filtro actual.</p> : (
+              <div className="dashboard-action-grid">
+                {actionItems.map(item => (
+                  <button className={`dashboard-action-card severity-${item.severity}`} key={item.label} onClick={() => navigateTo(item.target_tab)}>
+                    <span>{item.label}</span>
+                    <strong>{nf.format(item.count)}</strong>
+                    <small>Ver detalle <ArrowRight size={12} /></small>
+                  </button>
                 ))}
               </div>
             )}
           </section>
 
           <section className="dashboard-panel">
-            <h3>Calidad de datos</h3>
-            <div className="dashboard-time-grid">
-              <Metric label="Desconocidos" value={data.data_quality.unknown_events} />
-              <Metric label="Duplicados visibles" value={data.data_quality.duplicate_events} />
-              <Metric label="Raw pendientes" value={data.data_quality.pending_raw_events} />
-              <Metric label="Recibidos tardíos" value={data.data_quality.late_events} />
+            <h3>Terminales</h3>
+            <p className="dashboard-muted dashboard-note">
+              {nf.format(healthyTerminals)} OK · {nf.format(terminalIssues.length)} requieren revisión
+            </p>
+            <div className="dashboard-device-list">
+              {terminalIssues.map(item => (
+                <button className={`dashboard-device-card severity-${item.severity}`} key={item.terminal_id} onClick={() => navigateTo("terminals")}>
+                  <MonitorSmartphone size={15} />
+                  <span>{item.name}</span>
+                  <strong>{item.status}</strong>
+                  <small>{item.last_sync ? `sync ${new Date(item.last_sync).toLocaleString("es-AR")}` : "sin sync"}</small>
+                </button>
+              ))}
+              {data.device_health.length === 0 && <p className="dashboard-muted">No hay terminales activas configuradas.</p>}
+              {data.device_health.length > 0 && terminalIssues.length === 0 && <p className="dashboard-muted">Todas las terminales activas están sin alertas.</p>}
             </div>
-            <p className="dashboard-muted dashboard-note">{data.data_quality.notes[0]}</p>
           </section>
         </div>
 
         <section className="dashboard-panel" style={{ marginTop: 14 }}>
           <h3>Evolución histórica</h3>
-          <p className="dashboard-muted" style={{ marginBottom: 12 }}>Porcentajes diarios sobre jornadas del día. No mezcla cantidades con porcentajes.</p>
-          <div className="dashboard-trend-grid">
-            {data.trends.map(item => (
-              <div className="dashboard-trend-row" key={item.date}>
-                <span>{item.date.slice(5)}</span>
-                <TrendBar label="OK" value={item.normal_rate} max={maxTrend} className="status-ok" />
-                <TrendBar label="Aus." value={item.absence_rate} max={maxTrend} className="status-ausente" />
-                <TrendBar label="Inc." value={item.incomplete_rate} max={maxTrend} className="status-incompleto" />
-                <TrendBar label="Pend." value={item.pending_rate} max={maxTrend} className="status-pendiente" />
-                <small>{item.denominator} jorn.</small>
-              </div>
-            ))}
-            {data.trends.length === 0 && <p className="dashboard-muted">Sin datos históricos en el rango.</p>}
-          </div>
+          <p className="dashboard-muted" style={{ marginBottom: 12 }}>Tasas diarias sobre jornadas del día. El gráfico muestra señales de cumplimiento, ausentismo, incompletos y pendientes.</p>
+          {data.trends.length === 0 ? <p className="dashboard-muted">Sin datos históricos en el rango.</p> : <AttendanceTrendChart data={data.trends} />}
         </section>
-
-        <section className="dashboard-panel" style={{ marginTop: 14 }}>
-          <h3>Mapa de calor de novedades</h3>
-          <p className="dashboard-muted" style={{ marginBottom: 12 }}>Color por porcentaje de jornadas con INCOMPLETO, AUSENTE o PENDIENTE. Muestra hasta 14 fechas recientes.</p>
-          {visibleHeatmapGroups.length === 0 ? <p className="dashboard-muted">Sin datos para mapa de calor.</p> : (
-            <div className="dashboard-heatmap" style={{ gridTemplateColumns: `minmax(120px, .35fr) repeat(${visibleHeatmapDates.length}, minmax(34px, 1fr))` }}>
-              <div />
-              {visibleHeatmapDates.map(day => <strong key={day}>{day.slice(5)}</strong>)}
-              {visibleHeatmapGroups.map(group => <div className="dashboard-heatmap-row" key={group}>
-                <span>{group}</span>
-                {visibleHeatmapDates.map(day => {
-                  const cell = data.heatmap.find(item => item.group === group && item.date === day)
-                  return <div key={`${group}-${day}`} className="dashboard-heat-cell" style={{ opacity: cell ? Math.max(.18, cell.novelty_rate / 100) : .08 }} title={`${group} ${day}: ${cell?.novelty_rate || 0}%`} />
-                })}
-              </div>)}
-            </div>
-          )}
-        </section>
-
-        <div className="dashboard-grid" style={{ marginTop: 14 }}>
-          <section className="dashboard-panel">
-            <h3>Actividad reciente</h3>
-            <div className="table-wrapper"><table className="data-table"><thead><tr><th>Fecha</th><th>Hora</th><th>Empleado</th><th>Evento</th><th>Terminal</th><th>Estado</th></tr></thead><tbody>
-              {data.recent_activity.map((item, index) => <tr key={`${item.date}-${item.time}-${index}`}><td>{item.date}</td><td>{item.time}</td><td>{item.employee}</td><td>{item.event_type}</td><td>{item.terminal || item.source}</td><td>{item.status}</td></tr>)}
-              {data.recent_activity.length === 0 && <tr><td colSpan={6} className="table-empty">Sin actividad reciente</td></tr>}
-            </tbody></table></div>
-          </section>
-
-          <section className="dashboard-panel">
-            <h3>Terminales</h3>
-            <div className="dashboard-device-list">
-              {data.device_health.map(item => (
-                <button className={`dashboard-device-card severity-${item.severity}`} key={item.terminal_id} onClick={() => navigateTo("terminals")}>
-                  <MonitorSmartphone size={15} />
-                  <span>{item.name}</span>
-                  <strong>{item.status}</strong>
-                  <small>{item.activity_count} movimientos · {item.last_sync ? `sync ${new Date(item.last_sync).toLocaleString("es-AR")}` : "sin sync"}</small>
-                </button>
-              ))}
-              {data.device_health.length === 0 && <p className="dashboard-muted">No hay terminales activas configuradas.</p>}
-            </div>
-          </section>
-        </div>
       </>}
     </div>
   )
 }
 
 function KpiCard({ card }: { card: DashboardCard }) {
-  const Icon = card.key === "expected" ? CalendarDays : card.key === "terminal_problems" ? MonitorSmartphone : card.key === "employees_without_shift" ? Users : card.severity === "alta" || card.severity === "media" ? AlertTriangle : card.key === "ok" ? Database : card.key === "justified" ? Clock3 : Timer
+  const Icon = card.key === "compliance_rate" ? CalendarDays : card.key === "terminal_problems" ? MonitorSmartphone : card.key === "employees_without_shift" ? Users : card.severity === "alta" || card.severity === "media" ? AlertTriangle : card.key === "justified_rate" ? Clock3 : card.key === "unjustified_absence_rate" ? Database : Timer
+  const value = card.unit === "%" ? `${pf.format(card.value)}%` : card.unit ? `${pf.format(card.value)} ${card.unit}` : nf.format(card.value)
+  const rawProgress = card.unit === "%" ? card.value : card.key === "avg_tardiness_per_employee" ? (Number(card.value || 0) / 30) * 100 : card.percentage
+  const progress = Math.max(0, Math.min(100, Number.isFinite(rawProgress) ? rawProgress : 0))
   return (
     <section className={`dashboard-kpi severity-${card.severity}`}>
-      <Icon size={20} />
-      <span>{card.label}</span>
-      <strong>{nf.format(card.count)}</strong>
-      <small>{nf.format(card.count)} de {nf.format(card.denominator)} — {pf.format(card.percentage)}%</small>
-      <em>{card.period.date_start} / {card.period.date_end}</em>
+      <div className="dashboard-kpi-copy">
+        <Icon size={20} />
+        <span>{card.label}</span>
+        <strong>{value}</strong>
+        <small>{nf.format(card.count)} de {nf.format(card.denominator)}{card.unit === "%" ? ` — ${pf.format(card.percentage)}%` : ""}</small>
+        {card.description && <em>{card.description}</em>}
+      </div>
+      <div className="dashboard-donut" style={{ "--progress": `${progress}%` } as CSSProperties}>
+        <div><strong>{card.unit === "%" ? pf.format(card.value) : pf.format(progress)}</strong><small>{card.unit === "%" ? "%" : "ref"}</small></div>
+      </div>
     </section>
   )
 }
@@ -264,17 +242,25 @@ function Metric({ label, value }: { label: string; value: number }) {
   return <div><span>{label}</span><strong>{nf.format(value)}</strong></div>
 }
 
-function StackedBar({ counts, total }: { counts: Record<string, number>; total: number }) {
+function AttendanceTrendChart({ data }: { data: TrendPoint[] }) {
   return (
-    <div className="dashboard-stacked-bar">
-      {STATUS_ORDER.map(status => {
-        const width = total ? Math.max(1.5, ((counts[status] || 0) / total) * 100) : 0
-        return <span key={status} className={`status-${status.toLowerCase()}`} style={{ width: `${width}%` }} title={`${status}: ${counts[status] || 0}`} />
-      })}
+    <div className="dashboard-chart">
+      <ResponsiveContainer width="100%" height={280}>
+        <LineChart data={data} margin={{ top: 8, right: 18, left: 0, bottom: 4 }}>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis dataKey="date" tickFormatter={(value: string) => value.slice(5)} />
+          <YAxis domain={[0, 100]} tickFormatter={(value: number) => `${value}%`} />
+          <Tooltip
+            formatter={(value, name) => [`${pf.format(Number(value ?? 0))}%`, String(name)]}
+            labelFormatter={(label: string) => `Fecha ${label}`}
+          />
+          <Legend />
+          <Line type="monotone" dataKey="compliance_rate" name="Cumplimiento" stroke="#107C10" strokeWidth={2} dot={false} />
+          <Line type="monotone" dataKey="absence_rate" name="Ausentismo" stroke="#D13438" strokeWidth={2} dot={false} />
+          <Line type="monotone" dataKey="incomplete_rate" name="Incompletos" stroke="#F7630C" strokeWidth={2} dot={false} />
+          <Line type="monotone" dataKey="pending_rate" name="Pendientes" stroke="#0A64AD" strokeWidth={2} dot={false} />
+        </LineChart>
+      </ResponsiveContainer>
     </div>
   )
-}
-
-function TrendBar({ label, value, max, className }: { label: string; value: number; max: number; className: string }) {
-  return <div className="dashboard-trend-cell"><small>{label}</small><div className="dashboard-bar-track"><div className={`dashboard-bar-fill ${className}`} style={{ width: `${(value / max) * 100}%` }} /></div><strong>{pf.format(value)}%</strong></div>
 }

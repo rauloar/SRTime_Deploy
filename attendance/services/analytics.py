@@ -75,35 +75,6 @@ def _empty_status_counts() -> dict[str, int]:
     return {status: 0 for status in STATUSES}
 
 
-def _to_dataframe(rows: list[dict[str, Any]]):
-    try:
-        import pandas as pd
-    except Exception:
-        return None
-    return pd.DataFrame(rows)
-
-
-def _bar_figure(title: str, labels: list[str], values: list[int | float], color: str = "#0A64AD") -> dict[str, Any]:
-    """Return a Plotly-compatible figure dict without requiring Plotly in the UI."""
-    try:
-        import plotly.graph_objects as go
-
-        fig = go.Figure(data=[go.Bar(x=labels, y=values, marker_color=color)])
-        fig.update_layout(
-            title=title,
-            margin={"l": 32, "r": 12, "t": 42, "b": 40},
-            height=260,
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-        )
-        return fig.to_dict()
-    except Exception:
-        return {
-            "data": [{"type": "bar", "x": labels, "y": values, "marker": {"color": color}}],
-            "layout": {"title": {"text": title}, "height": 260},
-        }
-
-
 class AttendanceAnalytics:
     """Build dashboard metrics from persisted attendance data."""
 
@@ -241,13 +212,24 @@ class AttendanceAnalytics:
                 {"id": terminal.id, "name": terminal.name}
                 for terminal in self.db.query(DeviceTerminal).filter(DeviceTerminal.is_active.is_(True)).order_by(DeviceTerminal.name).all()
             ],
+            "employees": [
+                {
+                    "id": employee.id,
+                    "identifier": employee.identifier,
+                    "name": _employee_name(employee),
+                }
+                for employee in self.db.query(User)
+                .filter(User.is_active.is_(True))
+                .order_by(User.last_name, User.first_name, User.identifier)
+                .all()
+            ],
             "statuses": list(STATUSES),
             "branches": [],
             "sectors": [],
         }
 
-    def get_overview(self, filters: AnalyticsFilters) -> dict[str, Any]:
-        context = self._context(filters)
+    def get_overview(self, filters: AnalyticsFilters, context: dict[str, Any] | None = None, device_health: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        context = context or self._context(filters)
         processed: list[ProcessedAttendance] = context["processed"]
         employees: list[User] = context["employees"]
         status_counts = _empty_status_counts()
@@ -255,51 +237,86 @@ class AttendanceAnalytics:
 
         expected_count = sum(1 for item in processed if item.status != "FERIADO")
         employees_without_shift = sum(1 for employee in employees if not employee.shift_id)
-        terminals_with_problems = len([item for item in self.get_device_health(filters)["data"] if item["severity"] in {"alta", "media"}])
+        device_health = device_health if device_health is not None else self.get_device_health(filters, context)["data"]
+        terminals_with_problems = len([item for item in device_health if item["severity"] in {"alta", "media"}])
         last_processed_date = max((item.date for item in processed), default=None)
+        ok_count = status_counts.get("OK", 0)
+        absent_count = status_counts.get("AUSENTE", 0)
+        incomplete_count = status_counts.get("INCOMPLETO", 0)
+        pending_count = status_counts.get("PENDIENTE", 0)
+        justified_count = status_counts.get("JUSTIFICADO", 0)
+        total_tardiness_minutes = sum(int(item.tardiness_minutes or 0) for item in processed)
+        total_overtime_minutes = sum(int(item.overtime_minutes or 0) for item in processed)
+        active_employee_count = len(employees)
+        avg_tardiness_per_employee = round(total_tardiness_minutes / active_employee_count, 2) if active_employee_count else 0.0
+        avg_overtime_per_employee = round(total_overtime_minutes / active_employee_count, 2) if active_employee_count else 0.0
 
-        def card(key: str, label: str, count: int, denominator: int = expected_count, severity: str = "info") -> dict[str, Any]:
+        def rate_card(key: str, label: str, count: int, denominator: int = expected_count, severity: str = "info", description: str = "") -> dict[str, Any]:
+            percentage = _safe_rate(count, denominator)
             return {
                 "key": key,
                 "label": label,
                 "count": int(count),
-                "percentage": _safe_rate(count, denominator),
+                "value": percentage,
+                "unit": "%",
+                "percentage": percentage,
                 "denominator": int(denominator),
                 "period": {"date_start": filters.date_start.isoformat(), "date_end": filters.date_end.isoformat()},
                 "data_freshness": _iso(last_processed_date) or "sin datos procesados",
                 "severity": severity,
+                "description": description,
+            }
+
+        def value_card(key: str, label: str, value: int | float, denominator: int = active_employee_count, unit: str = "", severity: str = "info", description: str = "") -> dict[str, Any]:
+            return {
+                "key": key,
+                "label": label,
+                "count": value,
+                "value": value,
+                "unit": unit,
+                "percentage": _safe_rate(value, denominator) if unit == "%" else 0.0,
+                "denominator": int(denominator),
+                "period": {"date_start": filters.date_start.isoformat(), "date_end": filters.date_end.isoformat()},
+                "data_freshness": _iso(last_processed_date) or "sin datos procesados",
+                "severity": severity,
+                "description": description,
             }
 
         return self._envelope(
             filters,
             {
                 "cards": [
-                    card("expected", "Jornadas esperadas", expected_count, expected_count),
-                    card("ok", "Jornadas normales", status_counts.get("OK", 0)),
-                    card("incomplete", "Jornadas incompletas", status_counts.get("INCOMPLETO", 0), severity="media"),
-                    card("absent", "Ausentes", status_counts.get("AUSENTE", 0), severity="alta"),
-                    card("pending", "Pendientes", status_counts.get("PENDIENTE", 0), severity="media"),
-                    card("justified", "Justificados", status_counts.get("JUSTIFICADO", 0)),
-                    card("employees_without_shift", "Empleados sin turno", employees_without_shift, len(employees), severity="media"),
-                    card("terminal_problems", "Terminales con problemas", terminals_with_problems, len(context["terminals"]), severity="media"),
+                    rate_card("compliance_rate", "Tasa de cumplimiento horario", ok_count, expected_count, description="Jornadas OK sobre jornadas esperadas."),
+                    rate_card("unjustified_absence_rate", "Ausentismo no justificado", absent_count, expected_count, severity="alta", description="Ausencias sin justificar sobre jornadas esperadas."),
+                    value_card("avg_tardiness_per_employee", "Tardanza promedio por empleado", avg_tardiness_per_employee, unit="min", severity="media", description="Minutos de tardanza del período divididos por empleados activos."),
+                    rate_card("incomplete_rate", "Jornadas incompletas", incomplete_count, expected_count, severity="media", description="Jornadas con fichadas faltantes."),
+                    rate_card("pending_rate", "Pendientes de revisión", pending_count, expected_count, severity="media", description="Jornadas pendientes sobre jornadas esperadas."),
+                    rate_card("justified_rate", "Justificaciones aprobadas", justified_count, expected_count, description="Jornadas justificadas sobre jornadas esperadas."),
+                    rate_card("employees_without_shift", "Empleados sin turno", employees_without_shift, len(employees), severity="media", description="Empleados activos sin turno asignado."),
+                    rate_card("terminal_problems", "Terminales con problemas", terminals_with_problems, len(context["terminals"]), severity="media", description="Terminales activas sin actividad o comunicación reciente."),
                 ],
                 "status_counts": dict(status_counts),
+                "expected_count": expected_count,
+                "compliance_rate": _safe_rate(ok_count, expected_count),
+                "unjustified_absence_rate": _safe_rate(absent_count, expected_count),
+                "avg_tardiness_per_employee": avg_tardiness_per_employee,
+                "avg_overtime_per_employee": avg_overtime_per_employee,
                 "active_employees": len(employees),
                 "active_terminals": len(context["terminals"]),
                 "raw_pending": sum(1 for item in context["raw_logs"] if not item.is_processed),
                 "total_hours": round(sum(float(item.total_hours or 0) for item in processed), 2),
-                "total_tardiness_minutes": sum(int(item.tardiness_minutes or 0) for item in processed),
-                "total_overtime_minutes": sum(int(item.overtime_minutes or 0) for item in processed),
+                "total_tardiness_minutes": total_tardiness_minutes,
+                "total_overtime_minutes": total_overtime_minutes,
                 "timezone": str(get_timezone()),
             },
         )
 
-    def get_action_items(self, filters: AnalyticsFilters) -> dict[str, Any]:
-        context = self._context(filters)
+    def get_action_items(self, filters: AnalyticsFilters, context: dict[str, Any] | None = None, device_health: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        context = context or self._context(filters)
         processed: list[ProcessedAttendance] = context["processed"]
         raw_logs: list[AttendanceLog] = context["raw_logs"]
         employees: list[User] = context["employees"]
-        device_health = self.get_device_health(filters)["data"]
+        device_health = device_health if device_health is not None else self.get_device_health(filters, context)["data"]
 
         duplicate_keys = Counter((log.raw_identifier, log.date, log.time, log.mark_type) for log in raw_logs)
         duplicates = sum(count - 1 for count in duplicate_keys.values() if count > 1)
@@ -326,8 +343,8 @@ class AttendanceAnalytics:
             "drilldown": drilldown,
         }
 
-    def get_status_by_group(self, filters: AnalyticsFilters) -> dict[str, Any]:
-        context = self._context(filters)
+    def get_status_by_group(self, filters: AnalyticsFilters, context: dict[str, Any] | None = None) -> dict[str, Any]:
+        context = context or self._context(filters)
         processed: list[ProcessedAttendance] = context["processed"]
         employees_by_id: dict[int, User] = context["employees_by_id"]
         groups: dict[int, EmployeeGroup] = context["groups"]
@@ -368,21 +385,32 @@ class AttendanceAnalytics:
             })
         return self._envelope(filters, rows)
 
-    def get_trends(self, filters: AnalyticsFilters) -> dict[str, Any]:
-        context = self._context(filters)
-        rows = [
-            {"date": item.date.isoformat(), "status": item.status or "SIN_ESTADO"}
-            for item in context["processed"]
-            if item.status != "FERIADO"
-        ]
-        frame = _to_dataframe(rows)
-        if frame is None or frame.empty:
+    def get_trends(self, filters: AnalyticsFilters, context: dict[str, Any] | None = None) -> dict[str, Any]:
+        context = context or self._context(filters)
+        employee_ids: set[int] = context["employee_ids"]
+        if not employee_ids:
             return self._envelope(filters, [])
-
-        grouped = frame.groupby(["date", "status"]).size().reset_index(name="count")
+        query = (
+            self.db.query(
+                ProcessedAttendance.date,
+                ProcessedAttendance.status,
+                func.count(ProcessedAttendance.id).label("count"),
+            )
+            .filter(
+                ProcessedAttendance.date >= filters.date_start,
+                ProcessedAttendance.date <= filters.date_end,
+                ProcessedAttendance.employee_id.in_(employee_ids),
+                ProcessedAttendance.status != "FERIADO",
+            )
+            .group_by(ProcessedAttendance.date, ProcessedAttendance.status)
+            .order_by(ProcessedAttendance.date)
+        )
+        if filters.status:
+            query = query.filter(ProcessedAttendance.status == filters.status)
+        grouped = query.all()
         by_day: dict[str, dict[str, int]] = defaultdict(_empty_status_counts)
-        for _, row in grouped.iterrows():
-            by_day[str(row["date"])][str(row["status"])] = int(row["count"])
+        for row_date, row_status, count in grouped:
+            by_day[row_date.isoformat()][row_status or "SIN_ESTADO"] = int(count)
 
         data = []
         for day, counts in sorted(by_day.items()):
@@ -390,16 +418,18 @@ class AttendanceAnalytics:
             data.append({
                 "date": day,
                 "denominator": denominator,
+                "compliance_rate": _safe_rate(counts.get("OK", 0), denominator),
                 "normal_rate": _safe_rate(counts.get("OK", 0), denominator),
                 "absence_rate": _safe_rate(counts.get("AUSENTE", 0), denominator),
                 "incomplete_rate": _safe_rate(counts.get("INCOMPLETO", 0), denominator),
                 "pending_rate": _safe_rate(counts.get("PENDIENTE", 0), denominator),
+                "justified_rate": _safe_rate(counts.get("JUSTIFICADO", 0), denominator),
                 "counts": counts,
             })
         return self._envelope(filters, data)
 
-    def get_heatmap(self, filters: AnalyticsFilters) -> dict[str, Any]:
-        context = self._context(filters)
+    def get_heatmap(self, filters: AnalyticsFilters, context: dict[str, Any] | None = None) -> dict[str, Any]:
+        context = context or self._context(filters)
         employees_by_id: dict[int, User] = context["employees_by_id"]
         groups: dict[int, EmployeeGroup] = context["groups"]
         matrix: dict[tuple[str, str], dict[str, int]] = defaultdict(lambda: {"expected": 0, "novelties": 0})
@@ -426,8 +456,8 @@ class AttendanceAnalytics:
         ]
         return self._envelope(filters, data)
 
-    def get_recent_activity(self, filters: AnalyticsFilters, limit: int = 25) -> dict[str, Any]:
-        context = self._context(filters)
+    def get_recent_activity(self, filters: AnalyticsFilters, limit: int = 25, context: dict[str, Any] | None = None) -> dict[str, Any]:
+        context = context or self._context(filters)
         employees_by_id: dict[int, User] = context["employees_by_id"]
         raw_logs = context["raw_logs"][:limit]
         data = [
@@ -447,8 +477,8 @@ class AttendanceAnalytics:
         ]
         return self._envelope(filters, data)
 
-    def get_data_quality(self, filters: AnalyticsFilters) -> dict[str, Any]:
-        context = self._context(filters)
+    def get_data_quality(self, filters: AnalyticsFilters, context: dict[str, Any] | None = None) -> dict[str, Any]:
+        context = context or self._context(filters)
         raw_logs: list[AttendanceLog] = context["raw_logs"]
         duplicate_keys = Counter((log.raw_identifier, log.date, log.time, log.mark_type) for log in raw_logs)
         duplicates = sum(count - 1 for count in duplicate_keys.values() if count > 1)
@@ -476,8 +506,8 @@ class AttendanceAnalytics:
             },
         )
 
-    def get_device_health(self, filters: AnalyticsFilters) -> dict[str, Any]:
-        context = self._context(filters)
+    def get_device_health(self, filters: AnalyticsFilters, context: dict[str, Any] | None = None) -> dict[str, Any]:
+        context = context or self._context(filters)
         raw_by_source = Counter(log.source_file for log in context["raw_logs"])
         now = local_now().replace(tzinfo=None)
         rows = []
@@ -521,17 +551,18 @@ class AttendanceAnalytics:
         days: int | None = None,
     ) -> dict[str, Any]:
         filters = self._filters(date_start, date_end, group_id, shift_id, terminal_id, status, employee, branch, sector, days)
-        overview = self.get_overview(filters)
-        action_items = self.get_action_items(filters)
-        by_group = self.get_status_by_group(filters)
-        trends = self.get_trends(filters)
-        heatmap = self.get_heatmap(filters)
-        recent = self.get_recent_activity(filters)
-        quality = self.get_data_quality(filters)
-        devices = self.get_device_health(filters)
+        context = self._context(filters)
+        devices = self.get_device_health(filters, context)
+        overview = self.get_overview(filters, context, devices["data"])
+        action_items = self.get_action_items(filters, context, devices["data"])
+        by_group = self.get_status_by_group(filters, context)
+        trends = self.get_trends(filters, context)
+        heatmap = self.get_heatmap(filters, context)
+        recent = self.get_recent_activity(filters, context=context)
+        quality = self.get_data_quality(filters, context)
         status_counts = overview["data"]["status_counts"]
-        weekly_hours = self._hours_by_period(filters, "week")
-        monthly_hours = self._hours_by_period(filters, "month")
+        weekly_hours = self._hours_by_period(filters, "week", context)
+        monthly_hours = self._hours_by_period(filters, "month", context)
         today = local_today()
         current_week_key = f"{today.isocalendar().year}-S{today.isocalendar().week:02d}"
         current_month_key = today.strftime("%Y-%m")
@@ -583,13 +614,10 @@ class AttendanceAnalytics:
                 for row in by_group["data"]
             ],
             "ungrouped_hours": 0.0,
-            "figures": {
-                "status_counts": _bar_figure("Jornadas por estado", list(status_counts.keys()), [status_counts[key] for key in status_counts]),
-            },
         }
 
-    def _hours_by_period(self, filters: AnalyticsFilters, period: str) -> list[dict[str, Any]]:
-        context = self._context(filters)
+    def _hours_by_period(self, filters: AnalyticsFilters, period: str, context: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        context = context or self._context(filters)
         buckets: dict[str, float] = defaultdict(float)
         for item in context["processed"]:
             if period == "week":
