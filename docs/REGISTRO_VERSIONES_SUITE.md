@@ -21,6 +21,8 @@ Este registro identifica las entregas de la suite completa. Los instaladores Web
 
 | Suite | Commit/tag | Estado | Alcance destacado | Migraciones y compatibilidad |
 | --- | --- | --- | --- | --- |
+| `v0.9.0-beta.6` | tag anotado | Operativa beta | Dashboard Next.js visual e interactivo con datos reales. QA aprobado el 2026-09-17. | Sin migraciones nuevas; head c9d0e1f2a304. Export estático local, sin nuevos instaladores. |
+| `v0.9.0-beta.5` | `c00b440` | Operativa beta anterior | Integración de analytics, grupos y validación de terminales. | Incluye c9d0e1f2a304; consultar contrato de migración. |
 | `v0.9.0-beta.4` | `efaa945` | Operativa beta | Ingesta ZKTeco USB `att.dat`, perfiles de terminal y gestión de addons. | Compatible con las migraciones de terminales y privilegios ya declaradas. Verificar backup antes de actualizar datos existentes. |
 | `v0.9.0-beta.3` | tag histórico | Operativa beta anterior | Evolución previa de la suite. | Consultar historial Git antes de actualizar una instalación desde esta versión. |
 | `v0.9.0-beta.1` | tag histórico | Operativa beta anterior | Primera línea beta registrada. | No usar como base de una instalación nueva sin ruta de actualización. |

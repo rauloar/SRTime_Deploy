@@ -8,7 +8,7 @@ SRTime se versiona como una **suite única**: Web/FastAPI/PostgreSQL y Desktop/P
 - [Registro de versiones de la suite](REGISTRO_VERSIONES_SUITE.md)
 - [Contrato de migración de datos de clientes](PLAN_CONTRATO_MIGRACION_CLIENTES.md)
 
-## Versión actual: Beta operativa 0.9.0-beta.4
+## Versión actual: Beta operativa 0.9.0-beta.6
 
 SRTime se clasifica como **Beta**, no como Alfa ni como versión final 1.0.
 
@@ -71,3 +71,10 @@ en `docs/HOJA_TECNICA_PARIDAD_PYSIDE6_WEB.md`.
 - **Beta operativa 0.9.0-beta.2**: flujo funcional validado previamente en
   pseudo-producción; fue reemplazada por `0.9.0-beta.4` como referencia actual.
 - **1.0.0**: condiciones anteriores cumplidas y aprobadas por QA/operaciones.
+
+## Actualización 2026-09-17 — v0.9.0-beta.6
+
+Dashboard Next.js adaptado desde Stitch con datos reales, gráficos y filtros interactivos.
+QA visual aprobado por el usuario. Build estático validado; se conserva el despliegue
+FastAPI, el venv único .venv-test y la configuración config/.env.
+No hay migraciones nuevas ni instaladores Nuitka/PyInstaller generados para este tag.
