@@ -1,7 +1,4 @@
-import io
 from typing import List, Optional
-
-from fastapi.responses import StreamingResponse
 
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill
@@ -53,18 +50,3 @@ def build_excel_workbook(
             ws.column_dimensions[get_column_letter(col[0].column)].width = max(12, max_len + 2)
 
     return wb
-
-
-def streaming_excel_response(
-    wb: Workbook,
-    filename: str,
-) -> StreamingResponse:
-    """Envuelve un Workbook en StreamingResponse para FastAPI."""
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    return StreamingResponse(
-        buf,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename={filename}"},
-    )

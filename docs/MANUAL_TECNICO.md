@@ -58,8 +58,8 @@ Requisitos previos: PostgreSQL, Python y Node.js LTS instalados.
    .\deploy\web\start-pseudo-pro-server.ps1
    ```
 
-La configuración local se guarda en `attendance/.env.pseudo_pro`, ignorado por Git.
-La plantilla segura es `attendance/.env.pseudo_pro.example`.
+La configuración local se guarda en `config/.env`, ignorado por Git.
+La plantilla segura es `config/.env.example`.
 
 Para una instalación compilada de cliente en Windows mediante Inno Setup,
 seguir `docs/INSTALACION_SRTIME_WEB_WINDOWS.md`. El instalador coloca SRTime
@@ -73,7 +73,7 @@ configuran con `LOG_APP_FILE`, `LOG_ERROR_FILE`, `LOG_MAX_BYTES` y
 
 ## 4. Flujo recomendado de PostgreSQL
 
-En pseudo-producción, el wizard guarda la conexión PostgreSQL indicada en `.env.pseudo_pro` y separa
+En pseudo-producción, el wizard guarda la conexión PostgreSQL indicada en `config/.env` y separa
 la creación de la base de la creación del primer usuario de SRTime. Para
 producción se recomienda:
 

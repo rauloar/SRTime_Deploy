@@ -46,6 +46,10 @@ class ImportWorker(QThread):
 
 
 class ImportTab(QWidget):
+    # Una importación crea empleados y movimientos: las demás pestañas deben
+    # volver a consultar la base, igual que la Web al abrir cada vista.
+    data_changed = Signal()
+
     def __init__(self, session):
         super().__init__()
         self.session = session
@@ -255,6 +259,7 @@ class ImportTab(QWidget):
             self.live_log.append(message)
 
     def import_finished(self, nuevos, duplicados):
+        self.data_changed.emit()
         QMessageBox.information(self, "Importación finalizada", f"Nuevos: {nuevos}\nDuplicados: {duplicados}")
 
     def import_failed(self, message):

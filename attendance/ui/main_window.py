@@ -89,6 +89,7 @@ AAABAAEAICAAAAAAIADaCQAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAgAAAAIAgGAAAAc3p69AAACaFJ
             self.load_tab_if_needed(index)
                 
         tabs.currentChanged.connect(on_tab_changed)
+        import_tab.data_changed.connect(self.invalidate_loaded_tabs)
         self.setCentralWidget(tabs)
         QTimer.singleShot(0, lambda: self.load_tab_if_needed(tabs.currentIndex()))
 
@@ -194,6 +195,10 @@ AAABAAEAICAAAAAAIADaCQAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAgAAAAIAgGAAAAc3p69AAACaFJ
         if loader:
             loader()
             self._loaded_tabs.add(index)
+
+    def invalidate_loaded_tabs(self):
+        """Fuerza la recarga de cada pestaña en su próxima visita."""
+        self._loaded_tabs = {self.tabs.currentIndex()}
 
     def _load_import_tab(self):
         current_widget = self.tabs.widget(1)

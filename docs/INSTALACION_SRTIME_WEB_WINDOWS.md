@@ -1,75 +1,61 @@
-# Instalación de SRTime Web en Windows
+# Instalación de SRTime_Web en Windows
 
-Esta guía corresponde al instalador `SRTime-Web-Setup.exe` de la versión
-`v0.9.0-beta.4`, que entrega SRTime Web como un servicio Windows y conserva sus dependencias compiladas en una
-estructura de carpetas. No requiere Python ni Node.js en el equipo cliente.
+Esta guía corresponde al instalador `SRTime_Web-Setup.exe`, que entrega
+SRTime_Web como un servicio Windows con sus dependencias compiladas. No
+requiere Python ni Node.js en el equipo cliente. Incluye PostgreSQL 18.6 para
+los equipos que todavía no lo tienen.
 
 ## Requisitos previos
 
 - Windows de 64 bits y una cuenta con permisos de administrador.
-- Al menos 1 GB libre en la unidad `C:`.
-- Puerto TCP 8000 disponible.
-- PostgreSQL accesible desde el servidor. Puede estar instalado en la misma PC
-  o en un servidor de base de datos de la organización.
-- Credenciales PostgreSQL autorizadas para crear o usar la base definida por
-  la organización.
+- Al menos 2 GB libres en la unidad `C:`.
+- Puertos TCP 8000 (SRTime_Web) y 5432 (PostgreSQL) disponibles.
 
-El instalador comprueba automáticamente arquitectura, privilegios, espacio,
-PowerShell y disponibilidad del puerto. También registra si PostgreSQL
-responde en el host por defecto; esta última comprobación es informativa porque
-la conexión puede configurarse contra otro servidor durante el wizard.
+PostgreSQL es obligatorio. El instalador lo detecta y, si no está, lo instala;
+no hace falta instalarlo a mano. Si ya existe, debe ser versión 14 o superior
+e incluir las herramientas de línea de comandos (`pg_dump`).
 
 ## 1. Verificar el instalador
 
-Transportar juntos `SRTime-Web-Setup.exe` y `SHA256SUMS.txt`. En PowerShell:
+Transportar juntos `SRTime_Web-Setup.exe` y `SHA256SUMS.txt`. En PowerShell:
 
 ```powershell
-Get-FileHash .\SRTime-Web-Setup.exe -Algorithm SHA256
+Get-FileHash .\SRTime_Web-Setup.exe -Algorithm SHA256
 ```
 
-Comparar el resultado con la línea correspondiente de `SHA256SUMS.txt` antes
-de ejecutar el instalador.
+Comparar el resultado con la línea de `SHA256SUMS.txt` antes de ejecutarlo.
 
 ## 2. Ejecutar la instalación
 
-1. Hacer clic derecho en `SRTime-Web-Setup.exe` y seleccionar **Ejecutar como
-   administrador**.
-2. Aceptar la ubicación propuesta:
+1. Clic derecho en `SRTime_Web-Setup.exe` → **Ejecutar como administrador**.
+2. Página **PostgreSQL**:
+   - Si ya está instalado, se muestran versión, carpeta, servicio y puerto, y
+     SRTime_Web lo reutiliza. Si el servicio está detenido, se ofrece iniciarlo.
+   - Si no está instalado, definir la contraseña del usuario `postgres`
+     (mínimo 8 caracteres, sin espacios, comillas, `#` ni `=`) y **guardarla**:
+     la configuración inicial la va a pedir.
+3. Aceptar la ubicación `C:\Service Reloj\SRTime_Web`.
+4. Elegir los drivers de ingesta: **Sundial / TM-MR001**, **ZKTeco** o ambos.
+5. Esperar. Si faltaba PostgreSQL, primero se instala PostgreSQL 18.6 (puede
+   tardar varios minutos y muestra su propia barra de progreso). Luego se
+   copian los archivos, se crea `config\.env`, se protegen los permisos, se
+   configura el firewall y se inicia el servicio `SRTimeWeb`.
+6. El instalador espera a que SRTime_Web responda y avisa cuando está listo.
+   No hace falta reiniciar Windows.
 
-   ```text
-   C:\Service Reloj\SRTime_web
-   ```
+`config\.env` se crea con claves internas únicas de cada PC, el puerto de
+PostgreSQL y la ruta de `pg_dump.exe`. Sólo administradores y SYSTEM pueden
+leerlo.
 
-3. Seleccionar los drivers de ingesta iniciales: **Sundial / TM-MR001**,
-   **ZKTeco** o **Sundial + ZKTeco**. Ambos drivers se instalan; esta opción
-   define `SRTIME_ENABLED_ADDONS` en `config\.env`. En una actualización, la
-   selección reemplaza ese único valor y conserva las credenciales existentes.
-4. Esperar a que finalice la verificación del host, la copia del paquete, el
-   registro y el inicio del servicio Windows `SRTimeWeb`.
-5. El instalador crea un acceso directo de escritorio que abre
-   `http://127.0.0.1:8000`.
-6. Al finalizar, el instalador no abre el navegador. Reiniciar Windows antes
-   del primer setup para probar el arranque real del servicio.
+## 3. Primera configuración de SRTime_Web
 
-La instalación crea `config\.env` localmente. Propone PostgreSQL en
-`127.0.0.1:5432`, base `srtime_db`, y deja vacíos `DB_USER` y `DB_PASS`.
-SQLite permanece comentado como alternativa excepcional. Las claves internas
-son generadas de forma única en cada PC; ninguna contraseña o base de datos se
-incluye en el instalador.
-
-## 3. Primera configuración de SRTime
-
-1. Después del reinicio, abrir el acceso directo **SRTime Web** o navegar a
-   `http://127.0.0.1:8000`.
-2. En el wizard, ingresar host, puerto, usuario, contraseña y nombre de base
-   PostgreSQL que correspondan a la instalación.
-3. Crear o seleccionar la base de datos. El nombre propuesto es `srtime_db`,
-   pero el operador puede elegir otro nombre autorizado.
-4. Crear la cuenta inicial `admin` y definir su contraseña.
-5. Iniciar sesión y verificar el estado desde **Control Center**.
-
-No editar ni compartir `config\.env`: contiene las credenciales PostgreSQL
-una vez completado el wizard.
+1. Abrir el acceso directo **SRTime_Web** o navegar a `http://127.0.0.1:8000`.
+2. Paso 1 — Base de datos: servidor `localhost`, puerto `5432` (o el que mostró
+   el instalador), usuario `postgres`, su contraseña y el nombre de la base
+   (`srtime_db` por defecto). SRTime_Web crea la base y su esquema.
+3. Paso 2 — Administrador: definir la contraseña del usuario `admin`. La sesión
+   se inicia automáticamente.
+4. Verificar el estado desde **Control Center**.
 
 ## 4. Acceso desde la LAN
 
@@ -101,7 +87,7 @@ Stop-Service SRTimeWeb
 Start-Service SRTimeWeb
 ```
 
-Los logs se encuentran en `C:\Service Reloj\SRTime_web\logs`. La revisión previa
+Los logs se encuentran en `C:\Service Reloj\SRTime_Web\logs`. La revisión previa
 del instalador queda registrada como `installer-preflight.log`.
 
 ## 6. Actualización o desinstalación
@@ -114,7 +100,7 @@ una reparación o reinstalación detiene y vuelve a registrar `SRTimeWeb`.
 
 Antes de desinstalar o actualizar una instalación con datos, crear y comprobar
 un backup PostgreSQL. La desinstalación quita el servicio y los binarios, pero
-no elimina automáticamente configuración ni evidencia operativa local.
+no desinstala PostgreSQL ni borra sus bases, `config\.env`, logs ni backups.
 
 En una actualización, SRTime primero crea un dump verificable sin interrumpir el
 servicio actual. Luego lo detiene, comprueba que el esquema sea compatible y

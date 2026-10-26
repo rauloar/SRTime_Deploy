@@ -18,11 +18,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
-from core.config import resolve_env_path
+from core.config import resolve_env_path, runtime_root
 
 request_id_ctx: ContextVar[str] = ContextVar("request_id", default="-")
 
-_ATTENDANCE_DIR = Path(__file__).resolve().parents[1]
 _initialized = False
 
 _EXTRA_KEYS = (
@@ -100,7 +99,7 @@ def _positive_int(name: str, default: int) -> int:
 def _settings_from_environment() -> LogSettings:
     _load_active_environment()
     configured_dir = Path(os.getenv("LOG_DIR", "logs"))
-    directory = configured_dir if configured_dir.is_absolute() else _ATTENDANCE_DIR / configured_dir
+    directory = configured_dir if configured_dir.is_absolute() else runtime_root() / configured_dir
     return LogSettings(
         level=os.getenv("LOG_LEVEL", "INFO").upper(),
         format_name=os.getenv("LOG_FORMAT", "json").lower(),

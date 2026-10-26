@@ -4,7 +4,7 @@ import sqlite3
 import pytest
 
 from migrate_sqlite import configured_sqlite_path, migrate
-from api.routers import setup
+from services import setup_service
 from services.validators import ProcessedAttendanceValidator
 
 
@@ -74,4 +74,4 @@ def test_sqlite_profile_is_ready_for_local_first_run(monkeypatch):
     monkeypatch.setenv("DB_ENGINE", "sqlite")
     monkeypatch.setenv("SQLITE_DB_PATH", "desktop-data.db")
 
-    assert setup._configured() is True
+    assert setup_service.is_database_configured() is True

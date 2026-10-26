@@ -21,6 +21,7 @@ Este registro identifica las entregas de la suite completa. Los instaladores Web
 
 | Suite | Commit/tag | Estado | Alcance destacado | Migraciones y compatibilidad |
 | --- | --- | --- | --- | --- |
+| `v0.9.0-beta.7` | sin tag (en QA) | QA | Primer uso unificado Web/Desktop (`services/setup_service.py`), claves por instalación y datos junto al ejecutable en Desktop, FastAPI fuera de `services/`, refresco de pestañas Desktop tras importar, next 16.4.3 y axios 1.20.0. Instaladores `SRTime_Win` y `SRTime_Web` (este último con PostgreSQL 18.6 incluido). | Sin migraciones nuevas; head c9d0e1f2a304. |
 | `v0.9.0-beta.6` | tag anotado | Operativa beta | Dashboard Next.js visual e interactivo con datos reales. QA aprobado el 2026-09-17. | Sin migraciones nuevas; head c9d0e1f2a304. Export estático local, sin nuevos instaladores. |
 | `v0.9.0-beta.5` | `c00b440` | Operativa beta anterior | Integración de analytics, grupos y validación de terminales. | Incluye c9d0e1f2a304; consultar contrato de migración. |
 | `v0.9.0-beta.4` | `efaa945` | Operativa beta | Ingesta ZKTeco USB `att.dat`, perfiles de terminal y gestión de addons. | Compatible con las migraciones de terminales y privilegios ya declaradas. Verificar backup antes de actualizar datos existentes. |
@@ -33,8 +34,8 @@ Los siguientes artefactos se generan para QA local y no sustituyen el tag de rel
 
 | Artefacto | Plataforma | Situación |
 | --- | --- | --- |
-| `SRTime-Web-Setup.exe` | Windows, Web/FastAPI/PostgreSQL | Build de QA con instalador que detecta instalación, repara o actualiza. |
-| `SRTime-Desktop-Setup.exe` | Windows, PySide6/SQLite por defecto | Build de QA `onedir`, con addons Sundial y ZKTeco incluidos. |
+| `SRTime_Web-Setup.exe` | Windows, Web/FastAPI/PostgreSQL | Build de QA `0.9.0-beta.7`: detecta PostgreSQL (14+) o instala PostgreSQL 18.6 incluido; repara o actualiza instalaciones existentes. |
+| `SRTime_Win-Setup.exe` | Windows, PySide6/SQLite por defecto | Build de QA `0.9.0-beta.7` `onedir`, Sundial y ZKTeco; claves generadas por instalación. QA de instalación aprobado el 2026-10-26. |
 
 Antes de convertir cualquiera de estos builds en una entrega se debe: confirmar pruebas de QA, asociarlo a un commit limpio, actualizar este registro, crear el tag de suite y guardar su SHA-256.
 

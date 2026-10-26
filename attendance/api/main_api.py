@@ -36,7 +36,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="Attendance System API",
     description="SRTime REST API — Attendance Management",
-    version="0.9.0-beta.6",
+    version="0.9.0-beta.7",
     lifespan=lifespan,
 )
 

@@ -2,12 +2,12 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
 from sqlalchemy.orm import sessionmaker, declarative_base
-from core.config import ATTENDANCE_DIR, load_application_env
+from core.config import load_application_env, runtime_root
 
 # Determinar el directorio correcto donde reside el ejecutable original (o script).
 # Soporta: script de desarrollo, binario PyInstaller (sys.frozen) y binario
 # Nuitka --standalone (define el global __compiled__, NO setea sys.frozen).
-base_dir = str(ATTENDANCE_DIR)
+base_dir = str(runtime_root())
 load_application_env()
 
 def build_database_url(settings: dict[str, str] | None = None):

@@ -1,63 +1,29 @@
 import sys
 import platform
-import os
 from PySide6.QtWidgets import QApplication, QLineEdit
 
 app = QApplication(sys.argv)
 
+# El paquete trae marcadores en lugar de claves: cada instalación genera las
+# suyas en el primer inicio, antes de importar módulos que leen SECRET_KEY.
+from core.config import ensure_installation_secrets, resolve_env_path
+try:
+    ensure_installation_secrets(resolve_env_path())
+except OSError as exc:
+    from PySide6.QtWidgets import QMessageBox
+    QMessageBox.critical(
+        None,
+        "SRTime",
+        f"No se pudo preparar la configuración local ({resolve_env_path()}).\n\n{exc}",
+    )
+    sys.exit(1)
+
 from core.init_db import init_database
 from core.database import SessionLocal
-from models.user import AuthUser
+from services import setup_service
 from ui.main_window import MainWindow
+from ui.setup_dialog import SetupDialog
 
-
-def ensure_local_admin() -> None:
-    """Create the first desktop admin interactively for a fresh SQLite install."""
-    if os.getenv("DB_ENGINE", "sqlite").lower() != "sqlite":
-        return
-    session = SessionLocal()
-    try:
-        if session.query(AuthUser).first():
-            return
-        from PySide6.QtWidgets import QInputDialog, QMessageBox
-        from core.security import hash_password, validate_password
-
-        while True:
-            password, accepted = QInputDialog.getText(
-                None,
-                "Configuración inicial",
-                "Creá la contraseña del administrador local:",
-                QLineEdit.EchoMode.Password,
-            )
-            if not accepted:
-                raise SystemExit("La contraseña inicial es necesaria para usar SRTime.")
-            confirmation, confirmed = QInputDialog.getText(
-                None,
-                "Confirmar contraseña",
-                "Repetí la contraseña:",
-                QLineEdit.EchoMode.Password,
-            )
-            if not confirmed:
-                continue
-            if password != confirmation:
-                QMessageBox.warning(None, "Contraseña", "Las contraseñas no coinciden.")
-                continue
-            try:
-                validate_password(password)
-            except ValueError as exc:
-                QMessageBox.warning(None, "Contraseña", str(exc))
-                continue
-            session.add(AuthUser(
-                username="admin",
-                password_hash=hash_password(password),
-                role="root",
-                must_change_password=False,
-                is_active=True,
-            ))
-            session.commit()
-            return
-    finally:
-        session.close()
 
 def detect_system_theme():
     # Windows 10/11: Lee el registro para saber si el sistema está en modo oscuro
@@ -86,8 +52,9 @@ def detect_system_theme():
 if __name__ == "__main__":
     # The executable has an empty SQLite database on first install. Schema is
     # created without a password in files; the operator creates admin locally.
-    init_database(defer_admin_setup=True)
-    ensure_local_admin()
+    # A PostgreSQL profile without credentials is completed by SetupDialog.
+    if setup_service.is_database_configured():
+        init_database(defer_admin_setup=True)
     app.setStyle("Fusion")
     theme = detect_system_theme()
     # QSS manual para tema claro y oscuro
@@ -131,6 +98,10 @@ AAABAAEAICAAAAAAIADaCQAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAgAAAAIAgGAAAAc3p69AAACaFJ
         return QIcon(pixmap)
 
     app.setWindowIcon(get_icon())
+    ERROR_STYLE = (
+        "padding: 6px 8px; border-radius: 4px;"
+        + ("background-color: #4a1f1f; color: #ffb3b3; border: 1px solid #7a2e2e;" if theme == "dark" else "background-color: #fdeaea; color: #8a1f1f; border: 1px solid #d9a3a3;")
+    )
 
     class LoginDialog(QDialog):
         def __init__(self):
@@ -191,10 +162,7 @@ AAABAAEAICAAAAAAIADaCQAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAgAAAAIAgGAAAAc3p69AAACaFJ
             self.btn_login.clicked.connect(self.try_login)
             self.pass_input.returnPressed.connect(self.try_login)
             self.user_input.returnPressed.connect(self.pass_input.setFocus)
-            self.error_label.setStyleSheet(
-                "padding: 6px 8px; border-radius: 4px;"
-                + ("background-color: #4a1f1f; color: #ffb3b3; border: 1px solid #7a2e2e;" if theme == "dark" else "background-color: #fdeaea; color: #8a1f1f; border: 1px solid #d9a3a3;")
-            )
+            self.error_label.setStyleSheet(ERROR_STYLE)
             self.user_input.setFocus()
 
         def show_error(self, message):
@@ -278,9 +246,21 @@ AAABAAEAICAAAAAAIADaCQAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAgAAAAIAgGAAAAc3p69AAACaFJ
                 self.btn_login.setText("Iniciar Sesión")
             session.close()
 
-    login = LoginDialog()
-    if login.exec() == QDialog.DialogCode.Accepted:
-        window = MainWindow(login.accepted_user)
+    # Mismo contrato que GET /api/setup/status: sin administrador, la primera
+    # pantalla es la configuración inicial y al completarla se inicia sesión.
+    status_session = SessionLocal() if setup_service.is_database_configured() else None
+    try:
+        setup_required = setup_service.setup_status(status_session)["setup_required"]
+    finally:
+        if status_session is not None:
+            status_session.close()
+
+    if setup_required:
+        dialog = SetupDialog(get_icon(), ERROR_STYLE)
+    else:
+        dialog = LoginDialog()
+    if dialog.exec() == QDialog.DialogCode.Accepted:
+        window = MainWindow(dialog.accepted_user)
         window.show()
         sys.exit(app.exec())
     else:
