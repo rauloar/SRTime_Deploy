@@ -6,7 +6,7 @@ import axios from "axios"
 import { Database, Lock, User, AlertCircle, LogIn } from "lucide-react"
 
 const API = process.env.NEXT_PUBLIC_API_URL || ""
-const APP_VERSION = "v0.9.0-beta.7"
+const APP_VERSION = "v0.9.0-beta.8"
 const PASSWORD_PATTERN = "(?=.*[A-Za-z])(?=.*\\d)[A-Za-z\\d]{8,}"
 
 export default function LoginPage() {
@@ -17,13 +17,13 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [setupRequired, setSetupRequired] = useState<boolean | null>(null)
   const [databaseEngine, setDatabaseEngine] = useState("postgres")
-  const [dbHost, setDbHost] = useState("localhost")
-  const [dbPort, setDbPort] = useState("5432")
-  const [dbUser, setDbUser] = useState("postgres")
+  // Proposed values come from /api/setup/status (the local profile written by
+  // the installer); a database is only created when the operator confirms.
+  const [dbHost, setDbHost] = useState("")
+  const [dbPort, setDbPort] = useState("")
+  const [dbUser, setDbUser] = useState("")
   const [dbPassword, setDbPassword] = useState("")
-  // This is only a proposed name; the installer never creates a database
-  // unless the operator explicitly enters it in this field.
-  const [dbName, setDbName] = useState("srtime_db")
+  const [dbName, setDbName] = useState("")
   const [databaseCreated, setDatabaseCreated] = useState(false)
   const [adminPassword, setAdminPassword] = useState("")
   const [confirmAdminPassword, setConfirmAdminPassword] = useState("")
@@ -36,6 +36,13 @@ export default function LoginPage() {
         setSetupRequired(Boolean(res.data.setup_required))
         setDatabaseEngine(res.data.database_engine || "postgres")
         setDatabaseCreated(Boolean(res.data.configured && res.data.setup_required))
+        const suggested = res.data.suggested_connection
+        if (suggested) {
+          setDbHost(suggested.db_host)
+          setDbPort(String(suggested.db_port))
+          setDbUser(suggested.db_user)
+          setDbName(suggested.db_name)
+        }
       })
       // A failed status check must never expose the login form as if setup had
       // completed; the operator needs the installer/retry path instead.

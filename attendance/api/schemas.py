@@ -150,10 +150,18 @@ class AuthMeResponse(BaseModel):
     must_change_password: bool
 
 
+class SuggestedConnection(BaseModel):
+    db_host: str
+    db_port: int
+    db_user: str
+    db_name: str
+
+
 class SetupStatusResponse(BaseModel):
     setup_required: bool
     configured: bool
     database_engine: str
+    suggested_connection: SuggestedConnection
 
 
 class DatabaseConnectionRequest(BaseModel):

@@ -1,0 +1,16 @@
+; SRTime_Win - pestañas del menú principal.
+; Copiar como ui.ini junto a SRTime_Win.exe (o en config\ en desarrollo).
+; true = visible, false = oculta. Ocultar una pestaña no elimina su función:
+; sólo deja de mostrarse en la interfaz. Los cambios se aplican al reiniciar.
+;
+; Importar, Empleados, Turnos Horarios, Movimientos y Movimientos Procesados
+; son fijas y no se pueden ocultar.
+; Usuarios Autorizados sólo se muestra al usuario root.
+
+[pestanas]
+dashboard = true
+terminales = true
+ausencias = true
+feriados = true
+reportes = true
+usuarios_autorizados = true

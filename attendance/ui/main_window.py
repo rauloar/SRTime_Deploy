@@ -10,6 +10,7 @@ from ui.tabs.dashboard_tab import DashboardTab
 from ui.tabs.holidays_tab import HolidaysTab
 from ui.tabs.reports_tab import ReportsTab
 from core.database import SessionLocal
+from core.ui_settings import load_hidden_tabs
 from PySide6.QtGui import QIcon
 from PySide6.QtCore import QTimer
 
@@ -72,19 +73,33 @@ AAABAAEAICAAAAAAIADaCQAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAgAAAAIAgGAAAAc3p69AAACaFJ
         if self.is_root:
             self._tab_loaders[10] = auth_user_tab.load_data
 
-        tabs.addTab(dashboard_tab, "Dashboard")
-        tabs.addTab(import_tab, "Importar")
-        tabs.addTab(terminals_tab, "Terminales")
-        tabs.addTab(users_tab, "Empleados")
-        tabs.addTab(shifts_tab, "Turnos Horarios")
-        tabs.addTab(movements_tab, "Movimientos")
-        tabs.addTab(processed_tab, "Movimientos Procesados")
-        tabs.addTab(absences_tab, "Ausencias")
-        tabs.addTab(holidays_tab, "Feriados")
-        tabs.addTab(reports_tab, "Reportes")
+        # El orden define los índices de ``_tab_loaders``; la clave es la de ui.ini.
+        tab_specs = [
+            ("dashboard", dashboard_tab, "Dashboard"),
+            ("importar", import_tab, "Importar"),
+            ("terminales", terminals_tab, "Terminales"),
+            ("empleados", users_tab, "Empleados"),
+            ("turnos_horarios", shifts_tab, "Turnos Horarios"),
+            ("movimientos", movements_tab, "Movimientos"),
+            ("movimientos_procesados", processed_tab, "Movimientos Procesados"),
+            ("ausencias", absences_tab, "Ausencias"),
+            ("feriados", holidays_tab, "Feriados"),
+            ("reportes", reports_tab, "Reportes"),
+        ]
         if self.is_root:
-            tabs.addTab(auth_user_tab, "Usuarios Autorizados")
-        
+            tab_specs.append(("usuarios_autorizados", auth_user_tab, "Usuarios Autorizados"))
+        for _key, widget, title in tab_specs:
+            tabs.addTab(widget, title)
+
+        # ui.ini sólo oculta la pestaña: el widget, sus señales y sus índices
+        # siguen existiendo, por lo que ninguna función cambia.
+        hidden_tabs = load_hidden_tabs()
+        for index, (key, _widget, _title) in enumerate(tab_specs):
+            if key in hidden_tabs:
+                tabs.setTabVisible(index, False)
+        if not tabs.isTabVisible(tabs.currentIndex()):
+            tabs.setCurrentIndex(next(i for i in range(tabs.count()) if tabs.isTabVisible(i)))
+
         def on_tab_changed(index):
             self.load_tab_if_needed(index)
                 

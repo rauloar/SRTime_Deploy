@@ -47,6 +47,8 @@ htmlcov/
 .env
 .env.*
 !.env.example
+# Visibilidad de pestañas local; sólo se versiona config/ui.ini.example.
+config/ui.ini
 
 # ── Logs ──────────────────────────────────────────────────────
 *.log

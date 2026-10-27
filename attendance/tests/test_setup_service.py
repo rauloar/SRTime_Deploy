@@ -22,9 +22,22 @@ def blank_postgres_profile(monkeypatch):
 
 
 def test_sqlite_without_admin_requires_setup(sqlite_profile, test_db):
-    assert setup_service.setup_status(test_db) == {
-        "setup_required": True, "configured": True, "database_engine": "sqlite",
-    }
+    status = setup_service.setup_status(test_db)
+    assert (status["setup_required"], status["configured"], status["database_engine"]) == (True, True, "sqlite")
+
+
+def test_suggested_connection_follows_local_profile(blank_postgres_profile, monkeypatch):
+    # The installer writes the detected PostgreSQL port; both wizards must propose it.
+    monkeypatch.setenv("DB_PORT", "5433")
+    suggested = setup_service.suggested_connection()
+    assert suggested == {"db_host": "127.0.0.1", "db_port": 5433, "db_user": "postgres", "db_name": "srtime_db"}
+    assert "db_password" not in setup_service.setup_status(None)["suggested_connection"]
+
+
+def test_suggested_connection_ignores_placeholders(monkeypatch):
+    for name in ("DB_HOST", "DB_PORT", "DB_USER", "DB_NAME"):
+        monkeypatch.setenv(name, "__SET_ME__")
+    assert setup_service.suggested_connection() == setup_service.DEFAULT_CONNECTION
 
 
 def test_blank_postgres_profile_requires_database_step(blank_postgres_profile, test_db):

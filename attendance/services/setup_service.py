@@ -23,6 +23,10 @@ from models.user import AuthUser
 INITIAL_ADMIN_USERNAME = "admin"
 INITIAL_ADMIN_ROLE = "root"
 
+# Fallbacks for the proposed database step. The local profile (written by the
+# installer with the detected PostgreSQL port) always takes precedence.
+DEFAULT_CONNECTION = {"db_host": "localhost", "db_port": 5432, "db_user": "postgres", "db_name": "srtime_db"}
+
 
 class SetupError(Exception):
     """Setup failure with a user-facing message; ``conflict`` maps to HTTP 409."""
@@ -52,26 +56,35 @@ def is_database_configured() -> bool:
     )
 
 
+def _configured_value(name: str) -> str:
+    value = os.getenv(name, "").strip()
+    return "" if value.startswith("__") else value
+
+
+def suggested_connection() -> dict:
+    """Values proposed by both wizards; the password is never returned."""
+    port = _configured_value("DB_PORT")
+    return {
+        "db_host": _configured_value("DB_HOST") or DEFAULT_CONNECTION["db_host"],
+        "db_port": int(port) if port.isdigit() else DEFAULT_CONNECTION["db_port"],
+        "db_user": _configured_value("DB_USER") or DEFAULT_CONNECTION["db_user"],
+        "db_name": _configured_value("DB_NAME") or DEFAULT_CONNECTION["db_name"],
+    }
+
+
 def setup_status(session: Session | None) -> dict:
     """Return the same status contract used by ``GET /api/setup/status``."""
     engine_name = database_engine()
+    status = {"database_engine": engine_name, "suggested_connection": suggested_connection()}
     if not is_database_configured() or session is None:
-        return {"setup_required": True, "configured": False, "database_engine": engine_name}
+        return {"setup_required": True, "configured": False, **status}
     try:
-        return {
-            "setup_required": session.query(AuthUser).count() == 0,
-            "configured": True,
-            "database_engine": engine_name,
-        }
+        return {"setup_required": session.query(AuthUser).count() == 0, "configured": True, **status}
     except SQLAlchemyError:
         # A new SQLite file has no tables yet. Its schema is created by the
         # admin step, after the operator chooses the initial password.
         session.rollback()
-        return {
-            "setup_required": True,
-            "configured": engine_name == "sqlite",
-            "database_engine": engine_name,
-        }
+        return {"setup_required": True, "configured": engine_name == "sqlite", **status}
 
 
 def _maintenance_url(host: str, port: int, user: str, password: str) -> URL:

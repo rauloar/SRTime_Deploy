@@ -50,9 +50,11 @@ leerlo.
 ## 3. Primera configuración de SRTime_Web
 
 1. Abrir el acceso directo **SRTime_Web** o navegar a `http://127.0.0.1:8000`.
-2. Paso 1 — Base de datos: servidor `localhost`, puerto `5432` (o el que mostró
-   el instalador), usuario `postgres`, su contraseña y el nombre de la base
-   (`srtime_db` por defecto). SRTime_Web crea la base y su esquema.
+2. Paso 1 — Base de datos: el formulario viene precargado desde `config\.env`
+   con el servidor, el puerto detectado por el instalador, el usuario `postgres`
+   y el nombre de base propuesto (`srtime_db`). Completar la contraseña de
+   PostgreSQL y revisar el nombre: si ya existe una base con ese nombre,
+   SRTime_Web se conecta a ella. SRTime_Web crea la base y su esquema.
 3. Paso 2 — Administrador: definir la contraseña del usuario `admin`. La sesión
    se inicia automáticamente.
 4. Verificar el estado desde **Control Center**.

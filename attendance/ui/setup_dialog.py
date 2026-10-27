@@ -72,15 +72,17 @@ class SetupDialog(QDialog):
         self.database_form = QWidget()
         form = QFormLayout(self.database_form)
         form.setContentsMargins(0, 0, 0, 0)
-        self.db_host = QLineEdit("localhost")
+        # Valores propuestos desde el perfil local; la base sólo se crea si el
+        # operador confirma.
+        suggested = setup_service.suggested_connection()
+        self.db_host = QLineEdit(suggested["db_host"])
         self.db_port = QSpinBox()
         self.db_port.setRange(1, 65535)
-        self.db_port.setValue(5432)
-        self.db_user = QLineEdit("postgres")
+        self.db_port.setValue(suggested["db_port"])
+        self.db_user = QLineEdit(suggested["db_user"])
         self.db_password = QLineEdit()
         self.db_password.setEchoMode(QLineEdit.EchoMode.Password)
-        # Nombre propuesto; la base sólo se crea si el operador confirma.
-        self.db_name = QLineEdit("srtime_db")
+        self.db_name = QLineEdit(suggested["db_name"])
         form.addRow("Servidor PostgreSQL:", self.db_host)
         form.addRow("Puerto:", self.db_port)
         form.addRow("Usuario PostgreSQL:", self.db_user)
