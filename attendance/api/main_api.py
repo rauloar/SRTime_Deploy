@@ -21,7 +21,7 @@ from core.limiter import limiter
 setup_logging()
 logger = get_logger("api")
 
-from api.routers import absences, analytics, auth, users, employee_groups, shifts, processed, movements, auth_users, importer, terminals, holidays, dashboard, reports, setup, control
+from api.routers import absences, analytics, auth, users, employee_groups, shifts, processed, movements, auth_users, importer, terminals, holidays, dashboard, reports, setup, control, ui_settings
 
 
 @asynccontextmanager
@@ -36,7 +36,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="Attendance System API",
     description="SRTime REST API — Attendance Management",
-    version="0.9.0-beta.8",
+    version="0.9.0-beta.9",
     lifespan=lifespan,
 )
 
@@ -117,7 +117,8 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
-    expose_headers=["X-Request-ID"],
+    # Content-Disposition: la Web toma el nombre de archivo que define el servidor.
+    expose_headers=["X-Request-ID", "Content-Disposition"],
 )
 
 
@@ -139,6 +140,7 @@ app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"]
 app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
 app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])
 app.include_router(control.router, prefix="/api/control", tags=["Control Center"])
+app.include_router(ui_settings.router, prefix="/api/ui", tags=["UI Settings"])
 
 
 @app.get("/api/health")

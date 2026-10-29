@@ -14,14 +14,20 @@ import MovementsTab from "./components/MovementsTab"
 import AuthUsersTab from "./components/AuthUsersTab"
 import TerminalsTab from "./components/TerminalsTab"
 import ControlCenterTab from "./components/ControlCenterTab"
-import { Users, Clock, ArrowLeftRight, CheckSquare, Sun, Moon, LogOut, ShieldCheck, FileUp, MonitorSmartphone, UserX, Settings, LayoutDashboard } from "lucide-react"
+import HolidaysTab from "./components/HolidaysTab"
+import ReportsTab from "./components/ReportsTab"
+import { Users, Clock, ArrowLeftRight, CheckSquare, Sun, Moon, LogOut, ShieldCheck, FileUp, MonitorSmartphone, UserX, Settings, LayoutDashboard, CalendarDays, FileBarChart } from "lucide-react"
 
+// uiKey: clave de la pestaña en ui.ini (la misma que usa SRTime_Win). La API
+// decide cuáles se ocultan; las pestañas sin uiKey no se pueden ocultar.
 const CORE_TABS = [
-  { id: "users",     label: "Empleados",            Icon: Users },
-  { id: "shifts",    label: "Turnos Horarios",      Icon: Clock },
-  { id: "movements", label: "Movimientos",          Icon: ArrowLeftRight },
-  { id: "processed", label: "Movimientos Procesados", Icon: CheckSquare },
-  { id: "absences",  label: "Ausencias",             Icon: UserX },
+  { id: "users",     label: "Empleados",            Icon: Users,          uiKey: "empleados" },
+  { id: "shifts",    label: "Turnos Horarios",      Icon: Clock,          uiKey: "turnos_horarios" },
+  { id: "movements", label: "Movimientos",          Icon: ArrowLeftRight, uiKey: "movimientos" },
+  { id: "processed", label: "Movimientos Procesados", Icon: CheckSquare,  uiKey: "movimientos_procesados" },
+  { id: "absences",  label: "Ausencias",             Icon: UserX,         uiKey: "ausencias" },
+  { id: "holidays",  label: "Feriados",              Icon: CalendarDays,  uiKey: "feriados" },
+  { id: "reports",   label: "Reportes",              Icon: FileBarChart,  uiKey: "reportes" },
 ]
 
 interface AddonUiFeatures {
@@ -47,6 +53,8 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState("dashboard")
   const [addonUi, setAddonUi] = useState<AddonUiFeatures>({})
   const [addonUiLoaded, setAddonUiLoaded] = useState(false)
+  const [hiddenTabs, setHiddenTabs] = useState<string[]>([])
+  const [uiSettingsLoaded, setUiSettingsLoaded] = useState(false)
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [passwordError, setPasswordError] = useState("")
@@ -56,12 +64,12 @@ export default function Home() {
 
   const hasImport = addonUi.file_import || addonUi.network_import
   const tabs = useMemo(() => [
-      { id: "dashboard", label: "Dashboard", Icon: LayoutDashboard },
-      ...(hasImport ? [{ id: "import", label: "Importar", Icon: FileUp }] : []),
-      ...(addonUi.terminal_management ? [{ id: "terminals", label: "Terminales y Biométricos", Icon: MonitorSmartphone }] : []),
+      { id: "dashboard", label: "Dashboard", Icon: LayoutDashboard, uiKey: "dashboard" },
+      ...(hasImport ? [{ id: "import", label: "Importar", Icon: FileUp, uiKey: "importar" }] : []),
+      ...(addonUi.terminal_management ? [{ id: "terminals", label: "Terminales y Biométricos", Icon: MonitorSmartphone, uiKey: "terminales" }] : []),
       ...CORE_TABS,
-      ...(role === "root" ? [{ id: "auth_users", label: "Usuarios Autorizados", Icon: ShieldCheck }, { id: "control", label: "Control Center", Icon: Settings }] : []),
-    ], [addonUi.terminal_management, hasImport, role])
+      ...(role === "root" ? [{ id: "auth_users", label: "Usuarios Autorizados", Icon: ShieldCheck, uiKey: "usuarios_autorizados" }, { id: "control", label: "Control Center", Icon: Settings, uiKey: "" }] : []),
+    ].filter(tab => !hiddenTabs.includes(tab.uiKey)), [addonUi.terminal_management, hasImport, hiddenTabs, role])
 
   useEffect(() => {
     if (!token) {
@@ -86,11 +94,28 @@ export default function Home() {
   }, [api, token])
 
   useEffect(() => {
-    if (!addonUiLoaded) return
+    if (!token) {
+      setHiddenTabs([])
+      setUiSettingsLoaded(false)
+      return
+    }
+    let cancelled = false
+    // Si ui.ini no se puede leer, todo queda visible (mismo criterio que Desktop).
+    api.get("/api/ui/settings")
+      .then(({ data }) => { if (!cancelled) setHiddenTabs(Array.isArray(data.hidden_tabs) ? data.hidden_tabs : []) })
+      .catch(() => { if (!cancelled) setHiddenTabs([]) })
+      .finally(() => { if (!cancelled) setUiSettingsLoaded(true) })
+    return () => { cancelled = true }
+  }, [api, token])
+
+  useEffect(() => {
+    if (!addonUiLoaded || !uiSettingsLoaded) return
     if (!tabs.some(tab => tab.id === activeTab)) {
       setActiveTab(tabs[0]?.id || "users")
     }
-  }, [activeTab, addonUiLoaded, tabs])
+  }, [activeTab, addonUiLoaded, tabs, uiSettingsLoaded])
+
+  const visibleTabIds = new Set(tabs.map(tab => tab.id))
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -213,16 +238,22 @@ export default function Home() {
       {/* Tab Content */}
       <div className="main-area">
         <div className="content-wrapper">
-          {activeTab === "users"      && <UsersTab />}
-          {activeTab === "dashboard"  && <DashboardTab />}
-          {activeTab === "import"     && hasImport && <ImportTab fileImport={Boolean(addonUi.file_import)} networkImport={Boolean(addonUi.network_import)} />}
-          {activeTab === "terminals"  && addonUi.terminal_management && <TerminalsTab />}
-          {activeTab === "shifts"     && <ShiftsTab />}
-          {activeTab === "movements"  && <MovementsTab />}
-          {activeTab === "processed"  && <ProcessedTab />}
-          {activeTab === "absences"   && <AbsencesTab />}
-          {activeTab === "auth_users" && role === "root" && <AuthUsersTab />}
-          {activeTab === "control"    && role === "root" && <ControlCenterTab />}
+          {visibleTabIds.has(activeTab) && (
+            <>
+              {activeTab === "users"      && <UsersTab />}
+              {activeTab === "dashboard"  && <DashboardTab />}
+              {activeTab === "import"     && hasImport && <ImportTab fileImport={Boolean(addonUi.file_import)} networkImport={Boolean(addonUi.network_import)} />}
+              {activeTab === "terminals"  && addonUi.terminal_management && <TerminalsTab />}
+              {activeTab === "shifts"     && <ShiftsTab />}
+              {activeTab === "movements"  && <MovementsTab />}
+              {activeTab === "processed"  && <ProcessedTab />}
+              {activeTab === "absences"   && <AbsencesTab />}
+              {activeTab === "holidays"   && <HolidaysTab />}
+              {activeTab === "reports"    && <ReportsTab />}
+              {activeTab === "auth_users" && role === "root" && <AuthUsersTab />}
+              {activeTab === "control"    && role === "root" && <ControlCenterTab />}
+            </>
+          )}
         </div>
       </div>
     </div>

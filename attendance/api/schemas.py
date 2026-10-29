@@ -1,7 +1,8 @@
-from typing import Optional, List
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from typing import Annotated, Optional, List
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 from datetime import date, time
 
+from models.holiday import NAME_MAX_LENGTH as HOLIDAY_NAME_MAX_LENGTH
 from models.employee import SHIFT_ASSIGNMENT_MANUAL, SHIFT_ASSIGNMENT_SOURCES, TERMINAL_PRIVILEGES, TERMINAL_PRIVILEGE_USER
 
 # --- USERS ---
@@ -72,16 +73,21 @@ class ProcessedAttendanceResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 # --- HOLIDAYS ---
+HolidayName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=HOLIDAY_NAME_MAX_LENGTH)]
+# Alias: un campo llamado ``date`` sombrea al tipo dentro de la clase.
+HolidayDate = date
+
 class HolidayBase(BaseModel):
     date: date
     name: str
     is_recurring: bool = False
 
 class HolidayCreate(HolidayBase):
-    pass
+    name: HolidayName
 
 class HolidayUpdate(BaseModel):
-    name: Optional[str] = None
+    date: Optional[HolidayDate] = None
+    name: Optional[HolidayName] = None
     is_recurring: Optional[bool] = None
 
 class HolidayResponse(HolidayBase):

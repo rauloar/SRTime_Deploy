@@ -1,9 +1,10 @@
-"""Visibilidad de las pestañas del menú principal de SRTime_Win.
+"""Visibilidad de las pestañas del menú principal de SRTime_Win y de la Web.
 
 El archivo local ``ui.ini`` vive junto al ``.env`` activo (al lado de
-``SRTime_Win.exe`` instalado, o ``config/ui.ini`` en desarrollo). Sólo oculta
-pestañas en la interfaz: los widgets se siguen creando y ningún servicio,
-modelo ni endpoint cambia. El repositorio incluye ``config/ui.ini.example``.
+``SRTime_Win.exe`` instalado, en ``config/`` de SRTime_Web, o ``config/ui.ini``
+en desarrollo). Sólo oculta pestañas en la interfaz: los widgets se siguen
+creando y ningún servicio, modelo, permiso ni endpoint cambia. La Web lo recibe
+por ``GET /api/ui/settings``. El repositorio incluye ``config/ui.ini.example``.
 
 Cualquier ausencia o error deja la pestaña visible, para que una configuración
 dañada nunca haga desaparecer una función.

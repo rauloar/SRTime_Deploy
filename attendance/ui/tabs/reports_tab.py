@@ -8,17 +8,16 @@ from PySide6.QtCore import Qt
 from sqlalchemy.orm import Session
 from datetime import date
 
-from services.reports import aggregate_monthly, build_monthly_pdf, get_month_name
+from services.reports import (
+    MONTHLY_REPORT_COLUMNS, aggregate_monthly, build_monthly_pdf,
+    monthly_report_headers, monthly_report_rows, monthly_report_title,
+)
 from services.constants import MONTH_NAMES
 from services.export_helpers import build_excel_workbook
 
 _MONTHS = MONTH_NAMES[1:]
 
-_COLS = [
-    "Empleado", "Días con registro", "Días OK",
-    "Días incompleto", "Días justificado",
-    "Min. tardanza", "Min. horas extra", "Horas trabajadas"
-]
+_COLS = monthly_report_headers()
 
 
 class ReportsTab(QWidget):
@@ -104,14 +103,10 @@ class ReportsTab(QWidget):
         self.table.clearContents()
         self.table.setRowCount(len(self._records))
         for row, rec in enumerate(self._records):
-            self.table.setItem(row, 0, QTableWidgetItem(rec["name"]))
-            self.table.setItem(row, 1, QTableWidgetItem(str(rec["total"])))
-            self.table.setItem(row, 2, QTableWidgetItem(str(rec["ok"])))
-            self.table.setItem(row, 3, QTableWidgetItem(str(rec["incomplete"])))
-            self.table.setItem(row, 4, QTableWidgetItem(str(rec["justified"])))
-            self.table.setItem(row, 5, QTableWidgetItem(str(rec["tardiness_minutes"])))
-            self.table.setItem(row, 6, QTableWidgetItem(str(rec["overtime_minutes"])))
-            self.table.setItem(row, 7, QTableWidgetItem(f"{rec['total_hours']:.2f}"))
+            for col, (key, _label) in enumerate(MONTHLY_REPORT_COLUMNS):
+                value = rec[key]
+                text = f"{value:.2f}" if key == "total_hours" else str(value)
+                self.table.setItem(row, col, QTableWidgetItem(text))
 
         self.btn_export.setEnabled(bool(self._records))
         self.btn_export_pdf.setEnabled(bool(self._records))
@@ -129,14 +124,10 @@ class ReportsTab(QWidget):
 
         month = self.cb_month.currentText()
         year = self.sp_year.value()
-        data_rows = [
-            [r["name"], r["total"], r["ok"], r["incomplete"],
-             r["justified"], r["tardiness_minutes"],
-             r["overtime_minutes"], r["total_hours"]]
-            for r in self._records
-        ]
-        title = f"Reporte de Asistencia — {month} {year}"
-        wb = build_excel_workbook(f"Reporte {month} {year}", _COLS, data_rows, title=title)
+        wb = build_excel_workbook(
+            f"Reporte {month} {year}", _COLS, monthly_report_rows(self._records),
+            title=monthly_report_title(month, year),
+        )
         wb.save(path)
         QMessageBox.information(self, "Exportado", f"Reporte guardado en:\n{path}")
 

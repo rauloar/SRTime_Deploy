@@ -110,6 +110,19 @@ archivo de ejemplo. Los secretos de conexión se cifran al persistirse.
   SRTime ya posee nombre/apellido, los preserva hasta una sincronización
   explícita administrada.
 
+### Feriados, Reportes y pestañas visibles (beta.9)
+
+- Web incorpora **Feriados** y **Reportes**, presentes antes sólo en Desktop.
+  Feriados permite cambiar la fecha al editar (la API rechaza fechas
+  duplicadas) y respeta los roles de la API: alta/edición root, admin o
+  supervisor; baja sólo root.
+- Las columnas del reporte mensual salen de
+  `services/reports.MONTHLY_REPORT_COLUMNS`: Desktop, la exportación XLSX y la
+  Web (`columns` en `GET /api/reports/monthly`) usan la misma fuente.
+- `ui.ini` (junto al `.env` activo) oculta las mismas pestañas opcionales en
+  ambas interfaces; la Web lo lee con `GET /api/ui/settings`. Ocultar una
+  pestaña no cambia permisos ni endpoints.
+
 ## 4. Contrato ZKTeco compartido
 
 La dirección se toma de `att.punch`, no de `att.status`:

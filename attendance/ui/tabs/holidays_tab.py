@@ -76,7 +76,9 @@ class HolidaysTab(QWidget):
         else:
             de_date.setDate(QDate.currentDate())
 
+        from models.holiday import NAME_MAX_LENGTH
         le_name = QLineEdit(h.name if h else "")
+        le_name.setMaxLength(NAME_MAX_LENGTH)
         chk_recurring = QCheckBox()
         chk_recurring.setChecked(h.is_recurring if h else False)
 

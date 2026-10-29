@@ -48,12 +48,17 @@ def update_holiday(
     h = db.query(Holiday).filter_by(id=holiday_id).first()
     if not h:
         raise HTTPException(status_code=404, detail="Holiday not found")
+    if body.date is not None and body.date != h.date:
+        if db.query(Holiday).filter(Holiday.date == body.date, Holiday.id != holiday_id).first():
+            raise HTTPException(status_code=400, detail="A holiday already exists on that date")
+        h.date = body.date
     if body.name is not None:
         h.name = body.name
     if body.is_recurring is not None:
         h.is_recurring = body.is_recurring
     db.commit()
     db.refresh(h)
+    logger.info(f"Holiday updated: {h.date} — {h.name}", extra={"user": current_user.username})
     return h
 
 

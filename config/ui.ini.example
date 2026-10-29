@@ -1,7 +1,9 @@
-; SRTime_Win - pestañas del menú principal.
-; Copiar como ui.ini junto a SRTime_Win.exe (o en config\ en desarrollo).
-; true = visible, false = oculta. Ocultar una pestaña no elimina su función:
-; sólo deja de mostrarse en la interfaz. Los cambios se aplican al reiniciar.
+; SRTime - pestañas del menú principal (SRTime_Win y SRTime_Web).
+; Copiar como ui.ini junto al .env activo: al lado de SRTime_Win.exe, en la
+; carpeta config de SRTime_Web, o en config\ en desarrollo.
+; true = visible, false = oculta. Ocultar una pestaña no elimina su función
+; ni sus permisos: sólo deja de mostrarse en la interfaz.
+; Desktop aplica los cambios al reiniciar; la Web, al volver a cargar la página.
 ;
 ; Importar, Empleados, Turnos Horarios, Movimientos y Movimientos Procesados
 ; son fijas y no se pueden ocultar.

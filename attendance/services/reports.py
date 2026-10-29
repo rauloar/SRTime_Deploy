@@ -9,6 +9,34 @@ from models.processed_attendance import ProcessedAttendance
 from models.employee import User as EmployeeModel
 from services.constants import MONTH_NAMES
 
+# Columnas del reporte mensual: fuente única para Desktop, exportación XLSX y Web.
+MONTHLY_REPORT_COLUMNS = (
+    ("name", "Empleado"),
+    ("total", "Días con registro"),
+    ("ok", "Días OK"),
+    ("incomplete", "Días incompleto"),
+    ("justified", "Días justificado"),
+    ("tardiness_minutes", "Min. tardanza"),
+    ("overtime_minutes", "Min. horas extra"),
+    ("total_hours", "Horas trabajadas"),
+)
+
+
+def monthly_report_headers() -> List[str]:
+    return [label for _key, label in MONTHLY_REPORT_COLUMNS]
+
+
+def monthly_report_rows(records: List[dict]) -> List[list]:
+    return [[record[key] for key, _label in MONTHLY_REPORT_COLUMNS] for record in records]
+
+
+def monthly_report_title(month_label: str, year: int) -> str:
+    return f"Reporte de Asistencia — {month_label} {year}"
+
+
+def monthly_report_filename(month_label: str, year: int, extension: str) -> str:
+    return f"reporte_{month_label.lower()}_{year}.{extension}"
+
 
 def aggregate_monthly(
     db: Session,
@@ -121,7 +149,7 @@ def build_monthly_pdf(records: List[dict], month_label: str, year: int, destinat
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
     doc.build([
-        Paragraph(f"Reporte de Asistencia — {month_label} {year}", styles["Title"]),
+        Paragraph(monthly_report_title(month_label, year), styles["Title"]),
         Spacer(1, 0.4 * cm),
         table,
     ])
