@@ -66,7 +66,7 @@ un driver ausente al ejecutable.
 
 | Addon | Archivo USB | Red | Estado funcional |
 |---|---|---|---|
-| Sundial ERTeckno | `TM-MR001.txt` | TecknoComm | Activo |
+| Sundial ERTeckno | `TM-MR001.txt` (TecknoComm o PySundial) | Pendiente: driver directo vía Tibbo (`protocol.py`) | Activo (archivo) |
 | ZKTeco | `att.dat` | pyzk TCP, puerto configurable | Activo |
 
 La IP, el puerto y timeout de una terminal se guardan por terminal en

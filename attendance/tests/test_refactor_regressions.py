@@ -20,11 +20,23 @@ from tests.conftest import create_attendance_log
 def test_addon_both_resolves_parser_not_driver():
     from services.addons import get_addon_info, get_parser_instance
 
-    info = get_addon_info("Sundial ERTeckno")
-    parser = get_parser_instance("Sundial ERTeckno")
+    info = get_addon_info("ZKTeco")
+    parser = get_parser_instance("ZKTeco")
 
     assert isinstance(parser, AttendanceParser)
     assert info["driver_class"] is not info["parser_class"]
+
+
+def test_parser_only_addon_exposes_no_driver():
+    """Sundial es sólo parser hasta implementar su driver directo (protocol.py)."""
+    from services.addons import get_addon_info, get_parser_instance
+
+    info = get_addon_info("Sundial ERTeckno")
+
+    assert isinstance(get_parser_instance("Sundial ERTeckno"), AttendanceParser)
+    assert info["is_driver"] is False
+    assert "driver_class" not in info
+    assert info["connection_fields"] == []
 
 
 def test_terminal_manifests_do_not_embed_client_configuration():

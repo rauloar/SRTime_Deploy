@@ -67,7 +67,8 @@ def get_available_addons():
                 "module": addon_module,
                 "is_driver": manifest.get("type") in ("driver", "both"),
                 "is_parser": manifest.get("type") in ("parser", "both"),
-                "connection_fields": manifest.get("connection_fields"),
+                # Addons sólo-parser no declaran campos: lista vacía, nunca None.
+                "connection_fields": manifest.get("connection_fields") or [],
             }
 
             # Resolver clases

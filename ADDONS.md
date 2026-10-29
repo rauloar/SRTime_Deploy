@@ -30,7 +30,7 @@ RUTA A — Pull de red (driver de dispositivo)
 
 
 RUTA B — Importación de archivo
-  Archivo TXT (USB / TecknoComm / exportación manual)
+  Archivo TXT (USB / TecknoComm / PySundial / exportación manual)
         │
         ▼
   AttendanceParser.parse_line()           → yields tuplas Python
@@ -41,7 +41,7 @@ RUTA B — Importación de archivo
 
 Ambas rutas convergen en `_ingest_rows()` en `importer_service.py`,
 que aplica deduplicación y escribe a BD. **Ningún driver de red crea archivos intermedios**
-(salvo Sundial, que es una limitación de su tecnología propietaria).
+(el driver de Sundial, en preparación, también escribirá directo a BD).
 
 ### Tupla normalizada (contrato entre addons y núcleo)
 
@@ -198,42 +198,45 @@ sincronización explícita administrada.
 
 | Campo | Valor |
 |-------|-------|
-| **Tipo** | `both` (driver CLI + parser de archivo) |
-| **Estado** | ✅ Commiteado, producción |
-| **Driver class** | `SundialDriver` |
+| **Tipo** | `parser` (importación de archivo); driver de red pendiente |
+| **Estado** | ✅ Parser en producción · 🚧 driver en preparación |
 | **Parser class** | `SundialParser` |
-| **Protocolo** | `subprocess` → `TecknoComm.exe` (propietario Sundial, TCP 3000) |
+| **Protocolo de red** | `protocol.py`: TCP directo al módulo Tibbo del reloj (sin TecknoComm.exe) |
 
-**`connection_fields`:**
+**Archivos del addon:**
 
-| Campo | Label | Default |
-|-------|-------|---------|
-| `tecknocomm_exe` | Ruta a TecknoComm.exe | Configuración obligatoria |
-| `output_file` | Ruta a TM-MR001.Txt | Configuración obligatoria |
-| `db_password` | Contraseña BD | Secreto obligatorio, sin valor por defecto |
-| `db_user` | Usuario | `admin` |
-| `db_client` | Cliente | `admin` |
-| `terminals` | N° terminales (ej: 1,2,3) | `1` |
-| `timeout` | Timeout por terminal (seg) | `120` |
+| Archivo | Rol |
+|---|---|
+| `parser.py` | `SundialParser`: formato TM-MR001.Txt. Lo usa el importador como formato base. |
+| `protocol.py` | Protocolo del reloj (tramas, checksum, estado, hora, descarga, puntero). Sin dependencias externas. Tests: `tests/test_sundial_protocol.py`. |
+| `__manifest__.py` | Sólo parser; sin `driver_class` ni `connection_fields` hasta implementar el driver. |
 
-**Flujo de red (Pull via CLI):**
+**Driver anterior eliminado (2026-10-27):** `SundialDriver` ejecutaba `TecknoComm.exe` por
+`subprocess` y leía el `TM-MR001.Txt` resultante. Nunca estuvo en uso ni fue funcional y
+dependía de TecknoComm instalado. Se reemplaza por comunicación directa.
+
+**Protocolo (resumen, detalle en el docstring de `protocol.py`):**
 ```
-SundialDriver.connect()
-  → subprocess.run([TecknoComm.exe, "P:...;U:...;C:...;R:N;A:Registers"])
-  → TecknoComm.exe escribe TM-MR001.Txt en disco
-
-SundialDriver.get_attendance_logs()
-  → open(TM-MR001.Txt, encoding="latin-1")
-  → SundialParser.parse_line(line) por cada línea
-  → yield tupla normalizada
+PC → reloj : 'UUU' 7F 7F 01 <dir:3> 02 <cuerpo> 03 <ck>      ck = 0x33 XOR cuerpo
+Comandos   : ^0 conectar · I4 estado · I5 leer bloque · I3 confirmar lectura
+             I2DDMMYYYY puntero · H0DDMMYYHHMMSS fecha/hora · H2 sin horario de verano
+Transporte : TCP al módulo Tibbo (servidor transparente, puerto 3000) → RS-232 del reloj
 ```
+Verificado contra un reloj real de laboratorio (módulo Tibbo, dirección 001) y contra sesiones
+grabadas de TecknoComm. Herramienta standalone equivalente: PySundial (fuera del repo).
 
-**⚠️ Sundial SÍ necesita archivo intermedio.** No es un defecto de la implementación —
-es una limitación de la API que expone Sundial: solo existe via `TecknoComm.exe`.
+**Driver pendiente (al estilo `zkteco`):**
+- `driver.py` con `SundialDriver(BiometricDriver)` sobre `protocol.SundialClient`.
+- `connection_fields`: `ip`, `port` (3000), `address` (`001`), `timeout`.
+- `test_connection` → estado (hora del reloj, pendientes) · `sync_time` → `H0` ·
+  `get_attendance_log_count` → pendientes del estado · `get_attendance_logs` → `I5`… y
+  confirmar `I3` sólo tras ingesta exitosa · puntero como acción propia.
+- Manifest: `type: both`, `driver_class`, `ui_features` con `terminal_management` y
+  `network_import`. Sin archivo intermedio: las marcas van directo a `_ingest_rows()`.
+- Paridad Desktop (PySide6) + Web (FastAPI) y bump de versión de suite.
 
-**Flujo de archivo (manual):**
-Si el cliente tiene un `TM-MR001.Txt` generado externamente, se importa
-directamente con `SundialParser` sin ejecutar `TecknoComm.exe`.
+**Flujo de archivo (vigente):**
+Un `TM-MR001.Txt` generado por TecknoComm o por PySundial se importa con `SundialParser`.
 
 **Formato parseado (TM-MR001.Txt):**
 ```python
@@ -389,7 +392,7 @@ params = {"ip": terminal.ip, "port": str(terminal.port), "password": terminal.pa
 ```
 
 **Hikvision falla** con estos params porque le falta `username`.
-**Sundial falla** porque necesita `tecknocomm_exe`, `output_file`, etc.
+**Sundial fallaba** porque necesitaba `tecknocomm_exe`, `output_file`, etc. (driver eliminado 2026-10-27).
 
 ---
 
@@ -449,7 +452,7 @@ class DeviceTerminal(Base):
     connection_params = Column(JSON, nullable=True)
     # Almacena los valores de los connection_fields del manifest
     # Ej Hikvision: {"ip": "192.0.2.20", "port": "80", "username": "<usuario>", "password": "<secreto>"}
-    # Ej Sundial:   {"tecknocomm_exe": "C:\\...", "output_file": "C:\\...", "terminals": "1,2"}
+    # Ej Sundial:   {"ip": "192.0.2.30", "port": "3000", "address": "001"}  (driver pendiente)
     # Ej ZKTeco:    {"ip": "192.0.2.21", "port": "4370", "password": "<secreto-opcional>"}
 ```
 
@@ -585,3 +588,12 @@ else:
   ello la misma actualización de perfiles de terminal que FastAPI.
 - La ficha de Terminales permite consultar usuarios y sincronizar nombre y
   privilegio `USER`/`ADMIN` hacia ZKTeco, preservando `uid` y `user_id`.
+
+### Sesión 2026-10-27 — Sundial: protocolo propio y limpieza del driver TecknoComm
+
+- Decodificado el protocolo del reloj desde `WinSock.Log` de TecknoComm y verificado
+  contra reloj real vía Tibbo: `services/addons/sundial/protocol.py` + tests.
+- Eliminado `SundialDriver` (ejecutaba `TecknoComm.exe`; nunca usado ni funcional).
+  El addon queda como `parser` (TM-MR001.Txt) hasta implementar el driver directo.
+- `parser.py` (formato TM-MR001) sin cambios: sigue siendo el formato base del importador.
+- Pendiente: driver Sundial al estilo ZKTeco (ver §3.2), paridad Desktop/Web y bump.
