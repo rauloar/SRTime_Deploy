@@ -23,6 +23,7 @@ from models.holiday import Holiday
 from models.processed_attendance import ProcessedAttendance
 from models.shift import Shift
 from models.terminal import DeviceTerminal
+from services.terminals import with_enabled_driver
 
 
 STATUSES = ("OK", "INCOMPLETO", "AUSENTE", "PENDIENTE", "JUSTIFICADO", "FERIADO")
@@ -169,7 +170,7 @@ class AttendanceAnalytics:
         raw_logs = self._raw_logs(filters, employee_ids)
         groups = {group.id: group for group in self.db.query(EmployeeGroup).filter(EmployeeGroup.is_active.is_(True)).all()}
         shifts = {shift.id: shift for shift in self.db.query(Shift).all()}
-        terminals = self.db.query(DeviceTerminal).filter(DeviceTerminal.is_active.is_(True)).all()
+        terminals = with_enabled_driver(self.db.query(DeviceTerminal)).filter(DeviceTerminal.is_active.is_(True)).all()
         holidays = {
             item.date
             for item in self.db.query(Holiday).filter(
@@ -210,7 +211,7 @@ class AttendanceAnalytics:
             ],
             "terminals": [
                 {"id": terminal.id, "name": terminal.name}
-                for terminal in self.db.query(DeviceTerminal).filter(DeviceTerminal.is_active.is_(True)).order_by(DeviceTerminal.name).all()
+                for terminal in with_enabled_driver(self.db.query(DeviceTerminal)).filter(DeviceTerminal.is_active.is_(True)).order_by(DeviceTerminal.name).all()
             ],
             "employees": [
                 {

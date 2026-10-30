@@ -17,6 +17,7 @@ from services.terminals import (
     set_attendance_pointer as service_set_attendance_pointer,
     sync_time as service_sync_time,
     test_connection as service_test_connection,
+    with_enabled_driver,
     pull_logs as service_pull_logs,
     list_terminal_users as service_list_terminal_users,
     sync_terminal_user_names as service_sync_terminal_user_names,
@@ -123,7 +124,7 @@ def list_terminals(
     db: Session = Depends(get_db),
     current_user: AuthUser = Depends(get_current_user),
 ):
-    terminals = db.query(DeviceTerminal).order_by(DeviceTerminal.id).all()
+    terminals = with_enabled_driver(db.query(DeviceTerminal)).order_by(DeviceTerminal.id).all()
     return {
         "terminals": [
             {

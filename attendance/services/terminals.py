@@ -29,6 +29,26 @@ def get_addon_info(terminal: DeviceTerminal) -> dict[str, Any]:
     return info
 
 
+def enabled_driver_names() -> list[str]:
+    """Drivers de los addons habilitados en esta instalación (SRTIME_ENABLED_ADDONS)."""
+    import services.addons
+
+    return [
+        name for name, info in services.addons.get_available_addons().items()
+        if info.get("is_driver") and info.get("driver_class")
+    ]
+
+
+def with_enabled_driver(query):
+    """Limita una consulta de terminales a las que tienen su addon habilitado.
+
+    Las terminales de un addon deshabilitado siguen en la base y vuelven a
+    aparecer al habilitarlo; mientras tanto no se listan, no se programan ni
+    se ofrecen para descargar.
+    """
+    return query.filter(DeviceTerminal.driver_name.in_(enabled_driver_names()))
+
+
 def supports_capability(terminal: DeviceTerminal, capability: str) -> bool:
     """Consulta capacidades declaradas por el manifest, nunca por la UI."""
     manifest = get_addon_info(terminal).get("manifest") or {}

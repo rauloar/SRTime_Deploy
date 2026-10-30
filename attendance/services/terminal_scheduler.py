@@ -16,7 +16,7 @@ from core.logging_config import get_logger
 from core.timezone import local_now
 from models.terminal import DeviceTerminal
 from services.setup_service import is_database_configured
-from services.terminals import pull_logs
+from services.terminals import pull_logs, with_enabled_driver
 
 logger = get_logger(__name__)
 _stop_event = Event()
@@ -73,7 +73,7 @@ def run_due_pulls() -> int:
     try:
         now = local_now().replace(tzinfo=None)
         due = (
-            db.query(DeviceTerminal)
+            with_enabled_driver(db.query(DeviceTerminal))
             .filter(
                 DeviceTerminal.is_active.is_(True),
                 DeviceTerminal.pull_schedule_enabled.is_(True),

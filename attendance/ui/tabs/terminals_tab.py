@@ -164,7 +164,8 @@ class TerminalsTab(QWidget):
     def load_data(self):
         self.table.setRowCount(0)
         from sqlalchemy import asc
-        terminals = self.session.query(DeviceTerminal).order_by(asc(DeviceTerminal.id)).all()
+        from services.terminals import with_enabled_driver
+        terminals = with_enabled_driver(self.session.query(DeviceTerminal)).order_by(asc(DeviceTerminal.id)).all()
         
         for row, t in enumerate(terminals):
             self.table.insertRow(row)

@@ -170,7 +170,8 @@ class ImportTab(QWidget):
     def update_terminal_selector(self):
         self.terminal_selector.clear()
         from models.terminal import DeviceTerminal
-        for terminal in self.session.query(DeviceTerminal).filter_by(is_active=True).all():
+        from services.terminals import with_enabled_driver
+        for terminal in with_enabled_driver(self.session.query(DeviceTerminal)).filter_by(is_active=True).all():
             self.terminal_selector.addItem(f"{terminal.name} ({terminal.ip})", terminal.id)
 
     def _selected_terminal(self):
