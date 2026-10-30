@@ -4,6 +4,11 @@ manifest = {
     "type": "driver",
     "description": "Conexión directa con terminales Hikvision por red usando la API REST ISAPI (Pull on-demand).",
     "driver_class": "HikvisionDriver",
+    "ui_features": {
+        "file_import": False,
+        "terminal_management": True,
+        "network_import": True,
+    },
     # Lo que informa test_connection, en el orden en que se muestra al conectar.
     "connection_details": [
         {"name": "name", "label": "Dispositivo"},

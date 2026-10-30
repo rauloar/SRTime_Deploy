@@ -63,6 +63,12 @@ class ImportTab(QWidget):
         layout.addWidget(self.tabs)
         self._build_file_tab(self.style())
         self._build_device_tab()
+        # Igual que la Web: cada origen aparece sólo si un addon habilitado lo usa.
+        features = services.addons.enabled_ui_features()
+        self.tabs.setTabVisible(0, features["file_import"])
+        self.tabs.setTabVisible(1, features["network_import"])
+        if not features["file_import"] and features["network_import"]:
+            self.tabs.setCurrentIndex(1)
 
         self.status_label = QLabel("Logs: 0 | Nuevos: 0 | Duplicados: 0")
         layout.addWidget(self.status_label)

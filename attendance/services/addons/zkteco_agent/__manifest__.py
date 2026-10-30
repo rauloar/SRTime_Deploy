@@ -3,6 +3,11 @@ manifest = {
     "type": "driver",
     "description": "Conecta SRTime con un agente ZKTeco de una sede remota mediante HTTPS. El agente conserva la conexión pyzk dentro de la red local.",
     "driver_class": "ZKTecoAgentDriver",
+    "ui_features": {
+        "file_import": False,
+        "terminal_management": True,
+        "network_import": True,
+    },
     # Lo que informa test_connection, en el orden en que se muestra al conectar.
     "connection_details": [
         {"name": "name", "label": "Dispositivo"},

@@ -11,7 +11,18 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 from models.terminal import DeviceTerminal  # noqa: E402
 
 
-def test_terminal_card_follows_driver_capabilities(test_db):
+@pytest.fixture
+def sundial_and_zkteco(monkeypatch):
+    """Perfil propio: no depender de SRTIME_ENABLED_ADDONS del config\\.env local."""
+    import services.addons
+
+    monkeypatch.setenv("SRTIME_ENABLED_ADDONS", "sundial,zkteco")
+    services.addons.clear_addon_cache()
+    yield
+    services.addons.clear_addon_cache()
+
+
+def test_terminal_card_follows_driver_capabilities(test_db, sundial_and_zkteco):
     QApplication.instance() or QApplication([])
     from ui.tabs.terminals_tab import TerminalsTab
 
@@ -33,3 +44,23 @@ def test_terminal_card_follows_driver_capabilities(test_db):
     assert tab.btn_list_users.isHidden()
     assert tab.btn_sync_profiles.isHidden()
     assert not tab.btn_pointer.isHidden()
+
+
+def test_desktop_hides_terminal_sections_without_terminal_addons(test_db, monkeypatch):
+    """Paridad con la Web: sin driver habilitado no hay pestaña Terminales ni descarga por red."""
+    QApplication.instance() or QApplication([])
+    import services.addons
+    from core.database import Base
+    from ui.main_window import MainWindow
+
+    monkeypatch.setattr(services.addons, "enabled_ui_features", lambda: {
+        "file_import": True, "network_import": False, "terminal_management": False,
+    })
+    Base.metadata.create_all(test_db.get_bind())
+    window = MainWindow({"id": 1, "username": "admin", "role": "root"})
+    titles = [window.tabs.tabText(i) for i in range(window.tabs.count())]
+
+    assert window.tabs.isTabVisible(titles.index("Terminales")) is False
+    import_tab = window.tabs.widget(titles.index("Importar"))
+    assert import_tab.tabs.isTabVisible(0) is True
+    assert import_tab.tabs.isTabVisible(1) is False

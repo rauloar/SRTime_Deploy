@@ -5,6 +5,10 @@ import secrets
 # La aplicación exige SECRET_KEY aun al importar routers. Los tests no dependen
 # de un .env local: generan una clave efímera por proceso antes de esos imports.
 os.environ.setdefault("SECRET_KEY", secrets.token_hex(32))
+# La suite prueba todos los addons del producto, sea cual sea el perfil del
+# config\.env local (load_dotenv no pisa variables ya definidas). Los tests de
+# un perfil puntual lo fijan con monkeypatch.
+os.environ["SRTIME_ENABLED_ADDONS"] = ""
 
 import pytest
 from datetime import datetime, time, date, timedelta

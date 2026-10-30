@@ -117,6 +117,24 @@ def get_available_parsers():
     return result
 
 
+UI_FEATURE_FLAGS = ("file_import", "network_import", "terminal_management")
+
+
+def enabled_ui_features() -> dict:
+    """Qué secciones de la interfaz tienen al menos un addon habilitado que las use.
+
+    Misma regla que aplica la Web sobre ``/api/import/parsers``: sin un driver
+    con ``terminal_management`` no hay pestaña Terminales, sin ``network_import``
+    no hay descarga desde terminal y sin ``file_import`` no hay importar archivo.
+    """
+    features = dict.fromkeys(UI_FEATURE_FLAGS, False)
+    for info in get_available_addons().values():
+        declared = info["manifest"].get("ui_features") or {}
+        for flag in UI_FEATURE_FLAGS:
+            features[flag] = features[flag] or bool(declared.get(flag))
+    return features
+
+
 def get_addon_info(display_name: str):
     """Retorna info de un addon específico por nombre."""
     return get_available_addons().get(display_name)

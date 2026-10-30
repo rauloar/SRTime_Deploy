@@ -11,6 +11,7 @@ from ui.tabs.holidays_tab import HolidaysTab
 from ui.tabs.reports_tab import ReportsTab
 from core.database import SessionLocal
 from core.ui_settings import load_hidden_tabs
+import services.addons
 from PySide6.QtGui import QIcon
 from PySide6.QtCore import QTimer
 
@@ -93,7 +94,11 @@ AAABAAEAICAAAAAAIADaCQAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAgAAAAIAgGAAAAc3p69AAACaFJ
 
         # ui.ini sólo oculta la pestaña: el widget, sus señales y sus índices
         # siguen existiendo, por lo que ninguna función cambia.
-        hidden_tabs = load_hidden_tabs()
+        hidden_tabs = set(load_hidden_tabs())
+        # Igual que la Web: sin un addon habilitado que gestione terminales, la
+        # pestaña no tiene nada que mostrar (perfil sólo importación de archivos).
+        if not services.addons.enabled_ui_features()["terminal_management"]:
+            hidden_tabs.add("terminales")
         for index, (key, _widget, _title) in enumerate(tab_specs):
             if key in hidden_tabs:
                 tabs.setTabVisible(index, False)
