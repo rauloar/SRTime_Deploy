@@ -314,6 +314,7 @@ def test_api_shows_driver_diagnosis_and_hides_other_failures(monkeypatch):
     from api.deps import get_db
     from api.main_api import app
     from core.database import Base
+    from core.limiter import limiter
     from core.security import hash_password
     from models.user import AuthUser
     from services.addons.base_driver import TerminalCheckError
@@ -345,6 +346,8 @@ def test_api_shows_driver_diagnosis_and_hides_other_failures(monkeypatch):
 
     monkeypatch.setattr(terminal_router, "service_test_connection", failing_test)
     app.dependency_overrides[get_db] = override_db
+    # El límite de logins es global al proceso: no consumir el cupo de otros tests.
+    limiter.reset()
     try:
         with TestClient(app) as client:
             assert client.post("/api/auth/token", data={"username": "supervisor_sd", "password": "SupervisorPassword!2026"}).status_code == 200
@@ -352,6 +355,7 @@ def test_api_shows_driver_diagnosis_and_hides_other_failures(monkeypatch):
             generic = client.post(f"/api/terminals/{terminal.id}/test")
     finally:
         app.dependency_overrides.clear()
+        limiter.reset()
 
     assert diagnosed.status_code == 400
     assert diagnosed.json()["detail"].startswith("Chequear terminal:")
