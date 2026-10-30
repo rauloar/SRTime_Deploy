@@ -15,6 +15,7 @@ from core.database import SessionLocal
 from core.logging_config import get_logger
 from core.timezone import local_now
 from models.terminal import DeviceTerminal
+from services.setup_service import is_database_configured
 from services.terminals import pull_logs
 
 logger = get_logger(__name__)
@@ -60,6 +61,11 @@ def _inside_window(terminal: DeviceTerminal, now: datetime) -> bool:
 
 def run_due_pulls() -> int:
     """Ejecuta como máximo una descarga por terminal vencida y devuelve cantidad."""
+    # Antes del asistente de primer uso no hay base: no hay terminales que
+    # revisar y conectar sólo llenaría el log de errores. El wizard actualiza el
+    # entorno del proceso, así que el scheduler arranca solo al terminarlo.
+    if not is_database_configured():
+        return 0
     if not _run_lock.acquire(blocking=False):
         return 0
     db = SessionLocal()

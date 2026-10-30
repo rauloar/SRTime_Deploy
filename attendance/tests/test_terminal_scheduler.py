@@ -59,3 +59,18 @@ def test_remote_agent_token_is_never_exposed_in_public_terminal_data():
         "agent_url": "https://agent.example.test",
         "remote_terminal_id": "north-1",
     }
+
+
+def test_scheduler_waits_for_first_use_setup(monkeypatch):
+    """Sin base configurada (antes del wizard) no abre sesión ni registra errores."""
+    import services.terminal_scheduler as scheduler
+
+    monkeypatch.setenv("DB_ENGINE", "postgres")
+    monkeypatch.setenv("DB_PASS", "")
+
+    def no_session():
+        raise AssertionError("no debe abrir la base antes del primer uso")
+
+    monkeypatch.setattr(scheduler, "SessionLocal", no_session)
+
+    assert scheduler.run_due_pulls() == 0
