@@ -22,6 +22,7 @@ from services.terminals import (
     list_terminal_users as service_list_terminal_users,
     sync_terminal_user_names as service_sync_terminal_user_names,
 )
+from services.addons.base_driver import TerminalCheckError
 from services.terminal_scheduler import schedule_next_pull
 from core.database import SessionLocal
 from core.operation_status import operation_status
@@ -256,7 +257,10 @@ def test_terminal(
                 "port": terminal.port,
             },
         )
-        raise HTTPException(status_code=400, detail="No hay conectividad con la terminal") from exc
+        # Un diagnóstico del driver (TerminalCheckError) llega tal cual al operador;
+        # cualquier otro fallo se informa genérico y el detalle queda en el log.
+        detail = str(exc) if isinstance(exc, TerminalCheckError) else "No hay conectividad con la terminal"
+        raise HTTPException(status_code=400, detail=detail) from exc
 
 
 @router.post("/{terminal_id}/sync")

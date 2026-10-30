@@ -1,6 +1,15 @@
 from typing import Optional, Tuple, Iterator
 from datetime import date, time
 
+class TerminalCheckError(ConnectionError):
+    """Falla diagnosticada por el driver, con un mensaje pensado para el operador.
+
+    La API y el Desktop lo muestran tal cual (por ejemplo "Chequear terminal: ...").
+    Cualquier otra excepción se muestra como falta de conectividad genérica y el
+    detalle técnico queda sólo en el log.
+    """
+
+
 class BiometricDriver:
     """
     Clase base para Addons que se comunican directamente con dispositivos biométricos a través de la red (no archivos).

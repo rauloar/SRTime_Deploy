@@ -1,7 +1,7 @@
 from datetime import date, time
 from typing import Iterator, Tuple
 
-from services.addons.base_driver import BiometricDriver
+from services.addons.base_driver import BiometricDriver, TerminalCheckError
 from services.addons.sundial.protocol import SundialClient
 
 
@@ -47,6 +47,7 @@ class SundialDriver(BiometricDriver):
             timeout = int(params.get("timeout") or DEFAULT_CONNECTION_TIMEOUT)
             retries = max(1, int(params.get("retries") or DEFAULT_CONNECTION_RETRIES))
             last_error = None
+            tibbo_answered = False
             for _attempt in range(retries):
                 try:
                     self.client = SundialClient(ip, port, address, timeout=timeout)
@@ -54,8 +55,19 @@ class SundialDriver(BiometricDriver):
                     return
                 except Exception as exc:
                     last_error = exc
+                    # Con el socket abierto, la red y el módulo Tibbo funcionan:
+                    # lo que no contesta es el reloj (apagado, cable serie,
+                    # número de terminal o configuración del puerto serie).
+                    tibbo_answered = tibbo_answered or bool(self.client and self.client.sock)
                     self.disconnect()
+            if tibbo_answered:
+                raise TerminalCheckError(
+                    f"Chequear terminal: el módulo Tibbo de {ip}:{port} responde, "
+                    f"pero el reloj (terminal {address}) no contesta."
+                ) from last_error
             raise last_error or RuntimeError("El reloj no respondió")
+        except TerminalCheckError:
+            raise
         except Exception as e:
             raise ConnectionError(
                 f"Error al conectar con Sundial en {ip}:{port} "

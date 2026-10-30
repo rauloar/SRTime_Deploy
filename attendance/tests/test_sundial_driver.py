@@ -252,3 +252,108 @@ def test_attendance_pointer_requires_driver_capability(test_db):
 def test_protocol_errors_are_runtime_errors():
     """El router convierte RuntimeError en 400; un fallo del reloj no debe ser 500."""
     assert issubclass(protocol.SundialError, RuntimeError)
+
+
+class _SilentClock:
+    """Módulo Tibbo que acepta la conexión TCP pero el reloj detrás no contesta."""
+
+    def __init__(self):
+        self.server = socket.socket()
+        self.server.bind(("127.0.0.1", 0))
+        self.server.listen()
+        self.port = self.server.getsockname()[1]
+        self.conns = []
+        threading.Thread(target=self._accept, daemon=True).start()
+
+    def _accept(self):
+        while True:
+            try:
+                conn, _ = self.server.accept()
+            except OSError:
+                return
+            self.conns.append(conn)  # abierta y muda
+
+    def close(self):
+        for conn in self.conns:
+            conn.close()
+        self.server.close()
+
+
+def test_tibbo_answers_but_clock_silent_says_check_terminal():
+    from services.addons.base_driver import TerminalCheckError
+
+    silent = _SilentClock()
+    try:
+        with pytest.raises(TerminalCheckError, match="^Chequear terminal: el módulo Tibbo de 127.0.0.1:") as info:
+            SundialDriver().connect({"ip": "127.0.0.1", "port": silent.port, "address": "7", "timeout": 1, "retries": 1})
+    finally:
+        silent.close()
+    assert "terminal 007" in str(info.value)
+
+
+def test_unreachable_tibbo_is_a_plain_connection_error():
+    from services.addons.base_driver import TerminalCheckError
+
+    closed = socket.socket()
+    closed.bind(("127.0.0.1", 0))
+    port = closed.getsockname()[1]
+    closed.close()  # puerto sin nadie escuchando
+
+    with pytest.raises(ConnectionError) as info:
+        SundialDriver().connect({"ip": "127.0.0.1", "port": port, "timeout": 1, "retries": 1})
+    assert not isinstance(info.value, TerminalCheckError)
+
+
+def test_api_shows_driver_diagnosis_and_hides_other_failures(monkeypatch):
+    from fastapi.testclient import TestClient
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    import api.routers.terminals as terminal_router
+    from api.deps import get_db
+    from api.main_api import app
+    from core.database import Base
+    from core.security import hash_password
+    from models.user import AuthUser
+    from services.addons.base_driver import TerminalCheckError
+
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    session_factory = sessionmaker(bind=engine)
+    Base.metadata.create_all(engine)
+    db = session_factory()
+    terminal = DeviceTerminal(name="Sundial", driver_name="Sundial ERTeckno", ip="192.0.2.110", port=3000,
+                              connection_params={"ip": "192.0.2.110", "port": "3000", "address": "1"})
+    db.add_all([terminal, AuthUser(username="supervisor_sd", password_hash=hash_password("SupervisorPassword!2026"),
+                                   role="supervisor", is_active=True, token_version=0)])
+    db.commit()
+
+    def override_db():
+        session = session_factory()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    failures = iter([
+        TerminalCheckError("Chequear terminal: el módulo Tibbo de 192.0.2.110:3000 responde, pero el reloj (terminal 001) no contesta."),
+        ConnectionError("Error al conectar con Sundial en 192.0.2.110:3000 - timed out"),
+    ])
+
+    def failing_test(_terminal):
+        raise next(failures)
+
+    monkeypatch.setattr(terminal_router, "service_test_connection", failing_test)
+    app.dependency_overrides[get_db] = override_db
+    try:
+        with TestClient(app) as client:
+            assert client.post("/api/auth/token", data={"username": "supervisor_sd", "password": "SupervisorPassword!2026"}).status_code == 200
+            diagnosed = client.post(f"/api/terminals/{terminal.id}/test")
+            generic = client.post(f"/api/terminals/{terminal.id}/test")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert diagnosed.status_code == 400
+    assert diagnosed.json()["detail"].startswith("Chequear terminal:")
+    assert generic.status_code == 400
+    assert generic.json()["detail"] == "No hay conectividad con la terminal"

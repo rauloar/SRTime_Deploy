@@ -234,6 +234,9 @@ grabadas de TecknoComm. Herramienta standalone equivalente: PySundial (fuera del
 **Driver de red (`driver.py`):**
 - `connection_fields`: `ip`, `port` (3000), `address` (número de terminal 1–999), `timeout`.
 - `test_connection` → `I4`: número de terminal, hora del reloj, desvío y pendientes. No lee marcas.
+- Si el TCP al módulo Tibbo conecta pero el reloj no contesta, lanza `TerminalCheckError`
+  ("Chequear terminal: …"): la red y el Tibbo están bien; revisar reloj, cable serie, número de
+  terminal o configuración serie. Sin TCP es un `ConnectionError` común (red o Tibbo).
 - `sync_time` → `H0` con la hora local de SRTime (`TIMEZONE`).
 - `get_attendance_log_count` → pendientes del estado. Con 0 pendientes no se envía `I5`
   (el reloj no contesta, igual que en TecknoComm).
