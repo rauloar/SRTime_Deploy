@@ -113,12 +113,12 @@ antigua que se quiera soportar, o debe existir un build por familia.
 
 - Probar el tarball en otra instalación Debian limpia.
 - Instalar PostgreSQL sin crear `srtime_db` manualmente.
-- Instalar y activar `srtime-api.service`.
+- Ejecutar `install.sh` del tarball (asistente en pantallas; `--unattended` para automatizar): deja activo `srtime-web.service`.
 - Completar el wizard y comprobar creación de base, esquema y admin.
 
 ### Fase D3 — QA
 
-- `systemctl status srtime-api`.
+- `systemctl status srtime-web`.
 - `curl /api/health`.
 - login y logout;
 - dashboard y movimientos;
