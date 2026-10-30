@@ -1,64 +1,41 @@
-# SRTime: arranque local de pseudo-producción
+# SRTime: servidor DEV desde el código
 
-El entorno de pseudo-producción usa PostgreSQL y **no** toca `attendance/.env` ni la base de
-trabajo. La configuración local está en `attendance/.env.pseudo_pro`, que Git ignora.
-La plantilla versionada es `attendance/.env.pseudo_pro.example`.
+Para probar cambios de código se levanta la API FastAPI directamente desde el
+repositorio, con el frontend estático ya exportado. Hay **un solo** script de
+inicio: `deploy\web\start-branch-dev-server.ps1`. Los artefactos compilados
+(Nuitka, PyInstaller) se prueban recién con sus instaladores, después de la QA
+en DEV.
 
-## Credenciales y responsabilidad
+## Requisitos
 
-SRTime no crea ni conoce una contraseña administrativa de PostgreSQL antes del
-primer inicio. Esa cuenta pertenece a la instalación de PostgreSQL, no al
-proyecto. En esta máquina el servidor esperado es `localhost:5432`; el nombre
-habitual de la cuenta administrativa es `postgres`, pero su contraseña debe
-conocerse o restablecerse desde PostgreSQL/pgAdmin.
+| Elemento | Ubicación | Notas |
+| --- | --- | --- |
+| Entorno Python | `.venv-test` en la raíz del proyecto | Único venv para tests, servidor DEV y builds. No usar `.venv` ni Python global. |
+| Configuración | `config\.env` | Ignorado por Git. Plantilla: `config\.env.example`. Incluye la base PostgreSQL de prueba y `SRTIME_ENABLED_ADDONS`. |
+| Frontend | `attendance\web\out` | Export estático de Next.js (`next build`). Rearmarlo después de cambiar el frontend. |
+| PostgreSQL | El indicado en `config\.env` | Nunca se agregan contraseñas reales a la plantilla, la documentación ni Git. |
 
-| Cuenta | Uso | Dónde queda la contraseña |
-|---|---|---|
-| Administrador PostgreSQL (por ejemplo `postgres`) | Conexión inicial y creación de la base | Instalación de PostgreSQL; SRTime no la documenta ni la genera. |
-| Usuario PostgreSQL configurado (por defecto, `postgres`) | Conexión cotidiana de SRTime a su base de pseudo-producción | `attendance/.env.pseudo_pro`, archivo local ignorado por Git. |
-| `admin` de SRTime | Inicio de sesión en la aplicación | Hash en la tabla `auth_user`; no se guarda como texto plano. |
+Los addons habilitados (por ejemplo `sundial`, `zkteco`) se declaran en
+`SRTIME_ENABLED_ADDONS` de `config\.env`; el servidor los lee al arrancar.
 
-Nunca se agregan contraseñas reales a `.env.pseudo_pro.example`, documentación ni Git.
-
-## Primer inicio
-
-1. Verificar que PostgreSQL y Node.js LTS estén instalados.
-2. Ejecutar `deploy\web\install-pseudo-pro.ps1`. Este paso crea `.venv`, instala
-   dependencias Python y Node, genera el frontend estático y luego inicia SRTime.
-   Se realiza una vez por instalación o cuando se decide reconstruir dependencias.
-
-   También puede ejecutarse la preparación sola:
-
-   ```powershell
-.\deploy\web\install-pseudo-pro.ps1
-   ```
-
-3. Abrir `http://127.0.0.1:8000/`. El primer paso usa los valores por defecto
-   `localhost`, `5432`, usuario `postgres` y base `srtime_db`. Ingresar la
-   contraseña existente de PostgreSQL y presionar **Crear base de datos**.
-4. Una vez creada la conexión, se habilita la contraseña del primer usuario
-   `admin` de SRTime. La conexión PostgreSQL indicada queda guardada sólo en
-   `.env.pseudo_pro`.
-
-Al finalizar, el asistente redirige al inicio de sesión; ingresar con la cuenta
-`admin` recién creada.
-
-## Reinicios posteriores
-
-Para iniciar SRTime sin instalar paquetes, crear el entorno virtual ni compilar
-la web, ejecutar:
+## Iniciar y detener
 
 ```powershell
-.\deploy\web\start-pseudo-pro-server.ps1
+.\deploy\web\start-branch-dev-server.ps1
 ```
 
-## Reconstruir la interfaz
+Abre la API y la web en `http://127.0.0.1:8000`. Se detiene con `Ctrl+C`. El
+script no crea servicios ni arranques automáticos. Si otro proceso ocupa el
+puerto 8000 (por ejemplo un SRTime instalado en WSL), detenerlo antes.
 
-Después de modificar código del frontend, iniciar con:
+Con una base vacía, el asistente de primer uso pide la conexión PostgreSQL y
+después la cuenta inicial `admin`.
+
+## Después de cambiar el frontend
 
 ```powershell
-.\deploy\web\install-pseudo-pro.ps1 -RebuildWeb
+cd attendance\web
+npm run build
 ```
 
-La base configurada conserva sus datos entre arranques. No usar este iniciador
-contra una base productiva ni cambiar `DB_NAME` a una base de trabajo.
+Luego reiniciar el servidor DEV.

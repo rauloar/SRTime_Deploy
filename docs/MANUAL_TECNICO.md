@@ -43,20 +43,20 @@ Roles de SRTime:
 Las contraseñas de SRTime se almacenan hasheadas. Las claves PostgreSQL y JWT
 nunca se versionan ni se documentan en texto plano.
 
-## 3. Instalación local de pseudo-producción
+## 3. Servidor DEV desde el código
 
-Requisitos previos: PostgreSQL, Python y Node.js LTS instalados.
+Requisitos previos: PostgreSQL, el venv `.venv-test` y el frontend exportado en
+`attendance\web\out`. Detalle en `docs/LOCAL_PSEUDO_PRO.md`.
 
-1. Ejecutar `deploy\web\install-pseudo-pro.ps1` una vez. Crea `.venv`, instala dependencias
-   y genera el frontend.
-2. Abrir `http://127.0.0.1:8000/`.
-3. Completar el wizard en dos pasos: crear/conectar la base con PostgreSQL y,
-   cuando se habilite, crear la cuenta inicial `admin`.
-4. Para reinicios posteriores ejecutar:
+1. Iniciar con el único script de arranque (se detiene con `Ctrl+C`):
 
    ```powershell
-   .\deploy\web\start-pseudo-pro-server.ps1
+   .\deploy\web\start-branch-dev-server.ps1
    ```
+
+2. Abrir `http://127.0.0.1:8000/`.
+3. Con una base vacía, completar el wizard en dos pasos: crear/conectar la base
+   con PostgreSQL y, cuando se habilite, crear la cuenta inicial `admin`.
 
 La configuración local se guarda en `config/.env`, ignorado por Git.
 La plantilla segura es `config/.env.example`.
