@@ -25,6 +25,14 @@ manifest = {
         "0": "Usuario de terminal",
         "14": "Administrador de terminal",
     },
+    # Lo que informa test_connection, en el orden en que se muestra al conectar.
+    "connection_details": [
+        {"name": "name", "label": "Dispositivo"},
+        {"name": "serial_number", "label": "Número de serie"},
+        {"name": "mac", "label": "MAC"},
+        {"name": "firmware", "label": "Firmware"},
+        {"name": "time", "label": "Hora del reloj"},
+    ],
     "connection_fields": [
         {"name": "ip", "label": "Dirección IP", "type": "text", "default": "", "required": True},
         {"name": "port", "label": "Puerto", "type": "number", "default": "4370"},

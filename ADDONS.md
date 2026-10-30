@@ -198,8 +198,9 @@ sincronización explícita administrada.
 
 | Campo | Valor |
 |-------|-------|
-| **Tipo** | `parser` (importación de archivo); driver de red pendiente |
-| **Estado** | ✅ Parser en producción · 🚧 driver en preparación |
+| **Tipo** | `both` (driver de red + importación de archivo) |
+| **Estado** | ✅ Parser en producción · ✅ driver de red (beta.10, en QA) |
+| **Driver class** | `SundialDriver` |
 | **Parser class** | `SundialParser` |
 | **Protocolo de red** | `protocol.py`: TCP directo al módulo Tibbo del reloj (sin TecknoComm.exe) |
 
@@ -207,13 +208,18 @@ sincronización explícita administrada.
 
 | Archivo | Rol |
 |---|---|
+| `driver.py` | `SundialDriver(BiometricDriver)` sobre `protocol.SundialClient`. Tests: `tests/test_sundial_driver.py` (reloj simulado por TCP). |
 | `parser.py` | `SundialParser`: formato TM-MR001.Txt. Lo usa el importador como formato base. |
 | `protocol.py` | Protocolo del reloj (tramas, checksum, estado, hora, descarga, puntero). Sin dependencias externas. Tests: `tests/test_sundial_protocol.py`. |
-| `__manifest__.py` | Sólo parser; sin `driver_class` ni `connection_fields` hasta implementar el driver. |
+| `__manifest__.py` | `type: both`, `connection_fields`, `connection_details`, `capabilities` y `ui_features` (gestión de terminal + import por red + TM-MR001). |
 
-**Driver anterior eliminado (2026-10-27):** `SundialDriver` ejecutaba `TecknoComm.exe` por
-`subprocess` y leía el `TM-MR001.Txt` resultante. Nunca estuvo en uso ni fue funcional y
-dependía de TecknoComm instalado. Se reemplaza por comunicación directa.
+Se habilita como cualquier addon, por `SRTIME_ENABLED_ADDONS` en el `.env`. El núcleo no
+lo nombra: la pestaña Terminales arma el formulario con `connection_fields`, muestra el
+resultado de "Conectar" con `connection_details` y las secciones de la tarjeta según
+`capabilities` (Sundial no tiene usuarios de terminal ni borrado de memoria).
+
+**Driver anterior eliminado (2026-10-27):** el `SundialDriver` original ejecutaba
+`TecknoComm.exe` por `subprocess`, nunca fue funcional y se reemplazó por comunicación directa.
 
 **Protocolo (resumen, detalle en el docstring de `protocol.py`):**
 ```
@@ -225,15 +231,21 @@ Transporte : TCP al módulo Tibbo (servidor transparente, puerto 3000) → RS-23
 Verificado contra un reloj real de laboratorio (módulo Tibbo, dirección 001) y contra sesiones
 grabadas de TecknoComm. Herramienta standalone equivalente: PySundial (fuera del repo).
 
-**Driver pendiente (al estilo `zkteco`):**
-- `driver.py` con `SundialDriver(BiometricDriver)` sobre `protocol.SundialClient`.
-- `connection_fields`: `ip`, `port` (3000), `address` (`001`), `timeout`.
-- `test_connection` → estado (hora del reloj, pendientes) · `sync_time` → `H0` ·
-  `get_attendance_log_count` → pendientes del estado · `get_attendance_logs` → `I5`… y
-  confirmar `I3` sólo tras ingesta exitosa · puntero como acción propia.
-- Manifest: `type: both`, `driver_class`, `ui_features` con `terminal_management` y
-  `network_import`. Sin archivo intermedio: las marcas van directo a `_ingest_rows()`.
-- Paridad Desktop (PySide6) + Web (FastAPI) y bump de versión de suite.
+**Driver de red (`driver.py`):**
+- `connection_fields`: `ip`, `port` (3000), `address` (número de terminal 1–999), `timeout`.
+- `test_connection` → `I4`: número de terminal, hora del reloj, desvío y pendientes. No lee marcas.
+- `sync_time` → `H0` con la hora local de SRTime (`TIMEZONE`).
+- `get_attendance_log_count` → pendientes del estado. Con 0 pendientes no se envía `I5`
+  (el reloj no contesta, igual que en TecknoComm).
+- `get_attendance_logs` → `I5`… sin confirmar; cada marca sale con la misma tupla que su
+  línea TM-MR001 (`flags` = función + terminal + `00`).
+- `acknowledge_attendance_logs` → `I3`, llamado por `import_from_driver` **después** del
+  commit de `_ingest_rows`. Si la ingesta falla, el puntero no avanza y la próxima descarga
+  repite las marcas (las ya guardadas cuentan como duplicadas).
+- `set_attendance_pointer(since)` → `I2DDMMYYYY` (capability `attendance_pointer`): la tarjeta de
+  terminal ofrece "Volver a bajar registros desde…" en Web y Desktop; la próxima descarga trae
+  de nuevo esas marcas y las ya guardadas cuentan como duplicadas. Endpoint
+  `POST /api/terminals/{id}/pointer`.
 
 **Flujo de archivo (vigente):**
 Un `TM-MR001.Txt` generado por TecknoComm o por PySundial se importa con `SundialParser`.

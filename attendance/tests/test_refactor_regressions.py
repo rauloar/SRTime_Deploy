@@ -27,16 +27,16 @@ def test_addon_both_resolves_parser_not_driver():
     assert info["driver_class"] is not info["parser_class"]
 
 
-def test_parser_only_addon_exposes_no_driver():
-    """Sundial es sólo parser hasta implementar su driver directo (protocol.py)."""
+def test_sundial_addon_keeps_file_parser_separate_from_driver():
+    """Sundial es "both": el import de TM-MR001 sigue usando el parser, no el driver."""
     from services.addons import get_addon_info, get_parser_instance
 
     info = get_addon_info("Sundial ERTeckno")
 
     assert isinstance(get_parser_instance("Sundial ERTeckno"), AttendanceParser)
-    assert info["is_driver"] is False
-    assert "driver_class" not in info
-    assert info["connection_fields"] == []
+    assert info["is_driver"] is True
+    assert info["driver_class"] is not info["parser_class"]
+    assert info["connection_fields"]
 
 
 def test_terminal_manifests_do_not_embed_client_configuration():

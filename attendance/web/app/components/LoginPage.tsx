@@ -6,7 +6,7 @@ import axios from "axios"
 import { Database, Lock, User, AlertCircle, LogIn } from "lucide-react"
 
 const API = process.env.NEXT_PUBLIC_API_URL || ""
-const APP_VERSION = "v0.9.0-beta.9"
+const APP_VERSION = "v0.9.0-beta.10"
 const PASSWORD_PATTERN = "(?=.*[A-Za-z])(?=.*\\d)[A-Za-z\\d]{8,}"
 
 export default function LoginPage() {

@@ -14,6 +14,7 @@ from services.terminals import (
     TerminalOperationError,
     merge_connection_params,
     public_connection_params,
+    set_attendance_pointer as service_set_attendance_pointer,
     sync_time as service_sync_time,
     test_connection as service_test_connection,
     pull_logs as service_pull_logs,
@@ -111,6 +112,10 @@ class TerminalScheduleUpdate(BaseModel):
 
 class TerminalPullRequest(BaseModel):
     clear_device_memory: bool = False
+
+
+class TerminalPointerRequest(BaseModel):
+    since: date
 
 
 @router.get("/")
@@ -265,6 +270,28 @@ def sync_terminal_time(
         ok = service_sync_time(terminal)
         logger.info(f"Terminal sync: {terminal.name}",
                     extra={"user": current_user.username, "action": "terminal_sync"})
+        return ok_response({"ok": ok})
+    except (TerminalOperationError, OSError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/{terminal_id}/pointer")
+def set_terminal_attendance_pointer(
+    terminal_id: int,
+    payload: TerminalPointerRequest,
+    db: Session = Depends(get_db),
+    current_user: AuthUser = Depends(require_supervisor_or_root),
+):
+    """Reposiciona la lectura del equipo; la próxima descarga trae desde esa fecha."""
+    terminal = get_terminal_or_404(terminal_id, db)
+    if not terminal.is_active:
+        raise HTTPException(status_code=400, detail="La terminal está inactiva")
+    try:
+        ok = service_set_attendance_pointer(terminal, payload.since)
+        logger.info(
+            f"Terminal pointer set: {terminal.name} since {payload.since}",
+            extra={"user": current_user.username, "action": "terminal_pointer"},
+        )
         return ok_response({"ok": ok})
     except (TerminalOperationError, OSError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

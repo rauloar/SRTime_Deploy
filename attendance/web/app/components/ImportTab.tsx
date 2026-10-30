@@ -114,13 +114,9 @@ export default function ImportTab({ fileImport, networkImport }: { fileImport: b
     try {
       const res = await api.post(`/api/terminals/${selectedTerminal}/test`)
       setStatus("Conexión exitosa")
-      setLogs([
-        `Modelo: ${res.data.model || "N/D"}`,
-        `Firma: ${res.data.firmware || "N/D"}`,
-        `Número de Serie: ${res.data.serial_number || "N/D"}`,
-        `MAC: ${res.data.mac || "N/D"}`,
-        `Hora Reloj: ${res.data.time || "N/D"}`
-      ])
+      // Cada driver informa sus propios datos; la API ya los entrega rotulados.
+      const details: { label: string; value: string }[] = res.data.details || []
+      setLogs(details.map(item => `${item.label}: ${item.value}`))
     } catch (e: unknown) {
       setError(getErrorMessage(e, "Error al probar la conexión con el dispositivo"))
     } finally {

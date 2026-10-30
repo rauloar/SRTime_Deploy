@@ -6,7 +6,7 @@ través del módulo Tibbo que lo expone por TCP (modo servidor transparente,
 puerto 3000 por defecto). Sólo usa la librería estándar de Python.
 
 Copia de C:/Proyectos/SundialComm/sundial_comm.py (verificada contra
-reloj real 2026-10-27). Pendiente: integrarlo en SundialDriver.
+reloj real 2026-10-27). SRTime lo usa desde ``driver.SundialDriver``.
 
 Uso (equivalente a los .bat de TecknoComm):
     python -m services.addons.sundial.protocol --config relojes.json -r 1 status
@@ -57,7 +57,7 @@ RECORD_LEN = 19
 log = logging.getLogger("sundial")
 
 
-class SundialError(Exception):
+class SundialError(RuntimeError):
     pass
 
 
@@ -241,8 +241,12 @@ class SundialClient:
                 raise SundialError(f"Lectura: respuesta inesperada {printable(reply)}")
             records += parse_records(reply)
         if confirm:
-            self._expect_ok(b"I3", "Fin de lectura")
+            self.confirm_read()
         return records
+
+    def confirm_read(self):
+        """I3: el reloj da por entregados los registros leídos (avanza el puntero)."""
+        self._expect_ok(b"I3", "Fin de lectura")
 
     def set_datetime(self, when: datetime):
         self._expect_ok(b"H0" + when.strftime("%d%m%y%H%M%S").encode(), "Fecha y hora")

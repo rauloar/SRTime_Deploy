@@ -232,6 +232,12 @@ def import_from_driver(
             source_label=driver_instance.display_name,
             progress_signal=progress_signal,
         )
+        # _ingest_rows ya hizo commit: recién ahora el equipo puede avanzar su
+        # puntero de lectura sin riesgo de perder registros. Hook opcional del
+        # contrato de drivers (BiometricDriver lo define vacío).
+        acknowledge = getattr(driver_instance, "acknowledge_attendance_logs", None)
+        if acknowledge:
+            acknowledge()
         if after_ingested:
             after_ingested(driver_instance, result)
 

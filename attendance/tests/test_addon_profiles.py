@@ -3,7 +3,7 @@
 from services import addons
 
 
-def test_sundial_profile_only_exposes_file_import(monkeypatch):
+def test_sundial_profile_exposes_terminal_management_and_tm_mr001_import(monkeypatch):
     monkeypatch.setenv("SRTIME_ENABLED_ADDONS", "sundial")
     addons.clear_addon_cache()
     try:
@@ -14,8 +14,8 @@ def test_sundial_profile_only_exposes_file_import(monkeypatch):
     assert list(available) == ["Sundial ERTeckno"]
     features = available["Sundial ERTeckno"]["ui_features"]
     assert features["file_import"] is True
-    assert features["terminal_management"] is False
-    assert features["network_import"] is False
+    assert features["terminal_management"] is True
+    assert features["network_import"] is True
     assert features["file_extensions"] == [".txt"]
     assert features["file_name_patterns"] == ["TM-MR001.txt"]
 

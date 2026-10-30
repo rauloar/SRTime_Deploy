@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from models.terminal import DeviceTerminal
@@ -93,18 +93,55 @@ def _disconnect_safely(driver) -> None:
         pass
 
 
+def _connection_details(manifest: dict[str, Any], result: dict[str, Any]) -> list[dict[str, str]]:
+    """Rotula lo que informó el driver según su manifest (``connection_details``).
+
+    El core no conoce los datos de ningún equipo: cada addon declara qué
+    devuelve su ``test_connection`` y con qué etiqueta. Sin declaración se
+    muestra lo informado tal cual.
+    """
+    declared = manifest.get("connection_details") or [
+        {"name": key, "label": key} for key in result if key != "status"
+    ]
+    return [
+        {"label": item.get("label") or item["name"], "value": str(result[item["name"]])}
+        for item in declared
+        if result.get(item["name"]) not in (None, "")
+    ]
+
+
 def test_connection(terminal: DeviceTerminal) -> dict[str, Any]:
-    driver = get_driver_instance(terminal)
+    info = get_addon_info(terminal)
+    driver = info["driver_class"]()
     try:
-        return driver.test_connection(get_connection_params(terminal))
+        result = dict(driver.test_connection(get_connection_params(terminal)))
     finally:
         _disconnect_safely(driver)
+    result["details"] = _connection_details(info.get("manifest") or {}, result)
+    return result
 
 
 def sync_time(terminal: DeviceTerminal) -> bool:
     driver = get_driver_instance(terminal)
     try:
         return bool(driver.sync_time(get_connection_params(terminal)))
+    finally:
+        _disconnect_safely(driver)
+
+
+def set_attendance_pointer(terminal: DeviceTerminal, since: date) -> bool:
+    """Pide al equipo que vuelva a entregar registros desde ``since``.
+
+    Sólo para drivers que declaran ``attendance_pointer``. No toca la base: la
+    próxima descarga trae esos registros y los ya guardados son duplicados.
+    """
+    if not supports_capability(terminal, "attendance_pointer"):
+        raise TerminalOperationError("El driver configurado no admite volver a bajar registros desde una fecha")
+    if since > local_now().date():
+        raise TerminalOperationError("La fecha no puede ser posterior a hoy")
+    driver = get_driver_instance(terminal)
+    try:
+        return bool(driver.set_attendance_pointer(get_connection_params(terminal), since))
     finally:
         _disconnect_safely(driver)
 

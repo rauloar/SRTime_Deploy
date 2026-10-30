@@ -25,6 +25,16 @@ class BiometricDriver:
         """
         return None
 
+    def acknowledge_attendance_logs(self) -> None:
+        """Confirma al equipo que los registros leídos ya quedaron guardados.
+
+        Se llama sólo después de que la ingesta hizo commit. Equipos que llevan
+        un puntero de lectura lo avanzan acá; si la confirmación no
+        llega, la próxima descarga repite registros que se detectan como
+        duplicados. Default: no hace nada.
+        """
+        return None
+
     def test_connection(self, params: dict) -> dict:
         """Prueba la conexión y devuelve metadatos como mac, nombre, hora, etc."""
         return {"status": "unsupported"}
@@ -32,6 +42,15 @@ class BiometricDriver:
     def sync_time(self, params: dict) -> bool:
         """Sincroniza la hora y fecha del dispositivo con la actual."""
         return False
+
+    def set_attendance_pointer(self, params: dict, since: date) -> bool:
+        """Reposiciona la lectura del equipo para volver a entregar desde ``since``.
+
+        Sólo para equipos que llevan puntero de lectura (capability
+        ``attendance_pointer``). La próxima descarga trae de nuevo esos
+        registros; los ya guardados se cuentan como duplicados.
+        """
+        raise NotImplementedError("El driver no admite volver a bajar registros desde una fecha")
 
     def clear_attendance_logs(self) -> bool:
         """Borra la memoria de marcaciones del equipo, si el driver lo soporta."""

@@ -183,7 +183,8 @@ class ImportTab(QWidget):
         try:
             from services.terminals import test_connection
             result = test_connection(terminal)
-            QMessageBox.information(self, "Conexión exitosa", f"Dispositivo: {result.get('name')}\nMAC: {result.get('mac')}\nNúmero de serie: {result.get('serial_number')}\nFirmware: {result.get('firmware')}\nHora reloj: {result.get('time')}")
+            details = "\n".join(f"{item['label']}: {item['value']}" for item in result.get("details", []))
+            QMessageBox.information(self, "Conexión exitosa", details or "Terminal OK.")
         except Exception as exc:
             QMessageBox.critical(self, "Error de conexión", f"No se pudo conectar al dispositivo:\n{exc}")
         finally:

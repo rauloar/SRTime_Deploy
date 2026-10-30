@@ -2,9 +2,10 @@ import os
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget,
     QTableWidgetItem, QHeaderView, QMessageBox, QDialog, QFormLayout, 
-    QLineEdit, QComboBox, QCheckBox, QApplication, QGroupBox, QTextEdit
+    QLineEdit, QComboBox, QCheckBox, QApplication, QGroupBox, QTextEdit,
+    QDateEdit, QDialogButtonBox, QLabel
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QDate, Qt
 from PySide6.QtGui import QIcon
 
 from models.terminal import DeviceTerminal
@@ -145,6 +146,9 @@ class TerminalsTab(QWidget):
         self.btn_sync_profiles = QPushButton("Sincronizar perfiles hacia terminal")
         self.btn_sync_profiles.clicked.connect(self.sync_terminal_profiles)
         detail_actions.addWidget(self.btn_sync_profiles)
+        self.btn_pointer = QPushButton("Volver a bajar registros desde...")
+        self.btn_pointer.clicked.connect(self.set_attendance_pointer)
+        detail_actions.addWidget(self.btn_pointer)
         detail_layout.addLayout(detail_actions)
         layout.addWidget(self.detail_group)
         self.selected_terminal_id = None
@@ -223,8 +227,21 @@ class TerminalsTab(QWidget):
     def _show_terminal_detail(self, terminal):
         self.selected_terminal_id = terminal.id if terminal else None
         enabled = terminal is not None and terminal.is_active
+        # La ficha muestra sólo lo que el driver declara en su manifest
+        # (capabilities): sin directorio de usuarios no hay botones de usuarios.
+        from services.terminals import TerminalOperationError, supports_capability
+        try:
+            has_users = terminal is not None and supports_capability(terminal, "terminal_users")
+            can_sync = terminal is not None and supports_capability(terminal, "terminal_user_name_sync")
+            has_pointer = terminal is not None and supports_capability(terminal, "attendance_pointer")
+        except TerminalOperationError:
+            has_users = can_sync = has_pointer = False
+        self.btn_list_users.setVisible(has_users)
+        self.btn_sync_profiles.setVisible(can_sync)
+        self.btn_pointer.setVisible(has_pointer)
         self.btn_list_users.setEnabled(enabled)
         self.btn_sync_profiles.setEnabled(enabled)
+        self.btn_pointer.setEnabled(enabled)
         if terminal is None:
             self.detail_label.setText("Seleccione una terminal para ver sus detalles y operaciones extendidas.")
             return
@@ -285,6 +302,42 @@ class TerminalsTab(QWidget):
         finally:
             QApplication.restoreOverrideCursor()
 
+    def set_attendance_pointer(self):
+        terminal = self._selected_terminal()
+        if terminal is None:
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Volver a bajar registros")
+        form = QFormLayout(dialog)
+        form.addRow(QLabel(
+            "La terminal vuelve a entregar las marcas desde la fecha elegida en la próxima\n"
+            "descarga. Las que ya están en SRTime se cuentan como duplicadas."
+        ))
+        date_edit = QDateEdit(QDate.currentDate())
+        date_edit.setCalendarPopup(True)
+        date_edit.setDisplayFormat("dd/MM/yyyy")
+        date_edit.setMaximumDate(QDate.currentDate())
+        form.addRow("Desde:", date_edit)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        form.addRow(buttons)
+        if not dialog.exec():
+            return
+        since = date_edit.date().toPython()
+        try:
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+            from services.terminals import set_attendance_pointer
+            set_attendance_pointer(terminal, since)
+            QMessageBox.information(
+                self, "Volver a bajar registros",
+                f"Listo. Use \"Descargar registros\" para bajar desde el {since:%d/%m/%Y}.",
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Volver a bajar registros", f"No se pudo reposicionar la lectura:\n{exc}")
+        finally:
+            QApplication.restoreOverrideCursor()
+
     def ping_terminal(self, t_id):
         terminal = self.session.query(DeviceTerminal).get(t_id)
         if not terminal: return
@@ -298,7 +351,8 @@ class TerminalsTab(QWidget):
                 terminal.serial_number = sn
                 self.session.commit()
             
-            QMessageBox.information(self, "Conexión Exitosa", f"Terminal OK.\nMAC/SN: {sn}\nHora: {res.get('time')}")
+            details = "\n".join(f"{item['label']}: {item['value']}" for item in res.get("details", []))
+            QMessageBox.information(self, "Conexión Exitosa", f"Terminal OK.\n{details}".rstrip())
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Fallo al conectar:\n{e}")
         finally:

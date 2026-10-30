@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "../context/AuthContext"
 import axios from "axios"
-import { Plus, RefreshCw, Pencil, Trash2, X, Fingerprint, Activity, Download, Clock, CalendarClock, Users, Upload, Wifi } from "lucide-react"
+import { Plus, RefreshCw, Pencil, Trash2, X, Fingerprint, Activity, Download, Clock, CalendarClock, Users, Upload, Wifi, History } from "lucide-react"
 import Pagination from "./Pagination"
 import AppDialog from "./AppDialog"
 
@@ -144,6 +144,8 @@ export default function TerminalsTab() {
   const [syncingNames, setSyncingNames] = useState(false)
   const [terminalToDelete, setTerminalToDelete] = useState<Terminal | null>(null)
   const [clearMemoryAfterPull, setClearMemoryAfterPull] = useState(false)
+  const [pointerDate, setPointerDate] = useState("")
+  const [settingPointer, setSettingPointer] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -244,7 +246,8 @@ export default function TerminalsTab() {
     setTestingId(id)
     try {
       const res = await api.post(`/api/terminals/${id}/test`)
-      alert(`✅ Conexión exitosa. MAC: ${res.data.mac} | SN: ${res.data.serial_number}`)
+      const details: { label: string; value: string }[] = res.data.details || []
+      alert(["✅ Conexión exitosa.", ...details.map(item => `${item.label}: ${item.value}`)].join("\n"))
       load() // recargar para mostrar el serial number en la tabla
     } catch (e) {
       alert(getErrorMessage(e, "Error al conectar."))
@@ -262,6 +265,22 @@ export default function TerminalsTab() {
       alert(getErrorMessage(e, "Error al sincronizar reloj."))
     } finally {
       setSyncingId(null)
+    }
+  }
+
+  async function setAttendancePointer(t: Terminal) {
+    if (!pointerDate) return
+    const shown = pointerDate.split("-").reverse().join("/")
+    if (!window.confirm(`La terminal volverá a entregar los registros desde el ${shown}. Los que ya están en SRTime se cuentan como duplicados. ¿Continuar?`)) return
+    setSettingPointer(true)
+    try {
+      await api.post(`/api/terminals/${t.id}/pointer`, { since: pointerDate })
+      alert(`✅ Listo. Usá "Bajar registros" para descargar desde el ${shown}.`)
+      setPointerDate("")
+    } catch (e) {
+      alert(getErrorMessage(e, "No se pudo reposicionar la lectura de la terminal."))
+    } finally {
+      setSettingPointer(false)
     }
   }
 
@@ -574,6 +593,14 @@ export default function TerminalsTab() {
                 <button className="btn" onClick={() => testConnection(t.id)} disabled={testingId === t.id || syncingId === t.id || pullingId === t.id || !t.is_active}><Wifi size={14} /> {testingId === t.id ? "Conectando..." : "Conectar"}</button>
                 <button className="btn" onClick={() => syncTime(t.id)} disabled={testingId === t.id || syncingId === t.id || pullingId === t.id || !t.is_active}><Clock size={14} /> {syncingId === t.id ? "Sincronizando..." : "Reloj"}</button>
               </div>
+              {capabilities.attendance_pointer && <section style={{ marginTop: 18, paddingTop: 16, borderTop: "1px solid var(--border-color)" }}>
+                <strong><History size={15} style={{ verticalAlign: "-2px" }} /> Volver a bajar registros</strong>
+                <div style={{ color: "var(--text-secondary)", fontSize: 12, marginTop: 3 }}>La terminal vuelve a entregar las marcas desde la fecha elegida en la próxima descarga. Las que ya están en SRTime se cuentan como duplicadas.</div>
+                <div style={{ display: "flex", gap: 7, alignItems: "center", flexWrap: "wrap", marginTop: 10 }}>
+                  <label style={{ fontSize: 13 }}>Desde: <input type="date" value={pointerDate} max={new Date().toLocaleDateString("en-CA")} onChange={event => setPointerDate(event.target.value)} /></label>
+                  <button className="btn" onClick={() => setAttendancePointer(t)} disabled={!pointerDate || settingPointer || pullingId === t.id || !t.is_active}><History size={14} /> {settingPointer ? "Aplicando..." : "Volver a bajar desde esta fecha"}</button>
+                </div>
+              </section>}
               {capabilities.terminal_users && <section style={{ marginTop: 18, paddingTop: 16, borderTop: "1px solid var(--border-color)" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
                   <div><strong><Users size={15} style={{ verticalAlign: "-2px" }} /> Usuarios de terminal</strong><div style={{ color: "var(--text-secondary)", fontSize: 12, marginTop: 3 }}>UID e ID pertenecen al reloj. SRTime sincroniza nombre y privilegio USER/ADMIN desde Empleados.</div></div>
