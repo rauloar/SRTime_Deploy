@@ -53,7 +53,6 @@ C:\Service Reloj\SRTime_web\
 ├── scripts\
 ├── service\
 ├── docs\
-├── Iniciar-SRTime-Web.cmd
 ├── README.md
 └── SHA256SUMS.txt
 ```
@@ -62,9 +61,11 @@ C:\Service Reloj\SRTime_web\
 
 El instalador incluye ambos drivers, pero permite elegir cuales quedan habilitados inicialmente:
 
-- `sundial`: habilita importacion manual del archivo TM-MR001.
-- `zkteco`: habilita gestion de terminales ZKTeco.
-- `sundial,zkteco`: habilita ambos flujos.
+- `sundial`: relojes Sundial ERTeckno por red (modulo Tibbo) e importacion del archivo TM-MR001.
+- `zkteco`: terminales ZKTeco por red e importacion del archivo `att.dat`.
+- `sundial,zkteco`: habilita ambos.
+
+La pestana Terminales aparece solo si hay al menos un driver habilitado.
 
 La seleccion se guarda en:
 
