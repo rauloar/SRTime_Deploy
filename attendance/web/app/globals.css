@@ -459,7 +459,7 @@ label {
   font-weight: var(--font-weight-semibold);
 }
 .password-match-error { color: var(--status-error); }
-.password-match-ok { color: var(--status-success); }
+.password-match-ok { color: var(--status-ok); }
 .operation-progress { margin: 12px 0; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-card); }
 .operation-progress-label { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; margin-bottom: 7px; }
 .operation-progress-track { height: 8px; overflow: hidden; border-radius: 99px; background: var(--bg-main); }
@@ -519,8 +519,6 @@ label {
 }
 
 /* ===== Ausencias ===== */
-.absence-message { margin: 0 0 10px; font-size: 13px; color: var(--text-secondary); }
-.absence-message-error { color: var(--status-error); }
 .absence-modal-context { margin-bottom: 14px; font-size: 13px; color: var(--text-secondary); }
 .absence-actions, .modal-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .absence-empty { opacity: .45; }
@@ -668,3 +666,21 @@ label {
 @keyframes operation-progress-slide { from { transform: translateX(-120%); } to { transform: translateX(350%); } }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .fade-in { animation: fadeIn .18s ease-out; }
+
+/* ===== Mensajes (formato único: utils/messages.ts, components/Notice.tsx, context/MessageContext.tsx) ===== */
+.notice { display: flex; align-items: flex-start; gap: 7px; margin: 0 0 10px; font-size: 13px; line-height: 1.4; color: var(--text-secondary); }
+.notice > svg { flex: none; margin-top: 2px; }
+.notice > span { white-space: pre-line; }
+.notice-info > svg { color: var(--status-info); }
+.notice-success > svg { color: var(--status-ok); }
+.notice-warning > svg { color: var(--status-warning); }
+.notice-error { color: var(--status-error); }
+.message-dialog { display: flex; align-items: flex-start; gap: 12px; font-size: 14px; }
+.message-dialog > svg { flex: none; }
+.message-dialog-info > svg { color: var(--status-info); }
+.message-dialog-success > svg { color: var(--status-ok); }
+.message-dialog-warning > svg { color: var(--status-warning); }
+.message-dialog-error > svg { color: var(--status-error); }
+.message-dialog-text { margin: 0; line-height: 1.45; white-space: pre-line; }
+.message-dialog-details { margin: 10px 0 0; padding: 0; list-style: none; font-size: 13px; color: var(--text-secondary); }
+.message-dialog-details li { padding: 2px 0; overflow-wrap: anywhere; }

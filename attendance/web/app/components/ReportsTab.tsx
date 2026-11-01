@@ -1,9 +1,10 @@
 "use client"
 import { useState, useEffect, useMemo } from "react"
 import { useAuth } from "../context/AuthContext"
-import axios from "axios"
 import { FileSpreadsheet, FileText, Search } from "lucide-react"
 import { downloadFromApi } from "../utils/download"
+import { getErrorMessage, type Feedback } from "../utils/messages"
+import Notice from "./Notice"
 
 interface Employee { id: number; identifier: string; first_name: string | null; last_name: string | null; is_active: boolean }
 interface ReportColumn { key: string; label: string }
@@ -23,14 +24,6 @@ function employeeLabel(employee: Employee) {
   return name ? `${employee.identifier} — ${name}` : employee.identifier
 }
 
-function getErrorMessage(error: unknown, fallback: string) {
-  if (axios.isAxiosError(error)) {
-    const detail = (error.response?.data as { detail?: unknown } | undefined)?.detail
-    if (typeof detail === "string") return detail
-  }
-  return fallback
-}
-
 export default function ReportsTab() {
   const { api } = useAuth()
   const today = new Date()
@@ -42,7 +35,7 @@ export default function ReportsTab() {
   const [reportKey, setReportKey]   = useState("")
   const [loading, setLoading]       = useState(false)
   const [exporting, setExporting]   = useState<"xlsx" | "pdf" | null>(null)
-  const [message, setMessage]       = useState("")
+  const [message, setMessage]       = useState<Feedback>(null)
 
   useEffect(() => {
     api.get("/api/users/?limit=2000")
@@ -60,26 +53,26 @@ export default function ReportsTab() {
   const canExport = report !== null && reportKey === filtersKey && report.employees.length > 0
 
   async function generate() {
-    if (!Number.isInteger(year)) { setMessage("Ingresá un año válido."); return }
-    setLoading(true); setMessage("")
+    if (!Number.isInteger(year)) { setMessage({ kind: "warning", text: "Ingresá un año válido." }); return }
+    setLoading(true); setMessage(null)
     try {
       const res = await api.get("/api/reports/monthly", { params })
       const data = res.data as MonthlyReport
       setReport(data)
       setReportKey(filtersKey)
-      if (!data.employees.length) setMessage("No hay registros para el período seleccionado.")
+      if (!data.employees.length) setMessage({ kind: "info", text: "No hay registros para el período seleccionado." })
     } catch (e: unknown) {
-      setReport(null); setMessage(getErrorMessage(e, "No se pudo generar el reporte."))
+      setReport(null); setMessage({ kind: "error", text: getErrorMessage(e, "No se pudo generar el reporte.") })
     } finally { setLoading(false) }
   }
 
   async function exportReport(kind: "xlsx" | "pdf") {
-    setExporting(kind); setMessage("")
+    setExporting(kind); setMessage(null)
     try {
       const url = kind === "xlsx" ? "/api/reports/monthly/export" : "/api/reports/monthly/export/pdf"
       await downloadFromApi(api, url, `reporte_${year}_${month}.${kind}`, params)
     } catch (e: unknown) {
-      setMessage(getErrorMessage(e, "No se pudo exportar el reporte."))
+      setMessage({ kind: "error", text: getErrorMessage(e, "No se pudo exportar el reporte.") })
     } finally { setExporting(null) }
   }
 
@@ -113,7 +106,7 @@ export default function ReportsTab() {
         </button>
       </div>
 
-      {message && <p style={{ fontSize: 13, marginBottom: 10, color: "var(--text-secondary)" }}>⚠ {message}</p>}
+      {message && <Notice kind={message.kind}>{message.text}</Notice>}
 
       {report && (
         <div className="table-wrapper">

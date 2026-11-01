@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QTableWidget, QTableWidgetItem,
-                               QHeaderView, QMessageBox, QHBoxLayout, QDialog, QLabel, QTimeEdit,
+                               QHeaderView, QHBoxLayout, QDialog, QLabel, QTimeEdit,
                                QTextEdit, QFileDialog, QStyle, QComboBox, QDateEdit)
 from PySide6.QtCore import Qt, QThread, Signal, QTime, QDate
 from sqlalchemy.orm import Session
@@ -11,6 +11,7 @@ from services.justification import JustificationService
 from services.metrics import MetricsCalculator
 from datetime import datetime, time
 import pandas as pd
+from ui.messages import ask_confirm, show_error, show_info, show_success, show_warning
 
 
 class EngineWorker(QThread):
@@ -165,7 +166,7 @@ class ProcessedTab(QWidget):
     def _get_selected_record(self):
         row = self.table.currentRow()
         if row < 0:
-            QMessageBox.warning(self, "Atención", "Seleccioná una fila primero.")
+            show_warning(self, "Movimientos procesados", "Seleccioná una fila primero.")
             return None
         item = self.table.item(row, 0)
         processed_id = item.data(Qt.ItemDataRole.UserRole) if item else None
@@ -251,13 +252,13 @@ class ProcessedTab(QWidget):
         self.btn_reprocess.setEnabled(True)
         self.btn_process.setText("Procesar Pendientes")
         if error_msg:
-            QMessageBox.critical(self, "Error al Procesar", f"Hubo un problema:\n{error_msg}")
+            show_error(self, "Procesar movimientos", "El proceso no pudo completarse.", error_msg)
         else:
             txt = "Novedades" if count > 0 else "No había fichadas nuevas"
-            QMessageBox.information(
+            show_success(
                 self,
-                "Proceso Completado",
-                f"{txt}. Se procesaron {count} flujos diarios y se sincronizaron ausencias del rango.",
+                "Procesar movimientos",
+                f"{txt}. Se procesaron {count} jornadas y se sincronizaron las ausencias del rango.",
             )
             self.load_data()
 
@@ -268,12 +269,7 @@ class ProcessedTab(QWidget):
             return
 
         if processed.status == "OK":
-            reply = QMessageBox.question(
-                self, "Aviso",
-                "Este registro ya está OK. ¿Deseás justificarlo de todos modos?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-            if reply == QMessageBox.StandardButton.No:
+            if not ask_confirm(self, "Justificar registro", "Este registro ya está OK. ¿Querés justificarlo de todos modos?", "Justificar"):
                 return
 
         self._open_justify_dialog(processed, direct=True)
@@ -315,7 +311,7 @@ class ProcessedTab(QWidget):
         def save():
             reason = te_reason.toPlainText().strip()
             if not reason:
-                QMessageBox.warning(dialog, "Obligatorio", "Debe ingresar el motivo.")
+                show_warning(dialog, "Justificar registro", "Indicá el motivo de la justificación.")
                 return
 
             qt_in = te_in.time()
@@ -327,12 +323,12 @@ class ProcessedTab(QWidget):
                 svc = JustificationService(self.session)
                 svc.apply_direct(processed, t_in, t_out, reason)
                 dialog.accept()
-                QMessageBox.information(self, "Justificado", "Registro justificado correctamente.")
+                show_success(self, "Justificar registro", "Registro justificado.")
             else:
                 svc = JustificationService(self.session)
                 svc.request(processed, t_in, t_out, reason, self.current_username)
                 dialog.accept()
-                QMessageBox.information(self, "Solicitud enviada", "La solicitud quedó pendiente de aprobación.")
+                show_success(self, "Justificar registro", "La solicitud quedó pendiente de aprobación.")
             self.load_data()
 
         btn_save.clicked.connect(save)
@@ -345,7 +341,7 @@ class ProcessedTab(QWidget):
         if not processed:
             return
         if processed.status == "PENDIENTE":
-            QMessageBox.warning(self, "Atención", "Este registro ya tiene una solicitud pendiente.")
+            show_warning(self, "Justificar registro", "Este registro ya tiene una solicitud pendiente.")
             return
         self._open_justify_dialog(processed, direct=False)
 
@@ -364,14 +360,12 @@ class ProcessedTab(QWidget):
             f"Solicitado por: {processed.requested_by or ''}\n\n"
             "¿Aprobás esta justificación?"
         )
-        reply = QMessageBox.question(self, "Aprobar Justificación", msg,
-                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        if reply != QMessageBox.StandardButton.Yes:
+        if not ask_confirm(self, "Aprobar justificación", msg, "Aprobar"):
             return
 
         svc = JustificationService(self.session)
         svc.approve(processed)
-        QMessageBox.information(self, "Aprobado", "Justificación aprobada.")
+        show_success(self, "Aprobar justificación", "Justificación aprobada.")
         self.load_data()
 
     # ── Root: rechazar solicitud pendiente ────────────────────────────────
@@ -380,17 +374,16 @@ class ProcessedTab(QWidget):
         if not processed or processed.status != "PENDIENTE":
             return
 
-        reply = QMessageBox.question(
-            self, "Rechazar Solicitud",
+        if not ask_confirm(
+            self, "Rechazar solicitud",
             f"¿Rechazás la solicitud de {processed.requested_by or 'supervisor'} para el día {processed.date}?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        if reply != QMessageBox.StandardButton.Yes:
+            "Rechazar", danger=True,
+        ):
             return
 
         svc = JustificationService(self.session)
         svc.reject(processed)
-        QMessageBox.information(self, "Rechazado", "Solicitud rechazada. El registro volvió a su estado anterior.")
+        show_success(self, "Rechazar solicitud", "Solicitud rechazada. El registro volvió a su estado anterior.")
         self.load_data()
 
     # ── Export helpers ─────────────────────────────────────────────────────
@@ -434,7 +427,7 @@ class ProcessedTab(QWidget):
 
         data = self._collect_export_data()
         if not data:
-            QMessageBox.information(self, "Sin datos", "No hay filas para exportar.")
+            show_info(self, "Exportar", "No hay filas para exportar.")
             return
 
         headers = ["Empleado", "Fecha", "1ra Entrada", "Últ. Salida",

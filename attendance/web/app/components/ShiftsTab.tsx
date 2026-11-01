@@ -1,9 +1,11 @@
 "use client"
 import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "../context/AuthContext"
-import axios from "axios"
 import { Plus, RefreshCw, Pencil, Trash2, X } from "lucide-react"
 import Pagination from "./Pagination"
+import { getErrorMessage } from "../utils/messages"
+import Notice from "./Notice"
+import { useMessages } from "../context/MessageContext"
 
 interface Shift { id: number; name: string; expected_in: string; expected_out: string; grace_period_minutes: number }
 interface ShiftForm { id?: number; name: string; expected_in: string; expected_out: string; grace_period_minutes: number }
@@ -23,16 +25,9 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <div className="form-group"><label>{label}</label>{children}</div>
 }
 
-function getErrorMessage(error: unknown, fallback: string) {
-  if (axios.isAxiosError(error)) {
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
-    if (detail) return detail
-  }
-  return fallback
-}
-
 export default function ShiftsTab() {
   const { api } = useAuth()
+  const { showMessage, confirmAction } = useMessages()
   const [shifts, setShifts]     = useState<Shift[]>([])
   const [loading, setLoading]   = useState(true)
   const [modal, setModal]       = useState<"add" | "edit" | null>(null)
@@ -66,13 +61,18 @@ export default function ShiftsTab() {
       if (modal === "add") await api.post("/api/shifts/", payload)
       else await api.put(`/api/shifts/${current.id}`, payload)
       setModal(null); load()
-    } catch (e: unknown) { setError(getErrorMessage(e, "Error al guardar."))
+    } catch (e: unknown) { setError(getErrorMessage(e, "No se pudo guardar el turno."))
     } finally { setSaving(false) }
   }
 
   async function handleDelete(s: Shift) {
-    if (!confirm(`¿Eliminar el turno '${s.name}'?`)) return
-    await api.delete(`/api/shifts/${s.id}`); load()
+    if (!await confirmAction({ title: "Eliminar turno", text: `¿Eliminar el turno '${s.name}'? Puede afectar los cálculos de los empleados que lo tienen asignado.`, confirmLabel: "Eliminar", danger: true })) return
+    try {
+      await api.delete(`/api/shifts/${s.id}`)
+      load()
+    } catch (e: unknown) {
+      void showMessage({ kind: "error", title: "Eliminar turno", text: getErrorMessage(e, "No se pudo eliminar el turno.") })
+    }
   }
 
   return (
@@ -83,7 +83,7 @@ export default function ShiftsTab() {
           <Field label="Hora de Entrada:"><input type="time" value={current.expected_in} onChange={e => setCurrent(p => ({ ...p, expected_in: e.target.value }))} /></Field>
           <Field label="Hora de Salida:"><input type="time" value={current.expected_out} onChange={e => setCurrent(p => ({ ...p, expected_out: e.target.value }))} /></Field>
           <Field label="Minutos de Tolerancia:"><input type="number" min="0" value={current.grace_period_minutes} onChange={e => setCurrent(p => ({ ...p, grace_period_minutes: Number(e.target.value) }))} /></Field>
-          {error && <p style={{ color: "var(--status-error)", fontSize: 13, marginBottom: 10 }}>⚠ {error}</p>}
+          <Notice kind="error">{error}</Notice>
           <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
             <button className="btn btn-primary" onClick={handleSave} disabled={saving}>{saving ? "Guardando..." : "Guardar"}</button>
             <button className="btn" onClick={() => setModal(null)}>Cancelar</button>

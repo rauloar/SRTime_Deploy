@@ -1,12 +1,14 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import axios from "axios"
 import { Check, RefreshCw, RotateCcw, UserX, X } from "lucide-react"
 import { useAuth } from "../context/AuthContext"
 import Pagination from "./Pagination"
 import AttendanceCorrectionModal from "./AttendanceCorrectionModal"
 import { downloadCsv, downloadFromApi } from "../utils/download"
+import type { Feedback } from "../utils/messages"
+import Notice from "./Notice"
+import { getErrorMessage } from "../utils/messages"
 
 interface AbsenceRecord {
   id: number
@@ -36,14 +38,6 @@ const daysAgo = (n: number) => {
   return day.toISOString().slice(0, 10)
 }
 
-function errorMessage(error: unknown, fallback: string) {
-  if (axios.isAxiosError(error)) {
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
-    if (detail) return detail
-  }
-  return fallback
-}
-
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return <div className="modal-backdrop"><div className="modal-box">
     <div className="modal-title"><span>{title}</span><button className="modal-close" onClick={onClose}><X size={16} /></button></div>
@@ -61,7 +55,7 @@ export default function AbsencesTab() {
   const [statusFilter, setStatusFilter] = useState("")
   const [loading, setLoading] = useState(true)
   const [reprocessing, setReprocessing] = useState(false)
-  const [message, setMessage] = useState("")
+  const [message, setMessage] = useState<Feedback>(null)
   const [selected, setSelected] = useState<AbsenceRecord | null>(null)
   const [selectedIncomplete, setSelectedIncomplete] = useState<AbsenceRecord | null>(null)
   const [selectedIds, setSelectedIds] = useState<number[]>([])
@@ -89,7 +83,7 @@ export default function AbsencesTab() {
       setSelectedIds(previous => previous.filter(id => loadedRecords.some(record => record.id === id)))
       setEmployees(employeesResponse.data)
     } catch (error: unknown) {
-      setMessage(errorMessage(error, "No se pudieron cargar las ausencias."))
+      setMessage({ kind: "error", text: getErrorMessage(error, "No se pudieron cargar las ausencias.") })
     } finally {
       setLoading(false)
     }
@@ -146,37 +140,37 @@ export default function AbsencesTab() {
 
   async function reprocess() {
     setReprocessing(true)
-    setMessage("")
+    setMessage(null)
     try {
       const response = await api.post("/api/absences/reprocess", { date_start: dateStart, date_end: dateEnd })
-      setMessage(`Reproceso finalizado: ${response.data.created_absences} ausencia(s) nueva(s).`)
+      setMessage({ kind: "success", text: `Reproceso finalizado: ${response.data.created_absences} ausencia(s) nueva(s).` })
       await load()
     } catch (error: unknown) {
-      setMessage(errorMessage(error, "No se pudieron reprocesar las ausencias."))
+      setMessage({ kind: "error", text: getErrorMessage(error, "No se pudieron reprocesar las ausencias.") })
     } finally {
       setReprocessing(false)
     }
   }
 
   async function saveJustification() {
-    if (!selected || !reason.trim()) { setModalError("Debe indicar el motivo de la justificación."); return }
+    if (!selected || !reason.trim()) { setModalError("Indicá el motivo de la justificación."); return }
     setSaving(true)
     try {
       const endpoint = isRoot ? "justify" : "request-justify"
       await api.patch(`/api/absences/${selected.id}/${endpoint}`, { justification: reason.trim() })
       setSelected(null)
-      setMessage(isRoot ? "Ausencia justificada." : "Solicitud de justificación enviada a root.")
+      setMessage({ kind: "success", text: isRoot ? "Ausencia justificada." : "Solicitud de justificación enviada a root." })
       await load()
     } catch (error: unknown) {
-      setModalError(errorMessage(error, "No se pudo guardar la justificación."))
+      setModalError(getErrorMessage(error, "No se pudo guardar la justificación."))
     } finally {
       setSaving(false)
     }
   }
 
   async function saveBulkJustification() {
-    if (selectedIds.length === 0) { setBulkError("Debe seleccionar al menos una ausencia."); return }
-    if (!bulkReason.trim()) { setBulkError("Debe indicar el motivo de la justificación."); return }
+    if (selectedIds.length === 0) { setBulkError("Seleccioná al menos una ausencia."); return }
+    if (!bulkReason.trim()) { setBulkError("Indicá el motivo de la justificación."); return }
     setBulkSaving(true)
     try {
       const response = await api.post("/api/absences/bulk-justify", { record_ids: selectedIds, justification: bulkReason.trim() })
@@ -185,26 +179,26 @@ export default function AbsencesTab() {
       const updated = response.data.updated || 0
       const requested = response.data.requested || 0
       const skipped = response.data.skipped || 0
-      setMessage(isRoot
+      setMessage({ kind: "success", text: isRoot
         ? `Ausencias justificadas: ${updated}. Omitidas: ${skipped}.`
-        : `Solicitudes enviadas: ${requested}. Omitidas: ${skipped}.`)
+        : `Solicitudes enviadas: ${requested}. Omitidas: ${skipped}.` })
       await load()
     } catch (error: unknown) {
-      setBulkError(errorMessage(error, "No se pudieron justificar las ausencias seleccionadas."))
+      setBulkError(getErrorMessage(error, "No se pudieron justificar las ausencias seleccionadas."))
     } finally {
       setBulkSaving(false)
     }
   }
 
   async function resolve(record: AbsenceRecord, action: "approve-justify" | "reject-justify") {
-    setMessage("")
+    setMessage(null)
     try {
       const routeBase = record.previous_status === "INCOMPLETO" ? "processed" : "absences"
       await api.patch(`/api/${routeBase}/${record.id}/${action}`)
-      setMessage(action === "approve-justify" ? "Justificación aprobada." : "Justificación rechazada.")
+      setMessage({ kind: "success", text: action === "approve-justify" ? "Justificación aprobada." : "Justificación rechazada." })
       await load()
     } catch (error: unknown) {
-      setMessage(errorMessage(error, "No se pudo completar la acción."))
+      setMessage({ kind: "error", text: getErrorMessage(error, "No se pudo completar la acción.") })
     }
   }
 
@@ -255,7 +249,7 @@ export default function AbsencesTab() {
       justification,
     })
     setSelectedIncomplete(null)
-    setMessage(isRoot ? "Movimiento incompleto corregido y justificado." : "Solicitud de corrección enviada a root.")
+    setMessage({ kind: "success", text: isRoot ? "Movimiento incompleto corregido y justificado." : "Solicitud de corrección enviada a root." })
     await load()
   }
 
@@ -272,13 +266,13 @@ export default function AbsencesTab() {
     {selected && <Modal title={isRoot ? "Justificar ausencia" : "Solicitar justificación"} onClose={() => setSelected(null)}>
       <p className="absence-modal-context">{selected.date} — {employeeName(selected.employee_id)}</p>
       <div className="form-group"><label>Motivo (obligatorio)</label><textarea rows={3} value={reason} onChange={event => setReason(event.target.value)} /></div>
-      {modalError && <p className="absence-message absence-message-error">⚠ {modalError}</p>}
+      <Notice kind="error">{modalError}</Notice>
       <div className="modal-actions"><button className="btn btn-primary" onClick={saveJustification} disabled={saving}>{saving ? "Guardando..." : "Guardar"}</button><button className="btn" onClick={() => setSelected(null)}>Cancelar</button></div>
     </Modal>}
     {bulkModalOpen && <Modal title={isRoot ? "Justificar ausencias seleccionadas" : "Solicitar justificación de ausencias"} onClose={() => setBulkModalOpen(false)}>
       <p className="absence-modal-context">Se aplicará solamente sobre las {selectedIds.length} ausencia(s) seleccionada(s), no sobre todo el período filtrado.</p>
       <div className="form-group"><label>Motivo (obligatorio)</label><textarea rows={3} value={bulkReason} onChange={event => setBulkReason(event.target.value)} placeholder="Ej: Vacaciones, enfermedad, maternidad..." /></div>
-      {bulkError && <p className="absence-message absence-message-error">⚠ {bulkError}</p>}
+      <Notice kind="error">{bulkError}</Notice>
       <div className="modal-actions"><button className="btn btn-primary" onClick={saveBulkJustification} disabled={bulkSaving}>{bulkSaving ? "Guardando..." : "Guardar selección"}</button><button className="btn" onClick={() => setBulkModalOpen(false)}>Cancelar</button></div>
     </Modal>}
 
@@ -294,7 +288,7 @@ export default function AbsencesTab() {
       <button className="btn" onClick={() => void load()} disabled={loading}><RefreshCw size={14} /> Actualizar</button>
     </div>
 
-    {message && <p className={`absence-message ${message.startsWith("No ") ? "absence-message-error" : ""}`}>{message}</p>}
+    {message && <Notice kind={message.kind}>{message.text}</Notice>}
 
     {loading ? <p className="table-empty">Cargando ausencias...</p> : <>
       <div className="table-wrapper"><table className="data-table"><thead><tr>

@@ -3,7 +3,7 @@ from datetime import date, time
 from PySide6.QtCore import QDate, Qt, QTime
 from PySide6.QtWidgets import (
     QDateEdit, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
-    QMessageBox, QPushButton, QStyle, QTableWidget, QTableWidgetItem,
+    QPushButton, QStyle, QTableWidget, QTableWidgetItem,
     QTimeEdit, QVBoxLayout, QWidget, QHeaderView, QTextEdit, QComboBox,
 )
 from sqlalchemy.orm import Session
@@ -12,6 +12,7 @@ from models.employee import User
 from models.processed_attendance import ProcessedAttendance
 from services.absences import AbsenceService, attendance_attention_filter
 from services.justification import JustificationService
+from ui.messages import show_info, show_success, show_warning
 
 
 class AbsencesTab(QWidget):
@@ -88,7 +89,7 @@ class AbsencesTab(QWidget):
     def _selected_record(self):
         row = self.table.currentRow()
         if row < 0:
-            QMessageBox.warning(self, "Atención", "Seleccioná una fila primero.")
+            show_warning(self, "Ausencias", "Seleccioná una fila primero.")
             return None
         item = self.table.item(row, 0)
         record_id = item.data(Qt.ItemDataRole.UserRole) if item else None
@@ -121,10 +122,10 @@ class AbsencesTab(QWidget):
         start = self.date_start.date().toPython()
         end = self.date_end.date().toPython()
         if end < start or end > date.today():
-            QMessageBox.warning(self, "Rango inválido", "Elegí un rango válido que no incluya fechas futuras.")
+            show_warning(self, "Reprocesar ausencias", "Elegí un rango válido que no incluya fechas futuras.")
             return
         created = AbsenceService(self.session).sync(start, end)
-        QMessageBox.information(self, "Ausencias", f"Reproceso completado: {created} ausencia(s) nueva(s).")
+        show_success(self, "Reprocesar ausencias", f"Reproceso finalizado: {created} ausencia(s) nueva(s).")
         self.load_data()
 
     def _reason_dialog(self, title: str, record: ProcessedAttendance):
@@ -189,14 +190,14 @@ class AbsencesTab(QWidget):
             else:
                 service.request(record, first_in, last_out, reason.toPlainText().strip(), self.current_username)
         else:
-            QMessageBox.information(self, "Gestión", "Los pendientes de movimientos se administran desde Movimientos Procesados.")
+            show_info(self, "Ausencias", "Los pendientes de movimientos se administran desde Movimientos procesados.")
             return
         self.load_data()
 
     def approve_selected(self):
         record = self._selected_record()
         if not record or record.status != "PENDIENTE" or record.previous_status != "AUSENTE":
-            QMessageBox.warning(self, "Atención", "Seleccioná una justificación de ausencia pendiente.")
+            show_warning(self, "Ausencias", "Seleccioná una justificación de ausencia pendiente.")
             return
         JustificationService(self.session).approve_absence(record)
         self.load_data()
@@ -204,7 +205,7 @@ class AbsencesTab(QWidget):
     def reject_selected(self):
         record = self._selected_record()
         if not record or record.status != "PENDIENTE" or record.previous_status != "AUSENTE":
-            QMessageBox.warning(self, "Atención", "Seleccioná una justificación de ausencia pendiente.")
+            show_warning(self, "Ausencias", "Seleccioná una justificación de ausencia pendiente.")
             return
         JustificationService(self.session).reject_absence(record)
         self.load_data()

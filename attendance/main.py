@@ -79,7 +79,8 @@ if __name__ == "__main__":
     app.setStyleSheet(qss_dark if theme == "dark" else qss_light)
 
     # Ventana de login
-    from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox
+    from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton
+    from ui.messages import show_warning
     from sqlalchemy.orm import Session
     from core.security import verify_password, hash_password, validate_password
     from models.user import AuthUser
@@ -213,12 +214,12 @@ AAABAAEAICAAAAAAIADaCQAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAgAAAAIAgGAAAAc3p69AAACaFJ
                         p1 = new_pass.text()
                         p2 = confirm_pass.text()
                         if p1 != p2:
-                            QMessageBox.warning(dlg, "Error", "Las contraseñas no coinciden.")
+                            show_warning(dlg, "Cambiar contraseña", "Las contraseñas no coinciden.")
                             return
                         try:
                             validate_password(p1)
                         except ValueError as exc:
-                            QMessageBox.warning(dlg, "Error", str(exc))
+                            show_warning(dlg, "Cambiar contraseña", str(exc))
                             return
                         user.password_hash = hash_password(p1)
                         user.must_change_password = False

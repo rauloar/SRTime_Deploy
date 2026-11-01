@@ -1,8 +1,10 @@
 "use client"
 import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "../context/AuthContext"
-import axios from "axios"
 import { Plus, RefreshCw, Pencil, Trash2, X } from "lucide-react"
+import Notice from "./Notice"
+import { useMessages } from "../context/MessageContext"
+import { getErrorMessage } from "../utils/messages"
 
 interface AuthUser {
   id: number
@@ -32,16 +34,9 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <div className="form-group"><label>{label}</label>{children}</div>
 }
 
-function getErrorMessage(error: unknown, fallback: string) {
-  if (axios.isAxiosError(error)) {
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
-    if (detail) return detail
-  }
-  return fallback
-}
-
 export default function AuthUsersTab() {
   const { api } = useAuth()
+  const { showMessage, confirmAction } = useMessages()
   const [items, setItems] = useState<AuthUser[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -55,7 +50,7 @@ export default function AuthUsersTab() {
       const res = await api.get("/api/auth-users/")
       setItems(res.data)
     } catch (e: unknown) {
-      setError(getErrorMessage(e, "Error al cargar usuarios autorizados"))
+      setError(getErrorMessage(e, "No se pudieron cargar las cuentas autorizadas."))
     } finally {
       setLoading(false)
     }
@@ -78,7 +73,7 @@ export default function AuthUsersTab() {
   async function handleSave() {
     try {
       if (!current.username?.trim()) {
-        setError("El usuario es obligatorio")
+        setError("El usuario es obligatorio.")
         return
       }
       if (modal === "add") {
@@ -103,17 +98,17 @@ export default function AuthUsersTab() {
       setModal(null)
       await load()
     } catch (e: unknown) {
-      setError(getErrorMessage(e, "Error al guardar"))
+      setError(getErrorMessage(e, "No se pudo guardar la cuenta."))
     }
   }
 
   async function handleDelete(u: AuthUser) {
-    if (!confirm(`¿Eliminar cuenta '${u.username}'?`)) return
+    if (!await confirmAction({ title: "Eliminar cuenta", text: `¿Eliminar la cuenta '${u.username}'?`, confirmLabel: "Eliminar", danger: true })) return
     try {
       await api.delete(`/api/auth-users/${u.id}`)
       await load()
     } catch (e: unknown) {
-      setError(getErrorMessage(e, "Error al eliminar"))
+      void showMessage({ kind: "error", title: "Eliminar cuenta", text: getErrorMessage(e, "No se pudo eliminar la cuenta.") })
     }
   }
 
@@ -136,7 +131,7 @@ export default function AuthUsersTab() {
               <option value="no">No</option>
             </select>
           </Field>
-          {error && <p style={{ color: "var(--status-error)", fontSize: 13, marginBottom: 10 }}>⚠ {error}</p>}
+          <Notice kind="error">{error}</Notice>
           <div style={{ display: "flex", gap: 8 }}>
             <button className="btn btn-primary" onClick={handleSave}>Guardar</button>
             <button className="btn" onClick={() => setModal(null)}>Cancelar</button>
@@ -149,7 +144,7 @@ export default function AuthUsersTab() {
         <button className="btn" onClick={load}><RefreshCw size={14} /></button>
       </div>
 
-      {error && <p style={{ color: "var(--status-error)", marginBottom: 10 }}>⚠ {error}</p>}
+      <Notice kind="error">{error}</Notice>
       {loading ? <p style={{ padding: 20, opacity: 0.6 }}>Cargando usuarios autorizados...</p> : (
         <div className="table-wrapper">
           <table className="data-table">

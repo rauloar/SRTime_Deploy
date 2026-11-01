@@ -1,17 +1,10 @@
 "use client"
 import { useState, useEffect } from "react"
 import { useAuth } from "../context/AuthContext"
-import axios from "axios"
 import { Upload, RefreshCw } from "lucide-react"
 import OperationProgress, { OperationJob } from "./OperationProgress"
-
-function getErrorMessage(error: unknown, fallback: string) {
-  if (axios.isAxiosError(error)) {
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
-    if (detail) return detail
-  }
-  return fallback
-}
+import Notice from "./Notice"
+import { getErrorMessage } from "../utils/messages"
 
 interface ParserInfo {
   name: string
@@ -90,8 +83,8 @@ export default function ImportTab({ fileImport, networkImport }: { fileImport: b
           setLogs(result.logs || [])
           setRunning(false)
         }
-        if (next.state === "failed") { setError(next.error || next.message); setRunning(false) }
-      } catch { setError("No se pudo consultar el progreso de importación"); setRunning(false) }
+        if (next.state === "failed") { setError(next.error || next.message || "La importación no pudo completarse."); setRunning(false) }
+      } catch { setError("No se pudo consultar el progreso de la importación."); setRunning(false) }
     }, 500)
     return () => window.clearInterval(timer)
   }, [api, job])
@@ -118,7 +111,7 @@ export default function ImportTab({ fileImport, networkImport }: { fileImport: b
       const details: { label: string; value: string }[] = res.data.details || []
       setLogs(details.map(item => `${item.label}: ${item.value}`))
     } catch (e: unknown) {
-      setError(getErrorMessage(e, "Error al probar la conexión con el dispositivo"))
+      setError(getErrorMessage(e, "No se pudo conectar con la terminal."))
     } finally {
       setRunning(false)
     }
@@ -132,7 +125,7 @@ export default function ImportTab({ fileImport, networkImport }: { fileImport: b
       setStatus("Hora sincronizada")
       setLogs(["Sincronización completada"])
     } catch (e: unknown) {
-      setError(getErrorMessage(e, "Error al sincronizar la hora del dispositivo"))
+      setError(getErrorMessage(e, "No se pudo poner en hora la terminal."))
     } finally {
       setRunning(false)
     }
@@ -147,7 +140,7 @@ export default function ImportTab({ fileImport, networkImport }: { fileImport: b
         setStatus(`Logs: ${res.data.total} | Nuevos: ${res.data.nuevos} | Duplicados: ${res.data.duplicados}`)
         setLogs((res.data.logs || []) as string[])
       } catch (e: unknown) {
-        setError(getErrorMessage(e, "Error al descargar logs del dispositivo"))
+        setError(getErrorMessage(e, "No se pudieron descargar los registros de la terminal."))
       } finally {
         setRunning(false)
       }
@@ -155,14 +148,14 @@ export default function ImportTab({ fileImport, networkImport }: { fileImport: b
     }
 
     if (!file) {
-      setError("Selecciona un archivo primero")
+      setError("Seleccioná un archivo primero.")
       return
     }
     const parser = parsers.find(item => item.name === selectedParser)
     const allowedExtensions = parser?.ui_features?.file_extensions || [".txt"]
     const extension = `.${file.name.split(".").pop()?.toLowerCase() || ""}`
     if (!allowedExtensions.includes(extension)) {
-      setError(`El formato seleccionado admite: ${allowedExtensions.join(", ")}`)
+      setError(`El formato seleccionado admite: ${allowedExtensions.join(", ")}.`)
       return
     }
 
@@ -176,7 +169,7 @@ export default function ImportTab({ fileImport, networkImport }: { fileImport: b
       })
       setJob(res.data as OperationJob)
     } catch (e: unknown) {
-      setError(getErrorMessage(e, "Error al importar"))
+      setError(getErrorMessage(e, "No se pudo importar el archivo."))
       setRunning(false)
     }
   }
@@ -239,7 +232,7 @@ export default function ImportTab({ fileImport, networkImport }: { fileImport: b
             </select>
 
             {terminals.length === 0 ? (
-               <span style={{ opacity: 0.6, fontSize: 12 }}>⚠️ No hay terminales configuradas. Dirígete a la pestaña &quot;Terminales&quot;.</span>
+               <Notice kind="warning">No hay terminales configuradas. Agregalas en la pestaña &quot;Terminales&quot;.</Notice>
             ) : (
                 <div style={{ display: "flex", gap: 5, marginLeft: 10 }}>
                   <button className="btn" onClick={testConnection} disabled={running || !selectedTerminal}>
@@ -296,7 +289,7 @@ export default function ImportTab({ fileImport, networkImport }: { fileImport: b
 
       <OperationProgress job={job} />
 
-      {error && <p style={{ color: "var(--status-error)", marginBottom: 10 }}>⚠ {error}</p>}
+      <Notice kind="error">{error}</Notice>
 
       <div className="table-wrapper" style={{ maxHeight: 300, overflowY: "auto", padding: 10 }}>
         {logs.length === 0 ? (

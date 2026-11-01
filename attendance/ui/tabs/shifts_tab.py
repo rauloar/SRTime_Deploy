@@ -1,10 +1,11 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-                               QTableWidget, QTableWidgetItem, QMessageBox, QHeaderView, QStyle, QInputDialog, QDialog, QLineEdit, QLabel, QTimeEdit, QCheckBox)
+                               QTableWidget, QTableWidgetItem, QHeaderView, QStyle, QInputDialog, QDialog, QLineEdit, QLabel, QTimeEdit, QCheckBox)
 from PySide6.QtCore import Qt, QTime
 from sqlalchemy.orm import Session
 from models.shift import Shift
 from models.employee import User
 from datetime import time
+from ui.messages import ask_confirm, show_warning
 
 class ShiftsTab(QWidget):
     def __init__(self, session: Session):
@@ -94,13 +95,13 @@ class ShiftsTab(QWidget):
         def save():
             name = le_name.text().strip()
             if not name:
-                QMessageBox.warning(self, "Error", "El nombre del turno es obligatorio.")
+                show_warning(self, "Turnos", "El nombre del turno es obligatorio.")
                 return
             try:
                 grace = int(le_grace.text())
                 break_min = int(le_break.text())
             except ValueError:
-                QMessageBox.warning(self, "Error", "La tolerancia y la pausa deben ser números enteros.")
+                show_warning(self, "Turnos", "La tolerancia y la pausa tienen que ser números enteros.")
                 return
 
             qt_in = te_in.time()
@@ -175,13 +176,13 @@ class ShiftsTab(QWidget):
         def save():
             name = le_name.text().strip()
             if not name:
-                QMessageBox.warning(self, "Error", "El nombre del turno es obligatorio.")
+                show_warning(self, "Turnos", "El nombre del turno es obligatorio.")
                 return
             try:
                 grace = int(le_grace.text())
                 break_min = int(le_break.text())
             except ValueError:
-                QMessageBox.warning(self, "Error", "La tolerancia y la pausa deben ser números enteros.")
+                show_warning(self, "Turnos", "La tolerancia y la pausa tienen que ser números enteros.")
                 return
 
             qt_in = te_in.time()
@@ -206,10 +207,7 @@ class ShiftsTab(QWidget):
         shift = self.session.query(Shift).filter_by(id=shift_id).first()
         if not shift: return
         
-        confirm = QMessageBox.question(self, "Eliminar Turno", f"¿Estás seguro de eliminar el turno '{shift.name}'?\nEsto podría afectar los cálculos de los empleados que lo tengan asignado.", 
-                                       QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        
-        if confirm == QMessageBox.StandardButton.Yes:
+        if ask_confirm(self, "Eliminar turno", f"¿Eliminar el turno '{shift.name}'? Puede afectar los cálculos de los empleados que lo tienen asignado.", "Eliminar", danger=True):
             self.session.delete(shift)
             self.session.commit()
             self.load_data()

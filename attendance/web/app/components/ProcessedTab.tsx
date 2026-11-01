@@ -1,11 +1,13 @@
 "use client"
 import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "../context/AuthContext"
-import axios from "axios"
 import { RefreshCw, Play, RotateCcw } from "lucide-react"
 import Pagination from "./Pagination"
 import { downloadCsv, downloadFromApi } from "../utils/download"
+import type { Feedback } from "../utils/messages"
 import OperationProgress, { OperationJob } from "./OperationProgress"
+import Notice from "./Notice"
+import { getErrorMessage } from "../utils/messages"
 
 interface ProcessedRecord {
   id: number; employee_id: number; date: string;
@@ -23,14 +25,6 @@ const STATUS_BADGE: Record<string, string> = {
 function today() { return new Date().toISOString().slice(0, 10) }
 function daysAgo(n: number) { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10) }
 
-function getErrorMessage(error: unknown, fallback: string) {
-  if (axios.isAxiosError(error)) {
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
-    if (detail) return detail
-  }
-  return fallback
-}
-
 export default function ProcessedTab() {
   const { api } = useAuth()
   const [records, setRecords]   = useState<ProcessedRecord[]>([])
@@ -39,7 +33,7 @@ export default function ProcessedTab() {
   const [dateStart, setDateStart] = useState(daysAgo(30))
   const [dateEnd, setDateEnd]     = useState(today())
   const [empFilter, setEmpFilter] = useState("")
-  const [actionMsg, setActionMsg] = useState("")
+  const [actionMsg, setActionMsg] = useState<Feedback>(null)
   const [processing, setProcessing] = useState<"pending" | "all" | null>(null)
   const [job, setJob] = useState<OperationJob | null>(null)
   const [page, setPage]           = useState(1)
@@ -66,11 +60,11 @@ export default function ProcessedTab() {
         setJob(next)
         if (next.state === "completed") {
           await load()
-          setActionMsg(`Proceso completado: ${next.result?.processed_days || 0} flujos diarios procesados.`)
+          setActionMsg({ kind: "success", text: `Proceso completado: ${next.result?.processed_days || 0} jornadas procesadas.` })
           setProcessing(null)
         }
-        if (next.state === "failed") { setActionMsg(next.error || next.message); setProcessing(null) }
-      } catch { setActionMsg("No se pudo consultar el progreso del proceso"); setProcessing(null) }
+        if (next.state === "failed") { setActionMsg({ kind: "error", text: next.error || next.message || "El proceso no pudo completarse." }); setProcessing(null) }
+      } catch { setActionMsg({ kind: "error", text: "No se pudo consultar el progreso del proceso." }); setProcessing(null) }
     }, 500)
     return () => window.clearInterval(timer)
   }, [api, job, load])
@@ -121,12 +115,12 @@ export default function ProcessedTab() {
 
   async function runProcess(mode: "pending" | "all") {
     setProcessing(mode)
-    setActionMsg("")
+    setActionMsg(null)
     try {
       const res = await api.post(`/api/processed/jobs/${mode}`)
       setJob(res.data as OperationJob)
     } catch (e: unknown) {
-      setActionMsg(getErrorMessage(e, "Error al ejecutar el proceso"))
+      setActionMsg({ kind: "error", text: getErrorMessage(e, "No se pudo ejecutar el proceso.") })
       setProcessing(null)
     }
   }
@@ -156,7 +150,7 @@ export default function ProcessedTab() {
 
       <OperationProgress job={job} />
 
-      {actionMsg && <p style={{ fontSize: 13, marginBottom: 10, color: actionMsg.startsWith("Error") ? "var(--status-error)" : "var(--text-secondary)" }}>⚠ {actionMsg}</p>}
+      {actionMsg && <Notice kind={actionMsg.kind}>{actionMsg.text}</Notice>}
 
       {loading ? <p style={{ padding: 20, opacity: 0.6 }}>Cargando asistencias...</p> : (
         <>

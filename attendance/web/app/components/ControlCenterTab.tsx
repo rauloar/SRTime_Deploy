@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react"
 import { Activity, Database, HardDriveDownload, RefreshCw, ServerCog } from "lucide-react"
 import { useAuth } from "../context/AuthContext"
+import Notice from "./Notice"
+import { getErrorMessage } from "../utils/messages"
 
 type Status = {
   application: { status: string }
@@ -33,13 +35,13 @@ export default function ControlCenterTab() {
   async function backupNow() {
     setCreating(true); setError("")
     try { await api.post("/api/control/backups"); await refresh() }
-    catch (err: unknown) { setError((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "No se pudo crear el backup.") }
+    catch (err: unknown) { setError(getErrorMessage(err, "No se pudo crear el backup.")) }
     finally { setCreating(false) }
   }
 
   return <div className="fade-in">
     <div className="tab-header"><div><h2>Control Center</h2><p>Estado operativo local de SRTime.</p></div><button className="btn" onClick={() => void refresh()} disabled={loading}><RefreshCw size={15} /> Actualizar</button></div>
-    {error && <p className="absence-message absence-message-error">{error}</p>}
+    <Notice kind="error">{error}</Notice>
     <div className="control-grid">
       <article className="control-card"><Activity size={20} /><h3>Aplicación</h3><strong className="badge badge-ok">{data ? label(data.application.status) : "Consultando"}</strong><p>FastAPI y la interfaz Web usan un único proceso.</p></article>
       <article className="control-card"><Database size={20} /><h3>Base de datos</h3><strong className={`badge ${data?.database.status === "ok" ? "badge-ok" : "badge-error"}`}>{data ? label(data.database.status) : "Consultando"}</strong><p>{data ? `${data.database.engine.toUpperCase()}${data.database.error ? `: ${data.database.error}` : ""}` : ""}</p></article>

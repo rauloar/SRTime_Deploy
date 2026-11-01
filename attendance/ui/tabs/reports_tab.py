@@ -2,7 +2,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView,
     QLabel, QComboBox, QSpinBox, QFileDialog,
-    QMessageBox, QStyle
+    QStyle
 )
 from PySide6.QtCore import Qt
 from sqlalchemy.orm import Session
@@ -14,6 +14,7 @@ from services.reports import (
 )
 from services.constants import MONTH_NAMES
 from services.export_helpers import build_excel_workbook
+from ui.messages import show_info, show_success
 
 _MONTHS = MONTH_NAMES[1:]
 
@@ -112,7 +113,7 @@ class ReportsTab(QWidget):
         self.btn_export_pdf.setEnabled(bool(self._records))
 
         if not self._records:
-            QMessageBox.information(self, "Sin datos", "No hay registros para el período seleccionado.")
+            show_info(self, "Reportes", "No hay registros para el período seleccionado.")
 
     def _export_excel(self):
         if not self._records:
@@ -129,7 +130,7 @@ class ReportsTab(QWidget):
             title=monthly_report_title(month, year),
         )
         wb.save(path)
-        QMessageBox.information(self, "Exportado", f"Reporte guardado en:\n{path}")
+        show_success(self, "Exportar reporte", "Reporte guardado.", [f"Archivo: {path}"])
 
     def _export_pdf(self):
         if not self._records:
@@ -142,4 +143,4 @@ class ReportsTab(QWidget):
         month = self.cb_month.currentText()
         year = self.sp_year.value()
         build_monthly_pdf(self._records, month, year, path)
-        QMessageBox.information(self, "Exportado", f"Reporte PDF guardado en:\n{path}")
+        show_success(self, "Exportar reporte", "Reporte PDF guardado.", [f"Archivo: {path}"])

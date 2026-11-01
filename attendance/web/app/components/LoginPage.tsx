@@ -3,7 +3,9 @@ import { useEffect, useState } from "react"
 import Image from "next/image"
 import { useAuth } from "../context/AuthContext"
 import axios from "axios"
-import { Database, Lock, User, AlertCircle, LogIn } from "lucide-react"
+import { Database, Lock, User, LogIn } from "lucide-react"
+import Notice from "./Notice"
+import { getErrorMessage } from "../utils/messages"
 
 const API = process.env.NEXT_PUBLIC_API_URL || ""
 const APP_VERSION = "v0.9.0-beta.10"
@@ -55,7 +57,7 @@ export default function LoginPage() {
     try {
       await login(username, password)
     } catch {
-      setError("Usuario o contraseña incorrectos")
+      setError("Usuario o contraseña incorrectos.")
     } finally {
       setLoading(false)
     }
@@ -71,11 +73,7 @@ export default function LoginPage() {
       })
       setDatabaseCreated(true)
     } catch (err) {
-      if (axios.isAxiosError(err)) {
-        setError(err.response?.data?.detail || "No se pudo configurar PostgreSQL")
-      } else {
-        setError("No se pudo configurar PostgreSQL")
-      }
+      setError(getErrorMessage(err, "No se pudo configurar PostgreSQL."))
     } finally {
       setLoading(false)
     }
@@ -84,7 +82,7 @@ export default function LoginPage() {
   async function handleCreateAdmin(e: React.FormEvent) {
     e.preventDefault()
     if (adminPassword !== confirmAdminPassword) {
-      setError("Las contraseñas de administrador no coinciden")
+      setError("Las contraseñas de administrador no coinciden.")
       return
     }
     setLoading(true); setError("")
@@ -95,8 +93,7 @@ export default function LoginPage() {
       })
       await login("admin", adminPassword)
     } catch (err) {
-      if (axios.isAxiosError(err)) setError(err.response?.data?.detail || "No se pudo crear o verificar el administrador")
-      else setError("No se pudo crear o verificar el administrador")
+      setError(getErrorMessage(err, "No se pudo crear o verificar el administrador."))
     } finally { setLoading(false) }
   }
 
@@ -151,7 +148,7 @@ export default function LoginPage() {
           {passwordsMismatch && <p className="password-match-message password-match-error">Las contraseñas no coinciden.</p>}
           {passwordsMatch && <p className="password-match-message password-match-ok">Las contraseñas coinciden.</p>}
           <div className="setup-actions">
-            {error && <div style={{ display: "flex", alignItems: "center", gap: 7, color: "var(--status-error)", fontSize: 13, marginBottom: 12 }}><AlertCircle size={14} /> {error}</div>}
+            <Notice kind="error">{error}</Notice>
             <button type="submit" className="btn btn-primary" style={{ width: "100%", justifyContent: "center", gap: 8, height: 40 }} disabled={loading || !databaseCreated || !passwordsMatch}>
               {loading ? "Creando..." : <><Database size={16} /> Crear administrador e iniciar</>}
             </button>
@@ -185,11 +182,7 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {error && (
-            <div style={{ display: "flex", alignItems: "center", gap: 7, color: "var(--status-error)", fontSize: 13, marginBottom: 12 }}>
-              <AlertCircle size={14} /> {error}
-            </div>
-          )}
+          <Notice kind="error">{error}</Notice>
 
           <button type="submit" className="btn btn-primary" style={{ width: "100%", justifyContent: "center", gap: 8, height: 40, marginTop: 4 }} disabled={loading}>
             {loading ? "Iniciando sesión..." : <><LogIn size={16} /> Iniciar Sesión</>}

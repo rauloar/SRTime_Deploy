@@ -1,8 +1,9 @@
 "use client"
 
 import { useState } from "react"
-import axios from "axios"
 import { X } from "lucide-react"
+import { getErrorMessage } from "../utils/messages"
+import Notice from "./Notice"
 
 export interface AttendanceCorrectionValues {
   firstIn: string
@@ -20,14 +21,6 @@ interface Props {
   onSave: (values: AttendanceCorrectionValues) => Promise<void>
 }
 
-function errorMessage(error: unknown) {
-  if (axios.isAxiosError(error)) {
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
-    if (detail) return detail
-  }
-  return "Error al guardar la justificación."
-}
-
 /** Formulario único para corregir una jornada incompleta y justificarla. */
 export default function AttendanceCorrectionModal({
   title = "Justificar asistencia", context, firstIn, lastOut, justification, onClose, onSave,
@@ -40,7 +33,7 @@ export default function AttendanceCorrectionModal({
 
   async function save() {
     if (!reason.trim()) {
-      setError("Debe explicar el motivo de la justificación.")
+      setError("Indicá el motivo de la justificación.")
       return
     }
     setSaving(true)
@@ -48,7 +41,7 @@ export default function AttendanceCorrectionModal({
     try {
       await onSave({ firstIn: entry, lastOut: exit, justification: reason.trim() })
     } catch (saveError: unknown) {
-      setError(errorMessage(saveError))
+      setError(getErrorMessage(saveError, "No se pudo guardar la justificación."))
     } finally {
       setSaving(false)
     }
@@ -64,7 +57,7 @@ export default function AttendanceCorrectionModal({
     <div className="form-group"><label>Entrada real / justificada</label><input type="time" value={entry} onChange={event => setEntry(event.target.value)} /></div>
     <div className="form-group"><label>Salida real / justificada</label><input type="time" value={exit} onChange={event => setExit(event.target.value)} /></div>
     <div className="form-group"><label>Razón de justificación (obligatorio)</label><textarea rows={3} value={reason} onChange={event => setReason(event.target.value)} /></div>
-    {error && <p className="absence-message absence-message-error">⚠ {error}</p>}
+    <Notice kind="error">{error}</Notice>
     <div className="modal-actions"><button className="btn btn-primary" onClick={() => void save()} disabled={saving}>{saving ? "Guardando..." : "Guardar justificación"}</button><button className="btn" onClick={onClose}>Cancelar</button></div>
   </div></div>
 }

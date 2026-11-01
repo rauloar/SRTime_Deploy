@@ -1,10 +1,12 @@
 "use client"
 import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "../context/AuthContext"
-import axios from "axios"
 import { Plus, RefreshCw, Pencil, Trash2, X, Fingerprint, Activity, Download, Clock, CalendarClock, Users, Upload, Wifi, History } from "lucide-react"
 import Pagination from "./Pagination"
 import AppDialog from "./AppDialog"
+import Notice from "./Notice"
+import { useMessages } from "../context/MessageContext"
+import { getErrorMessage } from "../utils/messages"
 
 interface Terminal {
   id: number;
@@ -101,14 +103,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <div className="form-group"><label>{label}</label>{children}</div>
 }
 
-function getErrorMessage(error: unknown, fallback: string) {
-  if (axios.isAxiosError(error)) {
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
-    if (detail) return detail
-  }
-  return fallback
-}
-
 function scheduleLabel(schedule?: PullSchedule) {
   if (!schedule?.enabled) return "Manual"
   if (schedule.mode === "weekly") {
@@ -120,6 +114,7 @@ function scheduleLabel(schedule?: PullSchedule) {
 
 export default function TerminalsTab() {
   const { api } = useAuth()
+  const { showMessage, confirmAction } = useMessages()
   const [terminals, setTerminals] = useState<Terminal[]>([])
   const [parsers, setParsers]     = useState<ParserInfo[]>([])
   const [loading, setLoading]   = useState(true)
@@ -225,7 +220,7 @@ export default function TerminalsTab() {
       }
       setModal(null); load()
     } catch (e: unknown) { 
-      setError(getErrorMessage(e, "Error al guardar el equipo."))
+      setError(getErrorMessage(e, "No se pudo guardar la terminal."))
     } finally { 
       setSaving(false) 
     }
@@ -238,7 +233,7 @@ export default function TerminalsTab() {
       setTerminalToDelete(null)
       load()
     } catch (e) {
-      alert(getErrorMessage(e, "Error al eliminar la terminal."))
+      void showMessage({ kind: "error", title: "Eliminar terminal", text: getErrorMessage(e, "No se pudo eliminar la terminal.") })
     }
   }
 
@@ -247,10 +242,10 @@ export default function TerminalsTab() {
     try {
       const res = await api.post(`/api/terminals/${id}/test`)
       const details: { label: string; value: string }[] = res.data.details || []
-      alert(["✅ Conexión exitosa.", ...details.map(item => `${item.label}: ${item.value}`)].join("\n"))
+      void showMessage({ kind: "success", title: "Probar conexión", text: "La terminal respondió correctamente.", details: details.map(item => `${item.label}: ${item.value}`) })
       load() // recargar para mostrar el serial number en la tabla
     } catch (e) {
-      alert(getErrorMessage(e, "Error al conectar."))
+      void showMessage({ kind: "error", title: "Probar conexión", text: getErrorMessage(e, "No se pudo conectar con la terminal.") })
     } finally {
       setTestingId(null)
     }
@@ -260,9 +255,9 @@ export default function TerminalsTab() {
     setSyncingId(id)
     try {
       await api.post(`/api/terminals/${id}/sync`)
-      alert("✅ Sincronización completada.")
+      void showMessage({ kind: "success", title: "Poner en hora", text: "La terminal quedó en hora con el servidor." })
     } catch (e) {
-      alert(getErrorMessage(e, "Error al sincronizar reloj."))
+      void showMessage({ kind: "error", title: "Poner en hora", text: getErrorMessage(e, "No se pudo poner en hora la terminal.") })
     } finally {
       setSyncingId(null)
     }
@@ -271,14 +266,14 @@ export default function TerminalsTab() {
   async function setAttendancePointer(t: Terminal) {
     if (!pointerDate) return
     const shown = pointerDate.split("-").reverse().join("/")
-    if (!window.confirm(`La terminal volverá a entregar los registros desde el ${shown}. Los que ya están en SRTime se cuentan como duplicados. ¿Continuar?`)) return
+    if (!await confirmAction({ title: "Volver a bajar registros", text: `La terminal volverá a entregar los registros desde el ${shown}. Los que ya están en SRTime se cuentan como duplicados. ¿Continuar?`, confirmLabel: "Continuar" })) return
     setSettingPointer(true)
     try {
       await api.post(`/api/terminals/${t.id}/pointer`, { since: pointerDate })
-      alert(`✅ Listo. Usá "Bajar registros" para descargar desde el ${shown}.`)
+      void showMessage({ kind: "success", title: "Volver a bajar registros", text: `Lectura reposicionada. Usá "Bajar registros" para descargar desde el ${shown}.` })
       setPointerDate("")
     } catch (e) {
-      alert(getErrorMessage(e, "No se pudo reposicionar la lectura de la terminal."))
+      void showMessage({ kind: "error", title: "Volver a bajar registros", text: getErrorMessage(e, "No se pudo reposicionar la lectura de la terminal.") })
     } finally {
       setSettingPointer(false)
     }
@@ -295,14 +290,14 @@ export default function TerminalsTab() {
         window.setTimeout(() => { void pollPullJob(terminalId, jobId) }, 700)
       } else {
         setPullingId(null)
-        if (next.state === "completed") alert(`✅ Descarga finalizada. ${next.result?.nuevos || 0} nuevos, ${next.result?.duplicados || 0} duplicados.`)
-        else alert(next.error || "La descarga no pudo completarse.")
+        if (next.state === "completed") void showMessage({ kind: "success", title: "Bajar registros", text: "Descarga finalizada.", details: [`Nuevos: ${next.result?.nuevos || 0}`, `Duplicados: ${next.result?.duplicados || 0}`] })
+        else void showMessage({ kind: "error", title: "Bajar registros", text: next.error || "La descarga no pudo completarse." })
         load()
       }
     } catch (e) {
       setPullingId(null)
       setPullJob(null)
-      alert(getErrorMessage(e, "No se pudo consultar el estado de descarga."))
+      void showMessage({ kind: "error", title: "Bajar registros", text: getErrorMessage(e, "No se pudo consultar el estado de la descarga.") })
     }
   }
 
@@ -315,7 +310,7 @@ export default function TerminalsTab() {
       setPullJob({ ...data, terminalId: t.id })
       void pollPullJob(t.id, data.id)
     } catch (e) {
-      alert(getErrorMessage(e, "No se pudieron descargar los movimientos pendientes."))
+      void showMessage({ kind: "error", title: "Bajar registros", text: getErrorMessage(e, "No se pudieron descargar los registros pendientes.") })
       load()
       setPullingId(null)
     }
@@ -328,7 +323,7 @@ export default function TerminalsTab() {
       setDeviceUsers(data.users || [])
       setDeviceUsersLimit(data.name_max_bytes || null)
     } catch (e) {
-      alert(getErrorMessage(e, "No se pudieron leer los usuarios de la terminal."))
+      void showMessage({ kind: "error", title: "Usuarios de la terminal", text: getErrorMessage(e, "No se pudieron leer los usuarios de la terminal.") })
     } finally {
       setLoadingDeviceUsers(false)
     }
@@ -338,10 +333,10 @@ export default function TerminalsTab() {
     setSyncingNames(true)
     try {
       const { data } = await api.post(`/api/terminals/${t.id}/sync-user-names`)
-      alert(`✅ Perfiles sincronizados: ${data.updated} actualizados de ${data.matched} empleados vinculados. Privilegios: ${data.privilege_updated || 0}.`)
+      void showMessage({ kind: "success", title: "Sincronizar perfiles", text: "Perfiles sincronizados.", details: [`Actualizados: ${data.updated} de ${data.matched} empleados vinculados`, `Privilegios: ${data.privilege_updated || 0}`] })
       await loadDeviceUsers(t)
     } catch (e) {
-      alert(getErrorMessage(e, "No se pudieron sincronizar los perfiles de terminal."))
+      void showMessage({ kind: "error", title: "Sincronizar perfiles", text: getErrorMessage(e, "No se pudieron sincronizar los perfiles de la terminal.") })
     } finally {
       setSyncingNames(false)
     }
@@ -361,7 +356,7 @@ export default function TerminalsTab() {
       return
     }
     if (schedule.enabled && schedule.mode === "weekly" && (!schedule.weekdays?.length || !schedule.scheduled_time)) {
-      setError("Seleccione uno o más días y la hora de descarga.")
+      setError("Seleccioná uno o más días y la hora de descarga.")
       return
     }
     setSavingSchedule(true); setError("")
@@ -454,7 +449,7 @@ export default function TerminalsTab() {
             <label htmlFor="is_active" style={{ margin: 0, cursor: "pointer" }}>Terminal Activa</label>
           </div>
 
-          {error && <p style={{ color: "var(--status-error)", fontSize: 13, marginBottom: 10 }}>⚠ {error}</p>}
+          <Notice kind="error">{error}</Notice>
           <div style={{ display: "flex", gap: 8, marginTop: 15 }}>
             <button className="btn btn-primary" onClick={handleSave} disabled={saving}>{saving ? "Guardando..." : "Guardar Equipo"}</button>
             <button className="btn" onClick={() => setModal(null)}>Cancelar</button>
@@ -501,7 +496,7 @@ export default function TerminalsTab() {
               <Field label="Hasta fecha (opcional):"><input type="date" min={schedule.start_date || undefined} value={schedule.end_date || ""} onChange={e => setSchedule(p => ({ ...p, end_date: e.target.value || null }))} /></Field>
             </div>
           </>}
-          {error && <p style={{ color: "var(--status-error)", fontSize: 13 }}>⚠ {error}</p>}
+          <Notice kind="error">{error}</Notice>
           <div style={{ display: "flex", gap: 8, marginTop: 15 }}>
             <button className="btn btn-primary" disabled={savingSchedule} onClick={saveSchedule}>{savingSchedule ? "Guardando..." : "Guardar automatización"}</button>
             <button className="btn" onClick={() => setScheduleTerminal(null)}>Cancelar</button>

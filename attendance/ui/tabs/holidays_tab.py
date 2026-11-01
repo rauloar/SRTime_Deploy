@@ -2,11 +2,12 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView,
     QDialog, QFormLayout, QLabel, QLineEdit,
-    QDateEdit, QCheckBox, QMessageBox, QStyle
+    QDateEdit, QCheckBox, QStyle
 )
 from PySide6.QtCore import Qt, QDate
 from sqlalchemy.orm import Session
 from datetime import date
+from ui.messages import ask_confirm, show_warning
 
 
 class HolidaysTab(QWidget):
@@ -108,14 +109,14 @@ class HolidaysTab(QWidget):
 
         name = dlg._le_name.text().strip()
         if not name:
-            QMessageBox.warning(self, "Error", "El nombre es obligatorio.")
+            show_warning(self, "Feriados", "El nombre es obligatorio.")
             return
 
         qd = dlg._de_date.date()
         d = date(qd.year(), qd.month(), qd.day())
 
         if self.session.query(Holiday).filter_by(date=d).first():
-            QMessageBox.warning(self, "Error", f"Ya existe un feriado en la fecha {d.strftime('%d/%m/%Y')}.")
+            show_warning(self, "Feriados", f"Ya existe un feriado el {d.strftime('%d/%m/%Y')}.")
             return
 
         self.session.add(Holiday(date=d, name=name, is_recurring=dlg._chk_recurring.isChecked()))
@@ -134,7 +135,7 @@ class HolidaysTab(QWidget):
 
         name = dlg._le_name.text().strip()
         if not name:
-            QMessageBox.warning(self, "Error", "El nombre es obligatorio.")
+            show_warning(self, "Feriados", "El nombre es obligatorio.")
             return
 
         qd = dlg._de_date.date()
@@ -144,7 +145,7 @@ class HolidaysTab(QWidget):
             Holiday.date == new_date, Holiday.id != hid
         ).first()
         if conflict:
-            QMessageBox.warning(self, "Error", f"Ya existe otro feriado en {new_date.strftime('%d/%m/%Y')}.")
+            show_warning(self, "Feriados", f"Ya existe otro feriado el {new_date.strftime('%d/%m/%Y')}.")
             return
 
         h.date = new_date
@@ -158,12 +159,7 @@ class HolidaysTab(QWidget):
         h = self.session.query(Holiday).filter_by(id=hid).first()
         if not h:
             return
-        confirm = QMessageBox.question(
-            self, "Eliminar Feriado",
-            f"¿Eliminar '{h.name}' ({h.date.strftime('%d/%m/%Y')})?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        if confirm == QMessageBox.StandardButton.Yes:
+        if ask_confirm(self, "Eliminar feriado", f"¿Eliminar el feriado '{h.name}' ({h.date.strftime('%d/%m/%Y')})?", "Eliminar", danger=True):
             self.session.delete(h)
             self.session.commit()
             self.load_data()

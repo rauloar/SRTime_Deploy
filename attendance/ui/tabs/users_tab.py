@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QMessageBox, QHBoxLayout, QPushButton, QInputDialog, QStyle
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QHBoxLayout, QPushButton, QInputDialog, QStyle
 from models.employee import (
     TERMINAL_PRIVILEGE_ADMIN,
     TERMINAL_PRIVILEGE_USER,
@@ -7,6 +7,7 @@ from models.employee import (
 from models.user import AuthUser
 from models.shift import Shift
 from PySide6.QtWidgets import QSizePolicy
+from ui.messages import ask_confirm, show_error, show_info, show_success, show_warning
 
 class UsersTab(QWidget):
     def __init__(self, session):
@@ -126,7 +127,7 @@ class UsersTab(QWidget):
         from PySide6.QtWidgets import QDialog, QVBoxLayout, QLineEdit, QComboBox, QLabel, QPushButton, QHBoxLayout
         user = self.session.query(User).filter_by(id=user_id).first()
         if not user:
-            QMessageBox.warning(self, "Error", "Usuario no encontrado.")
+            show_warning(self, "Empleados", "No se encontró el empleado.")
             return
         identifier = user.identifier
         dialog = QDialog(self)
@@ -175,7 +176,7 @@ class UsersTab(QWidget):
         def guardar():
             new_id = le_id.text()
             if new_id != identifier and self.session.query(User).filter_by(identifier=new_id).first():
-                QMessageBox.warning(dialog, "Error", "El identificador ya existe.")
+                show_warning(dialog, "Empleados", "El identificador ya existe.")
                 return
             user.identifier = new_id
             user.first_name = le_first.text()
@@ -190,7 +191,7 @@ class UsersTab(QWidget):
             user.terminal_privilege = cb_terminal_privilege.currentData()
             self.session.commit()
             dialog.accept()
-            QMessageBox.information(self, "Usuario editado", f"Usuario actualizado a '{new_id}'.")
+            show_success(self, "Editar empleado", f"Empleado actualizado: '{new_id}'.")
             self.load_data()
             
         btn_ok.clicked.connect(guardar)
@@ -200,14 +201,13 @@ class UsersTab(QWidget):
     def delete_user_by_id(self, user_id):
         user = self.session.query(User).filter_by(id=user_id).first()
         if not user:
-            QMessageBox.warning(self, "Error", "Usuario no encontrado.")
+            show_warning(self, "Empleados", "No se encontró el empleado.")
             return
         identifier = user.identifier
-        confirm = QMessageBox.question(self, "Eliminar Usuario", f"¿Eliminar usuario '{identifier}'?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        if confirm == QMessageBox.StandardButton.Yes:
+        if ask_confirm(self, "Eliminar empleado", f"¿Eliminar el empleado '{identifier}'?", "Eliminar", danger=True):
             self.session.delete(user)
             self.session.commit()
-            QMessageBox.information(self, "Usuario eliminado", f"Usuario '{identifier}' eliminado.")
+            show_success(self, "Eliminar empleado", f"Empleado '{identifier}' eliminado.")
             self.load_data()
 
     def add_user(self):
@@ -252,10 +252,10 @@ class UsersTab(QWidget):
         def guardar():
             identifier = le_id.text().strip()
             if not identifier:
-                QMessageBox.warning(dialog, "Error", "El identificador es obligatorio.")
+                show_warning(dialog, "Empleados", "El identificador es obligatorio.")
                 return
             if self.session.query(User).filter_by(identifier=identifier).first():
-                QMessageBox.warning(dialog, "Error", "El identificador ya existe.")
+                show_warning(dialog, "Empleados", "El identificador ya existe.")
                 return
 
             user = User(
@@ -269,7 +269,7 @@ class UsersTab(QWidget):
             self.session.add(user)
             self.session.commit()
             dialog.accept()
-            QMessageBox.information(self, "Usuario agregado", f"Usuario '{identifier}' creado.")
+            show_success(self, "Agregar empleado", f"Empleado '{identifier}' creado.")
             self.load_data()
             
         btn_ok.clicked.connect(guardar)
@@ -277,7 +277,7 @@ class UsersTab(QWidget):
         dialog.exec_()
 
     def import_csv(self):
-        from PySide6.QtWidgets import QFileDialog, QMessageBox
+        from PySide6.QtWidgets import QFileDialog
         import csv
 
         path, _ = QFileDialog.getOpenFileName(self, "Importar empleados CSV", "", "CSV Files (*.csv)")
@@ -292,9 +292,9 @@ class UsersTab(QWidget):
                 reader = csv.DictReader(f)
                 header_map = {h.lower().replace(" ", "_"): h for h in (reader.fieldnames or [])}
                 if not (header_map.get("identifier") or header_map.get("identificador")):
-                    QMessageBox.critical(self, "Error CSV",
-                        "El archivo debe tener la columna 'Identificador'.\n"
-                        "Formato: Identificador, Nombre, Apellido, Turno, Privilegio Terminal, Activo.")
+                    show_error(self, "Importar empleados",
+                        "El archivo tiene que tener la columna 'Identificador'.",
+                        ["Formato: Identificador, Nombre, Apellido, Turno, Privilegio Terminal, Activo"])
                     return
 
                 shifts_by_name = {
@@ -335,13 +335,14 @@ class UsersTab(QWidget):
 
             self.session.commit()
         except Exception as e:
-            QMessageBox.critical(self, "Error al importar", str(e))
+            show_error(self, "Importar empleados", "No se pudo importar el archivo.", e)
             return
 
-        msg = f"Importación completada.\n\nCreados: {created}\nActualizados: {skipped}\nErrores: {errors}"
-        if error_lines:
-            msg += "\n\n" + "\n".join(error_lines[:10])
-        QMessageBox.information(self, "Importación CSV", msg)
+        details = [f"Creados: {created}", f"Actualizados: {skipped}", f"Errores: {errors}", *error_lines[:10]]
+        if errors:
+            show_warning(self, "Importar empleados", "Importación finalizada con errores.", details)
+        else:
+            show_success(self, "Importar empleados", "Importación finalizada.", details)
         if created > 0:
             self.load_data()
 
@@ -392,20 +393,20 @@ class UsersTab(QWidget):
     def edit_user(self):
         row = self.table.currentRow()
         if row < 0:
-            QMessageBox.warning(self, "Error", "Selecciona un usuario para editar.")
+            show_warning(self, "Editar empleado", "Seleccioná un empleado para editar.")
             return
         item = self.table.item(row, 0)
         identifier = item.text() if item else ""
         user = self.session.query(User).filter_by(identifier=identifier).first()
         if not user:
-            QMessageBox.warning(self, "Error", "Usuario no encontrado.")
+            show_warning(self, "Empleados", "No se encontró el empleado.")
             return
         # Use QInputDialog from PySide6
         new_identifier, ok = QInputDialog.getText(self, "Editar Usuario", "Nuevo identificador:", text=user.identifier)
         if not ok or not new_identifier:
             return
         if new_identifier != identifier and self.session.query(User).filter_by(identifier=new_identifier).first():
-            QMessageBox.warning(self, "Error", "El identificador ya existe.")
+            show_warning(self, "Empleados", "El identificador ya existe.")
             return
         first_name, ok = QInputDialog.getText(self, "Editar Usuario", "Nombre:", text=user.first_name or "")
         if not ok:
@@ -418,29 +419,28 @@ class UsersTab(QWidget):
             return
         # Mostrar todos los datos actuales en el modal
         summary = f"Identificador actual: {user.identifier}\nNombre actual: {user.first_name or ''}\nApellido actual: {user.last_name or ''}\nActivo: {'Sí' if user.is_active else 'No'}"
-        QMessageBox.information(self, "Datos actuales del usuario", summary)
+        show_info(self, "Editar empleado", summary)
         user.identifier = new_identifier
         user.first_name = first_name
         user.last_name = last_name
         user.is_active = (activo=="Sí")
         self.session.commit()
-        QMessageBox.information(self, "Usuario editado", f"Usuario actualizado a '{new_identifier}'.")
+        show_success(self, "Editar empleado", f"Empleado actualizado: '{new_identifier}'.")
         self.load_data()
 
     def delete_user(self):
         row = self.table.currentRow()
         if row < 0:
-            QMessageBox.warning(self, "Error", "Selecciona un usuario para eliminar.")
+            show_warning(self, "Eliminar empleado", "Seleccioná un empleado para eliminar.")
             return
         item = self.table.item(row, 0)
         identifier = item.text() if item else ""
         user = self.session.query(User).filter_by(identifier=identifier).first()
         if not user:
-            QMessageBox.warning(self, "Error", "Usuario no encontrado.")
+            show_warning(self, "Empleados", "No se encontró el empleado.")
             return
-        confirm = QMessageBox.question(self, "Eliminar Usuario", f"¿Eliminar usuario '{identifier}'?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        if confirm == QMessageBox.StandardButton.Yes:
+        if ask_confirm(self, "Eliminar empleado", f"¿Eliminar el empleado '{identifier}'?", "Eliminar", danger=True):
             self.session.delete(user)
             self.session.commit()
-            QMessageBox.information(self, "Usuario eliminado", f"Usuario '{identifier}' eliminado.")
+            show_success(self, "Eliminar empleado", f"Empleado '{identifier}' eliminado.")
             self.load_data()

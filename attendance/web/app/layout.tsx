@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import "./globals.css"
 import { AuthProvider } from "./context/AuthContext"
+import { MessageProvider } from "./context/MessageContext"
 
 export const metadata: Metadata = {
   title: "SRTime",
@@ -16,7 +17,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <AuthProvider>
-          {children}
+          <MessageProvider>
+            {children}
+          </MessageProvider>
         </AuthProvider>
       </body>
     </html>

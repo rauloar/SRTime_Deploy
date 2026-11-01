@@ -1,7 +1,7 @@
 import os
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget,
-    QTableWidgetItem, QHeaderView, QMessageBox, QDialog, QFormLayout, 
+    QTableWidgetItem, QHeaderView, QDialog, QFormLayout, 
     QLineEdit, QComboBox, QCheckBox, QApplication, QGroupBox, QTextEdit,
     QDateEdit, QDialogButtonBox, QLabel
 )
@@ -10,6 +10,7 @@ from PySide6.QtGui import QIcon
 
 from models.terminal import DeviceTerminal
 import services.addons
+from ui.messages import ask_confirm, show_error, show_info, show_success, show_warning
 
 class TerminalDialog(QDialog):
     def __init__(self, parent=None, terminal=None):
@@ -255,11 +256,11 @@ class TerminalsTab(QWidget):
 
     def _selected_terminal(self):
         if not self.selected_terminal_id:
-            QMessageBox.warning(self, "Terminal", "Seleccione una terminal activa.")
+            show_warning(self, "Terminales", "Seleccioná una terminal activa.")
             return None
         terminal = self.session.get(DeviceTerminal, self.selected_terminal_id)
         if not terminal or not terminal.is_active:
-            QMessageBox.warning(self, "Terminal", "La terminal seleccionada no está activa.")
+            show_warning(self, "Terminales", "La terminal seleccionada no está activa.")
             return None
         return terminal
 
@@ -273,9 +274,9 @@ class TerminalsTab(QWidget):
             result = list_terminal_users(terminal)
             users = result.get("users", [])
             lines = [f"{u['user_id']} | {u['name'] or '-'} | {u['privilege_label']}" for u in users]
-            QMessageBox.information(self, "Usuarios en terminal", f"Total: {len(users)}\n\n" + "\n".join(lines[:100]))
+            show_info(self, "Usuarios de la terminal", f"Usuarios en la terminal: {len(users)}.", lines[:100])
         except Exception as exc:
-            QMessageBox.critical(self, "Usuarios de terminal", f"No se pudieron leer los usuarios:\n{exc}")
+            show_error(self, "Usuarios de la terminal", "No se pudieron leer los usuarios de la terminal.", exc)
         finally:
             QApplication.restoreOverrideCursor()
 
@@ -283,23 +284,27 @@ class TerminalsTab(QWidget):
         terminal = self._selected_terminal()
         if terminal is None:
             return
-        answer = QMessageBox.question(
+        if not ask_confirm(
             self, "Sincronizar perfiles",
             "Se actualizarán nombre y privilegio (USER/ADMIN) desde SRTime hacia los usuarios existentes de la terminal. UID e ID se preservan. ¿Continuar?",
-        )
-        if answer != QMessageBox.StandardButton.Yes:
+            "Continuar",
+        ):
             return
         try:
             QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
             from services.terminals import sync_terminal_user_names
             result = sync_terminal_user_names(terminal, self.session)
-            QMessageBox.information(
-                self, "Perfiles sincronizados",
-                f"Usuarios en terminal: {result['terminal_users']}\nCoincidentes: {result['matched']}\n"
-                f"Actualizados: {result['updated']}\nPrivilegios actualizados: {result['privilege_updated']}",
+            show_success(
+                self, "Sincronizar perfiles", "Perfiles sincronizados.",
+                [
+                    f"Usuarios en la terminal: {result['terminal_users']}",
+                    f"Coincidentes: {result['matched']}",
+                    f"Actualizados: {result['updated']}",
+                    f"Privilegios actualizados: {result['privilege_updated']}",
+                ],
             )
         except Exception as exc:
-            QMessageBox.critical(self, "Sincronizar perfiles", f"No se pudo sincronizar:\n{exc}")
+            show_error(self, "Sincronizar perfiles", "No se pudieron sincronizar los perfiles de la terminal.", exc)
         finally:
             QApplication.restoreOverrideCursor()
 
@@ -330,12 +335,12 @@ class TerminalsTab(QWidget):
             QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
             from services.terminals import set_attendance_pointer
             set_attendance_pointer(terminal, since)
-            QMessageBox.information(
+            show_success(
                 self, "Volver a bajar registros",
-                f"Listo. Use \"Descargar registros\" para bajar desde el {since:%d/%m/%Y}.",
+                f"Lectura reposicionada. Usá \"Descargar registros\" para bajar desde el {since:%d/%m/%Y}.",
             )
         except Exception as exc:
-            QMessageBox.critical(self, "Volver a bajar registros", f"No se pudo reposicionar la lectura:\n{exc}")
+            show_error(self, "Volver a bajar registros", "No se pudo reposicionar la lectura de la terminal.", exc)
         finally:
             QApplication.restoreOverrideCursor()
 
@@ -352,10 +357,10 @@ class TerminalsTab(QWidget):
                 terminal.serial_number = sn
                 self.session.commit()
             
-            details = "\n".join(f"{item['label']}: {item['value']}" for item in res.get("details", []))
-            QMessageBox.information(self, "Conexión Exitosa", f"Terminal OK.\n{details}".rstrip())
+            details = [f"{item['label']}: {item['value']}" for item in res.get("details", [])]
+            show_success(self, "Probar conexión", "La terminal respondió correctamente.", details)
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Fallo al conectar:\n{e}")
+            show_error(self, "Probar conexión", "No se pudo conectar con la terminal.", e)
         finally:
             QApplication.restoreOverrideCursor()
 
@@ -368,11 +373,11 @@ class TerminalsTab(QWidget):
             ok = sync_time(terminal)
             
             if ok:
-                QMessageBox.information(self, "Reloj Seteado", f"Hora emparejada con éxito.")
+                show_success(self, "Poner en hora", "La terminal quedó en hora con el servidor.")
             else:
-                QMessageBox.warning(self, "Aviso", "Driver no soporta seteo de hora.")
+                show_warning(self, "Poner en hora", "El driver de la terminal no permite poner la hora.")
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Fallo al sincronizar:\n{e}")
+            show_error(self, "Poner en hora", "No se pudo poner en hora la terminal.", e)
         finally:
             QApplication.restoreOverrideCursor()
 
@@ -381,7 +386,7 @@ class TerminalsTab(QWidget):
         if dlg.exec_():
             data = dlg.get_data()
             if not data["name"]:
-                QMessageBox.warning(self, "Faltan campos", "El nombre es obligatorio.")
+                show_warning(self, "Terminales", "El nombre de la terminal es obligatorio.")
                 return
             params = data.pop("connection_params")
             data.pop("password", None)
@@ -413,8 +418,7 @@ class TerminalsTab(QWidget):
     def delete_terminal(self, t_id):
         t = self.session.query(DeviceTerminal).get(t_id)
         if not t: return
-        ans = QMessageBox.question(self, "Confirmar eliminación", f"¿Eliminar definitivamente '{t.name}'?")
-        if ans == QMessageBox.StandardButton.Yes:
+        if ask_confirm(self, "Eliminar terminal", f"¿Eliminar definitivamente la terminal '{t.name}'?", "Eliminar", danger=True):
             self.session.delete(t)
             self.session.commit()
             self.load_data()

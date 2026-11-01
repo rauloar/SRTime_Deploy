@@ -71,7 +71,6 @@
 .dash-device-dot.severity-alta { background: var(--dash-rose); }
 .dash-device-dot.severity-media { background: var(--dash-amber); }
 .dash-empty { min-height: 130px; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--text-secondary); font-size: 13px; text-align: center; padding: 20px; }
-.dash-error { padding: 20px; color: var(--status-error); border: 1px solid currentColor; border-radius: 8px; }
 .analytics-dashboard button:focus-visible, .dash-heat-scroll:focus-visible { outline: 2px solid var(--dash-blue); outline-offset: 3px; }
 @media (max-width: 1150px) { .dash-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); } .dash-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 850px) { .dash-main-grid, .dash-equal-grid { grid-template-columns: minmax(0, 1fr); } .dash-panel { padding: 18px; } }

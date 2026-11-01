@@ -10,9 +10,9 @@ from pathlib import Path
 
 from PySide6.QtCore import QSettings, QThread, Signal, Qt
 from PySide6.QtWidgets import (
-    QApplication, QComboBox, QFileDialog, QHBoxLayout, QLabel, QMessageBox,
-    QPushButton, QStyle, QTabWidget, QTextEdit, QVBoxLayout, QWidget,
+    QApplication, QComboBox, QFileDialog, QHBoxLayout, QLabel, QPushButton, QStyle, QTabWidget, QTextEdit, QVBoxLayout, QWidget,
 )
+from ui.messages import show_error, show_success, show_warning
 
 
 class ImportWorker(QThread):
@@ -177,7 +177,7 @@ class ImportTab(QWidget):
     def _selected_terminal(self):
         terminal_id = self.terminal_selector.currentData()
         if not terminal_id:
-            QMessageBox.warning(self, "Aviso", "No hay terminal seleccionada.")
+            show_warning(self, "Importar", "Seleccioná una terminal.")
             return None
         from models.terminal import DeviceTerminal
         return self.session.get(DeviceTerminal, terminal_id)
@@ -191,9 +191,9 @@ class ImportTab(QWidget):
             from services.terminals import test_connection
             result = test_connection(terminal)
             details = "\n".join(f"{item['label']}: {item['value']}" for item in result.get("details", []))
-            QMessageBox.information(self, "Conexión exitosa", details or "Terminal OK.")
+            show_success(self, "Probar conexión", "La terminal respondió correctamente.", details)
         except Exception as exc:
-            QMessageBox.critical(self, "Error de conexión", f"No se pudo conectar al dispositivo:\n{exc}")
+            show_error(self, "Probar conexión", "No se pudo conectar con la terminal.", exc)
         finally:
             QApplication.restoreOverrideCursor()
 
@@ -205,11 +205,11 @@ class ImportTab(QWidget):
         try:
             from services.terminals import sync_time
             if sync_time(terminal):
-                QMessageBox.information(self, "Sincronización exitosa", "Se actualizó la hora del dispositivo.")
+                show_success(self, "Poner en hora", "La terminal quedó en hora con el servidor.")
             else:
-                QMessageBox.warning(self, "Aviso", "El controlador no pudo sincronizar la hora.")
+                show_warning(self, "Poner en hora", "El driver de la terminal no pudo poner la hora.")
         except Exception as exc:
-            QMessageBox.critical(self, "Error al sincronizar", f"Fallo al sincronizar hora:\n{exc}")
+            show_error(self, "Poner en hora", "No se pudo poner en hora la terminal.", exc)
         finally:
             QApplication.restoreOverrideCursor()
 
@@ -220,16 +220,16 @@ class ImportTab(QWidget):
 
     def import_file(self):
         if not self.selected_path or not os.path.isfile(self.selected_path):
-            QMessageBox.warning(self, "Archivo no encontrado", "Seleccione un archivo existente.")
+            show_warning(self, "Importar archivo", "Seleccioná un archivo existente.")
             self.select_file()
             return
         addon = self._selected_file_addon()
         if not addon or not addon.get("parser_class"):
-            QMessageBox.warning(self, "Formato no disponible", "Seleccione un formato de archivo instalado.")
+            show_warning(self, "Importar archivo", "Seleccioná un formato de archivo instalado.")
             return
         allowed = {ext.lower() for ext in (addon.get("ui_features") or {}).get("file_extensions", [])}
         if Path(self.selected_path).suffix.lower() not in allowed:
-            QMessageBox.warning(self, "Formato incompatible", "El formato seleccionado no corresponde a la extensión del archivo.")
+            show_warning(self, "Importar archivo", "El formato seleccionado no corresponde a la extensión del archivo.")
             return
         self._start_worker(ImportWorker(self.session, parser_instance=addon["parser_class"](), path=self.selected_path), f"Importando {Path(self.selected_path).name}...")
 
@@ -268,8 +268,8 @@ class ImportTab(QWidget):
 
     def import_finished(self, nuevos, duplicados):
         self.data_changed.emit()
-        QMessageBox.information(self, "Importación finalizada", f"Nuevos: {nuevos}\nDuplicados: {duplicados}")
+        show_success(self, "Importar", "Importación finalizada.", [f"Nuevos: {nuevos}", f"Duplicados: {duplicados}"])
 
     def import_failed(self, message):
         self.live_log.append(message)
-        QMessageBox.critical(self, "Error de importación", message)
+        show_error(self, "Importar", message or "La importación no pudo completarse.")

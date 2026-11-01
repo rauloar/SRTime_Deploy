@@ -1,10 +1,11 @@
 "use client"
 import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "../context/AuthContext"
-import axios from "axios"
 import { Plus, RefreshCw, Pencil, Trash2 } from "lucide-react"
 import AppDialog from "./AppDialog"
 import Pagination from "./Pagination"
+import { getErrorMessage } from "../utils/messages"
+import Notice from "./Notice"
 
 interface Holiday { id: number; date: string; name: string; is_recurring: boolean }
 interface HolidayForm { id?: number; date: string; name: string; is_recurring: boolean }
@@ -20,14 +21,6 @@ function todayIso() {
 function formatDate(iso: string) {
   const [year, month, day] = iso.split("-")
   return `${day}/${month}/${year}`
-}
-
-function getErrorMessage(error: unknown, fallback: string) {
-  if (axios.isAxiosError(error)) {
-    const detail = (error.response?.data as { detail?: unknown } | undefined)?.detail
-    if (typeof detail === "string") return detail
-  }
-  return fallback
 }
 
 export default function HolidaysTab() {
@@ -71,7 +64,7 @@ export default function HolidaysTab() {
       if (modal === "add") await api.post("/api/holidays/", payload)
       else await api.put(`/api/holidays/${current.id}`, payload)
       setModal(null); load()
-    } catch (e: unknown) { setError(getErrorMessage(e, "Error al guardar el feriado."))
+    } catch (e: unknown) { setError(getErrorMessage(e, "No se pudo guardar el feriado."))
     } finally { setSaving(false) }
   }
 
@@ -109,7 +102,7 @@ export default function HolidaysTab() {
               Repite anualmente
             </label>
           </div>
-          {error && <p style={{ color: "var(--status-error)", fontSize: 13, marginBottom: 10 }}>⚠ {error}</p>}
+          <Notice kind="error">{error}</Notice>
         </AppDialog>
       )}
 
@@ -131,7 +124,7 @@ export default function HolidaysTab() {
         <button className="btn" onClick={load} disabled={loading}><RefreshCw size={14} /></button>
       </div>
 
-      {listError && <p style={{ color: "var(--status-error)", fontSize: 13, marginBottom: 10 }}>⚠ {listError}</p>}
+      <Notice kind="error">{listError}</Notice>
 
       {loading ? <p style={{ padding: 20, opacity: 0.6 }}>Cargando feriados...</p> : (
         <>

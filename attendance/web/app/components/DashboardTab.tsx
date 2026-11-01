@@ -5,6 +5,7 @@ import { Activity, ArrowRight, CheckCircle2, Clock3, RefreshCw, RotateCcw } from
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 import { useAuth } from "../context/AuthContext"
 import "./dashboard.css"
+import Notice from "./Notice"
 
 interface Card { key: string; label: string; value: number; unit: string; count: number; denominator: number; description?: string; severity: string }
 interface Trend { date: string; denominator: number; compliance_rate: number; absence_rate: number; incomplete_rate: number; pending_rate: number; justified_rate: number; counts: Record<string, number> }
@@ -108,7 +109,7 @@ export default function DashboardTab() {
       <div className="dash-filter-footer"><span>{filters ? `${filters} filtros adicionales activos` : "Todos los grupos y personas"}</span><button onClick={reset}><RotateCcw size={13} /> Restablecer filtros</button></div>
     </section>
     {loading && <div className="dash-empty" role="status"><RefreshCw size={20} /> Cargando información de asistencia…</div>}
-    {error && <div className="dash-error" role="alert">{error}</div>}
+    <Notice kind="error">{error}</Notice>
     {!loading && !error && data && <>
       <div className="dash-kpis">{primaryKeys.map(key => data.overview.cards.find(card => card.key === key)).filter((card): card is Card => Boolean(card)).map(card => {
         const trendKey = card.key === "compliance_rate" ? "compliance_rate" : card.key === "unjustified_absence_rate" ? "absence_rate" : card.key === "incomplete_rate" ? "incomplete_rate" : null

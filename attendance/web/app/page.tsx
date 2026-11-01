@@ -1,7 +1,6 @@
 "use client"
 import { useState, useEffect, useMemo } from "react"
 import { useAuth } from "./context/AuthContext"
-import axios from "axios"
 import Image from "next/image"
 import LoginPage from "./components/LoginPage"
 import DashboardTab from "./components/DashboardTab"
@@ -17,6 +16,8 @@ import ControlCenterTab from "./components/ControlCenterTab"
 import HolidaysTab from "./components/HolidaysTab"
 import ReportsTab from "./components/ReportsTab"
 import { Users, Clock, ArrowLeftRight, CheckSquare, Sun, Moon, LogOut, ShieldCheck, FileUp, MonitorSmartphone, UserX, Settings, LayoutDashboard, CalendarDays, FileBarChart } from "lucide-react"
+import { getErrorMessage } from "./utils/messages"
+import Notice from "./components/Notice"
 
 // uiKey: clave de la pestaña en ui.ini (la misma que usa SRTime_Win). La API
 // decide cuáles se ocultan; las pestañas sin uiKey no se pueden ocultar.
@@ -39,14 +40,6 @@ interface AddonUiFeatures {
 type Theme = "light" | "dark"
 const PASSWORD_PATTERN = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{8,}$/
 const PASSWORD_RULE_MESSAGE = "Usá al menos 8 caracteres, con una letra y un número; sin caracteres especiales"
-
-function getErrorMessage(error: unknown, fallback: string) {
-  if (axios.isAxiosError(error)) {
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
-    if (detail) return detail
-  }
-  return fallback
-}
 
 export default function Home() {
   const { token, username, role, mustChangePassword, changePassword, logout, api } = useAuth()
@@ -168,7 +161,7 @@ export default function Home() {
       setNewPassword("")
       setConfirmPassword("")
     } catch (e: unknown) {
-      setPasswordError(getErrorMessage(e, "Error al cambiar contraseña"))
+      setPasswordError(getErrorMessage(e, "No se pudo cambiar la contraseña."))
     } finally {
       setSavingPassword(false)
     }
@@ -191,7 +184,7 @@ export default function Home() {
               <label>Confirmar contraseña</label>
               <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} />
             </div>
-            {passwordError && <p style={{ color: "var(--status-error)", fontSize: 13, marginBottom: 10 }}>⚠ {passwordError}</p>}
+            <Notice kind="error">{passwordError}</Notice>
             <div style={{ display: "flex", gap: 8 }}>
               <button className="btn btn-primary" onClick={handleChangePassword} disabled={savingPassword}>
                 {savingPassword ? "Guardando..." : "Guardar contraseña"}

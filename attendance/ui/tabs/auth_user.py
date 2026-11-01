@@ -3,7 +3,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QTableWidget,
     QTableWidgetItem,
-    QMessageBox,
     QPushButton,
     QDialog,
     QLineEdit,
@@ -15,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 from core.security import hash_password, validate_password
 from models.user import AuthUser
+from ui.messages import ask_confirm, show_warning
 
 
 ROLES = ["root", "admin", "supervisor", "viewer"]
@@ -76,7 +76,7 @@ class AuthUserTab(QWidget):
 
     def add_auth_user(self):
         if not self.is_root:
-            QMessageBox.warning(self, "Acceso denegado", "Solo root puede crear cuentas autorizadas.")
+            show_warning(self, "Cuentas autorizadas", "Sólo root puede crear cuentas autorizadas.")
             return
 
         dialog = QDialog(self)
@@ -116,18 +116,18 @@ class AuthUserTab(QWidget):
             is_active = cb_active.currentText() == "Sí"
 
             if not username:
-                QMessageBox.warning(dialog, "Error", "El usuario es obligatorio.")
+                show_warning(dialog, "Cuentas autorizadas", "El usuario es obligatorio.")
                 return
             if not password:
-                QMessageBox.warning(dialog, "Error", "La contraseña es obligatoria.")
+                show_warning(dialog, "Cuentas autorizadas", "La contraseña es obligatoria.")
                 return
             try:
                 validate_password(password)
             except ValueError as exc:
-                QMessageBox.warning(dialog, "Error", str(exc))
+                show_warning(dialog, "Cuentas autorizadas", str(exc))
                 return
             if self.session.query(AuthUser).filter_by(username=username).first():
-                QMessageBox.warning(dialog, "Error", "Ese usuario ya existe.")
+                show_warning(dialog, "Cuentas autorizadas", "Ese usuario ya existe.")
                 return
 
             new_user = AuthUser(
@@ -148,11 +148,11 @@ class AuthUserTab(QWidget):
     def edit_auth_user(self, user_id: int):
         user = self.session.query(AuthUser).filter_by(id=user_id).first()
         if not user:
-            QMessageBox.warning(self, "Error", "Cuenta no encontrada.")
+            show_warning(self, "Cuentas autorizadas", "No se encontró la cuenta.")
             return
 
         if not self.is_root and user.username != self.current_username:
-            QMessageBox.warning(self, "Acceso denegado", "No puedes modificar otras cuentas.")
+            show_warning(self, "Cuentas autorizadas", "No podés modificar otras cuentas.")
             return
 
         dialog = QDialog(self)
@@ -194,12 +194,12 @@ class AuthUserTab(QWidget):
         def save():
             new_username = le_user.text().strip()
             if not new_username:
-                QMessageBox.warning(dialog, "Error", "El usuario es obligatorio.")
+                show_warning(dialog, "Cuentas autorizadas", "El usuario es obligatorio.")
                 return
 
             existing = self.session.query(AuthUser).filter(AuthUser.username == new_username, AuthUser.id != user_id).first()
             if existing:
-                QMessageBox.warning(dialog, "Error", "Ese usuario ya existe.")
+                show_warning(dialog, "Cuentas autorizadas", "Ese usuario ya existe.")
                 return
 
             user.username = new_username
@@ -212,7 +212,7 @@ class AuthUserTab(QWidget):
                 try:
                     validate_password(new_pass)
                 except ValueError as exc:
-                    QMessageBox.warning(dialog, "Error", str(exc))
+                    show_warning(dialog, "Cuentas autorizadas", str(exc))
                     return
                 user.password_hash = hash_password(new_pass)
 
@@ -226,27 +226,21 @@ class AuthUserTab(QWidget):
 
     def delete_auth_user(self, user_id: int):
         if not self.is_root:
-            QMessageBox.warning(self, "Acceso denegado", "Solo root puede eliminar cuentas.")
+            show_warning(self, "Eliminar cuenta", "Sólo root puede eliminar cuentas.")
             return
 
         user = self.session.query(AuthUser).filter_by(id=user_id).first()
         if not user:
-            QMessageBox.warning(self, "Error", "Cuenta no encontrada.")
+            show_warning(self, "Cuentas autorizadas", "No se encontró la cuenta.")
             return
 
         if user.role == "root":
             roots_count = self.session.query(AuthUser).filter_by(role="root").count()
             if roots_count <= 1:
-                QMessageBox.warning(self, "Bloqueado", "Debe existir al menos una cuenta root.")
+                show_warning(self, "Eliminar cuenta", "Tiene que quedar al menos una cuenta root.")
                 return
 
-        confirm = QMessageBox.question(
-            self,
-            "Eliminar Cuenta",
-            f"¿Eliminar cuenta '{user.username}'?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if confirm == QMessageBox.StandardButton.Yes:
+        if ask_confirm(self, "Eliminar cuenta", f"¿Eliminar la cuenta '{user.username}'?", "Eliminar", danger=True):
             self.session.delete(user)
             self.session.commit()
             self.load_data()

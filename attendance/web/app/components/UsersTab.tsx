@@ -1,10 +1,12 @@
 "use client"
 import { useState, useEffect, useCallback, useRef } from "react"
 import { useAuth } from "../context/AuthContext"
-import axios from "axios"
 import { Plus, RefreshCw, Pencil, Trash2, X, Search, Upload } from "lucide-react"
 import Pagination from "./Pagination"
 import { downloadCsv, downloadFromApi } from "../utils/download"
+import Notice from "./Notice"
+import { useMessages } from "../context/MessageContext"
+import { getErrorMessage } from "../utils/messages"
 
 interface User { id: number; identifier: string; first_name: string | null; last_name: string | null; is_active: boolean; shift_id: number | null; group_id: number | null; shift_assignment_source: string; terminal_privilege: number }
 interface Shift { id: number; name: string }
@@ -29,16 +31,9 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <div className="form-group"><label>{label}</label>{children}</div>
 }
 
-function getErrorMessage(error: unknown, fallback: string) {
-  if (axios.isAxiosError(error)) {
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
-    if (detail) return detail
-  }
-  return fallback
-}
-
 export default function UsersTab() {
   const { api } = useAuth()
+  const { showMessage, confirmAction } = useMessages()
   const [users, setUsers]   = useState<User[]>([])
   const [shifts, setShifts] = useState<Shift[]>([])
   const [groups, setGroups] = useState<EmployeeGroup[]>([])
@@ -100,7 +95,7 @@ export default function UsersTab() {
     setSaving(true); setError("")
     try {
       const { data } = await api.post("/api/users/import-csv", form, { headers: { "Content-Type": "multipart/form-data" } })
-      alert(`✅ Importación finalizada. ${data.created} creados, ${data.updated} actualizados, ${data.skipped} omitidos.`)
+      void showMessage({ kind: "success", title: "Importar empleados", text: "Importación finalizada.", details: [`Creados: ${data.created}`, `Actualizados: ${data.updated}`, `Omitidos: ${data.skipped}`] })
       await load()
     } catch (e: unknown) {
       setError(getErrorMessage(e, "No se pudo importar el CSV."))
@@ -152,7 +147,7 @@ export default function UsersTab() {
         user_ids: selectedUserIds,
         override_manual: overrideManual,
       })
-      alert(`✅ Grupo aplicado. ${data.assigned} asignados, ${data.shift_updated} turnos actualizados, ${data.manual_preserved} manuales preservados.`)
+      void showMessage({ kind: "success", title: "Asignar grupo", text: "Grupo aplicado.", details: [`Asignados: ${data.assigned}`, `Turnos actualizados: ${data.shift_updated}`, `Turnos manuales preservados: ${data.manual_preserved}`] })
       setSelectedUserIds([])
       await load()
     } catch (e: unknown) {
@@ -169,7 +164,7 @@ export default function UsersTab() {
       const { data } = await api.post(`/api/employee-groups/${selectedGroupId}/apply-shift`, {
         include_manual: overrideManual,
       })
-      alert(`✅ Turno del grupo aplicado. ${data.shift_updated} turnos actualizados, ${data.manual_preserved} manuales preservados.`)
+      void showMessage({ kind: "success", title: "Aplicar turno del grupo", text: "Turno del grupo aplicado.", details: [`Turnos actualizados: ${data.shift_updated}`, `Turnos manuales preservados: ${data.manual_preserved}`] })
       await load()
     } catch (e: unknown) {
       setError(getErrorMessage(e, "No se pudo aplicar el turno del grupo."))
@@ -190,13 +185,18 @@ export default function UsersTab() {
       else
         await api.put(`/api/users/${current.id}`, { identifier: current.identifier, first_name: current.first_name, last_name: current.last_name, is_active: current.is_active, shift_id: current.shift_id || null, terminal_privilege: current.terminal_privilege ?? 0 })
       setModal(null); load()
-    } catch (e: unknown) { setError(getErrorMessage(e, "Error al guardar."))
+    } catch (e: unknown) { setError(getErrorMessage(e, "No se pudo guardar el empleado."))
     } finally { setSaving(false) }
   }
 
   async function handleDelete(u: User) {
-    if (!confirm(`¿Eliminar usuario '${u.identifier}'?`)) return
-    await api.delete(`/api/users/${u.id}`); load()
+    if (!await confirmAction({ title: "Eliminar empleado", text: `¿Eliminar el empleado '${u.identifier}'?`, confirmLabel: "Eliminar", danger: true })) return
+    try {
+      await api.delete(`/api/users/${u.id}`)
+      load()
+    } catch (e: unknown) {
+      void showMessage({ kind: "error", title: "Eliminar empleado", text: getErrorMessage(e, "No se pudo eliminar el empleado.") })
+    }
   }
 
   return (
@@ -222,7 +222,7 @@ export default function UsersTab() {
               <option value="si">Sí</option><option value="no">No</option>
             </select>
           </Field>
-          {error && <p style={{ color: "var(--status-error)", fontSize: 13, marginBottom: 10 }}>⚠ {error}</p>}
+          <Notice kind="error">{error}</Notice>
           <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
             <button className="btn btn-primary" onClick={handleSave} disabled={saving}>{saving ? "Guardando..." : "Guardar"}</button>
             <button className="btn" onClick={() => setModal(null)}>Cancelar</button>
