@@ -8,7 +8,9 @@ SRTime se versiona como una **suite única**: Web/FastAPI/PostgreSQL y Desktop/P
 - [Registro de versiones de la suite](REGISTRO_VERSIONES_SUITE.md)
 - [Contrato de migración de datos de clientes](PLAN_CONTRATO_MIGRACION_CLIENTES.md)
 
-## Versión actual: Beta operativa 0.9.0-beta.6 (0.9.0-beta.10 en QA)
+## Versión actual: 0.9.0-beta.10 (tag `v0.9.0-beta.10`)
+
+Código cerrado y listo para pruebas en producción. Los builds (Windows y Linux) se generan recién al instalar en un cliente, después de relevarlo y de evaluar la migración de su base o sistema anterior.
 
 SRTime se clasifica como **Beta**, no como Alfa ni como versión final 1.0.
 
