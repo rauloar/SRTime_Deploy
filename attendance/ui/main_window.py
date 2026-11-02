@@ -10,7 +10,7 @@ from ui.tabs.dashboard_tab import DashboardTab
 from ui.tabs.holidays_tab import HolidaysTab
 from ui.tabs.reports_tab import ReportsTab
 from core.database import SessionLocal
-from core.ui_settings import load_hidden_tabs
+from core.ui_settings import DESKTOP_DEFAULT_HIDDEN_TABS, load_hidden_tabs
 import services.addons
 from PySide6.QtGui import QIcon
 from PySide6.QtCore import QTimer
@@ -94,7 +94,8 @@ AAABAAEAICAAAAAAIADaCQAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAgAAAAIAgGAAAAc3p69AAACaFJ
 
         # ui.ini sólo oculta la pestaña: el widget, sus señales y sus índices
         # siguen existiendo, por lo que ninguna función cambia.
-        hidden_tabs = set(load_hidden_tabs())
+        # El Desktop arranca sin Dashboard; ui.ini con dashboard = true lo muestra.
+        hidden_tabs = set(load_hidden_tabs(default_hidden=DESKTOP_DEFAULT_HIDDEN_TABS))
         # Igual que la Web: sin un addon habilitado que gestione terminales, la
         # pestaña no tiene nada que mostrar (perfil sólo importación de archivos).
         if not services.addons.enabled_ui_features()["terminal_management"]:

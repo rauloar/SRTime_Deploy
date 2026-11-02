@@ -70,3 +70,50 @@ def test_main_window_hides_tabs_without_shifting_indices(test_db, tmp_path, monk
     assert window.tabs.currentIndex() == titles.index("Importar")
     app.processEvents()
     window.close()
+
+
+def test_desktop_default_hides_dashboard_unless_ui_ini_shows_it(tmp_path):
+    from core.ui_settings import DESKTOP_DEFAULT_HIDDEN_TABS
+
+    missing = tmp_path / "no-existe.ini"
+    assert load_hidden_tabs(missing, DESKTOP_DEFAULT_HIDDEN_TABS) == {"dashboard"}
+    assert load_hidden_tabs(write_ini(tmp_path, "[pestanas]\nferiados = false\n"), DESKTOP_DEFAULT_HIDDEN_TABS) == {"dashboard", "feriados"}
+    assert load_hidden_tabs(write_ini(tmp_path, "[pestanas]\ndashboard = true\n"), DESKTOP_DEFAULT_HIDDEN_TABS) == frozenset()
+    assert load_hidden_tabs(write_ini(tmp_path, "esto no es ini"), DESKTOP_DEFAULT_HIDDEN_TABS) == {"dashboard"}
+    # La Web no pasa defaults: sin ui.ini muestra todo, Dashboard incluido.
+    assert load_hidden_tabs(missing) == frozenset()
+
+
+def test_desktop_package_ui_ini_comes_from_the_example(tmp_path):
+    from pathlib import Path
+
+    from core.ui_settings import write_desktop_ui_ini
+
+    example = Path(__file__).resolve().parents[2] / "config" / "ui.ini.example"
+    destination = tmp_path / "ui.ini"
+    write_desktop_ui_ini(example, destination)
+
+    assert load_hidden_tabs(destination) == {"dashboard"}
+    assert load_hidden_tabs(example) == frozenset()
+
+
+def test_desktop_window_starts_without_dashboard(test_db, tmp_path, monkeypatch):
+    pytest.importorskip("PySide6")
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setenv("SRTIME_ENV_FILE", str(tmp_path / ".env"))  # sin ui.ini
+    from ui.main_window import MainWindow
+
+    window = MainWindow({"id": 1, "username": "admin", "role": "root"})
+    titles = [window.tabs.tabText(i) for i in range(window.tabs.count())]
+    assert window.tabs.isTabVisible(titles.index("Dashboard")) is False
+    assert window.tabs.currentIndex() == titles.index("Importar")
+
+    write_ini(tmp_path, "[pestanas]\ndashboard = true\n")
+    shown = MainWindow({"id": 1, "username": "admin", "role": "root"})
+    assert shown.tabs.isTabVisible(titles.index("Dashboard")) is True
+    app.processEvents()
+    window.close()
+    shown.close()

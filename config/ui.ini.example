@@ -8,6 +8,9 @@
 ; Importar, Empleados, Turnos Horarios, Movimientos y Movimientos Procesados
 ; son fijas y no se pueden ocultar.
 ; Usuarios Autorizados sólo se muestra al usuario root.
+; El Desktop (SRTime_Win) viene sin Dashboard: su ui.ini se instala con
+; dashboard = false y, si falta la línea, también queda oculto. Poner
+; dashboard = true para mostrarlo. La Web lo muestra por defecto.
 
 [pestanas]
 dashboard = true
