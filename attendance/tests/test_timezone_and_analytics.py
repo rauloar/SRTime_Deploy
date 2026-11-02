@@ -24,6 +24,7 @@ def test_metrics_use_configured_business_timezone(monkeypatch, sample_shift):
 def test_analytics_dashboard_reads_current_attendance_state(test_db):
     employee = User(id=101, identifier="000000000000101", first_name="Ana", last_name="QA", is_active=True)
     test_db.add(employee)
+    test_db.flush()  # sin relationship() el orden de INSERT no sigue las claves foráneas
     test_db.add_all(
         [
             ProcessedAttendance(
@@ -70,7 +71,10 @@ def test_analytics_overview_uses_explicit_denominators(test_db, sample_shift):
     group = EmployeeGroup(id=1, name="Fábrica", shift_id=sample_shift.id, is_active=True)
     employee = User(id=201, identifier="000000000000201", first_name="Luis", last_name="Turno", is_active=True, shift_id=sample_shift.id, group_id=1)
     no_shift = User(id=202, identifier="000000000000202", first_name="Ana", last_name="SinTurno", is_active=True)
-    test_db.add_all([group, employee, no_shift])
+    test_db.add(group)
+    test_db.flush()
+    test_db.add_all([employee, no_shift])
+    test_db.flush()
     test_db.add_all([
         ProcessedAttendance(employee_id=201, date=date(2026, 7, 1), status="OK", total_hours=8),
         ProcessedAttendance(employee_id=201, date=date(2026, 7, 2), status="AUSENTE", total_hours=0),
@@ -97,7 +101,12 @@ def test_analytics_filters_by_group_and_keeps_attendance_read_only(test_db, samp
     admin = EmployeeGroup(id=2, name="Administración", shift_id=2, is_active=True)
     factory_employee = User(id=301, identifier="000000000000301", first_name="Fabián", last_name="Fábrica", is_active=True, shift_id=sample_shift.id, group_id=1)
     admin_employee = User(id=302, identifier="000000000000302", first_name="Ada", last_name="Admin", is_active=True, shift_id=2, group_id=2)
-    test_db.add_all([other_shift, factory, admin, factory_employee, admin_employee])
+    test_db.add(other_shift)
+    test_db.flush()
+    test_db.add_all([factory, admin])
+    test_db.flush()
+    test_db.add_all([factory_employee, admin_employee])
+    test_db.flush()
     test_db.add_all([
         ProcessedAttendance(employee_id=301, date=date(2026, 8, 1), status="OK", total_hours=8),
         ProcessedAttendance(employee_id=302, date=date(2026, 8, 1), status="AUSENTE", total_hours=0),
@@ -120,6 +129,7 @@ def test_analytics_action_quality_and_device_health_from_existing_data(test_db):
     terminal = DeviceTerminal(id=1, name="Terminal 1", driver_name="ZKTeco", is_active=True)
     known = User(id=401, identifier="000000000000401", first_name="Zoé", last_name="ZK", is_active=True)
     test_db.add_all([terminal, known])
+    test_db.flush()
     test_db.add_all([
         ProcessedAttendance(employee_id=401, date=date(2026, 9, 1), status="INCOMPLETO", total_hours=0),
         AttendanceLog(employee_id=None, raw_identifier="000000000009999", date=date(2026, 9, 1), time=time(12, 0), mark_type=0, flags="", source_file="Terminal 1", is_processed=False),

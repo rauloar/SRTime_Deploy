@@ -1,7 +1,7 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from datetime import date, datetime, time
+from datetime import date, time
 from typing import Any, Literal, Optional
 
 from api.deps import get_db, get_current_user, get_terminal_or_404, ok_response, require_root, require_supervisor_or_root
@@ -18,14 +18,13 @@ from services.terminals import (
     sync_time as service_sync_time,
     test_connection as service_test_connection,
     with_enabled_driver,
-    pull_logs as service_pull_logs,
     pull_warnings,
-    record_pull_outcome,
+    run_pull as service_run_pull,
     list_terminal_users as service_list_terminal_users,
     sync_terminal_user_names as service_sync_terminal_user_names,
 )
 from services.addons.base_driver import TerminalCheckError
-from services.terminal_scheduler import schedule_next_pull
+from services.terminal_scheduler import ScheduleError, apply_pull_schedule, schedule_state
 from core.database import SessionLocal
 from core.operation_status import operation_status
 
@@ -53,14 +52,12 @@ def _run_terminal_pull_job(job_id: str, terminal_id: int, username: str, clear_d
     db = SessionLocal()
     try:
         terminal = get_terminal_or_404(terminal_id, db)
-        result = service_pull_logs(
+        result = service_run_pull(
             terminal,
             db,
             progress_signal=_TerminalPullProgress(job_id),
             clear_device_memory=clear_device_memory,
         )
-        record_pull_outcome(terminal, result)
-        db.commit()
         nuevos, duplicados, total, logs_msgs = result
         operation_status.complete(
             job_id,
@@ -70,14 +67,8 @@ def _run_terminal_pull_job(job_id: str, terminal_id: int, username: str, clear_d
         )
         logger.info("Terminal raw pull job completed", extra={"user": username, "action": "terminal_pull_job"})
     except Exception as exc:
+        # run_pull ya dejó el error en la terminal.
         db.rollback()
-        try:
-            terminal = get_terminal_or_404(terminal_id, db)
-            terminal.last_pull_status = "error"
-            terminal.last_pull_error = str(exc)[:500]
-            db.commit()
-        except Exception:
-            db.rollback()
         operation_status.fail(job_id, f"Error al descargar registros: {exc}")
         logger.exception("Terminal raw pull job failed", extra={"user": username, "action": "terminal_pull_job"})
     finally:
@@ -144,20 +135,7 @@ def list_terminals(
                 "serial_number": t.serial_number,
                 "is_active": t.is_active,
                 "last_sync": str(t.last_sync) if t.last_sync else None,
-                "pull_schedule": {
-                    "enabled": t.pull_schedule_enabled,
-                    "mode": t.pull_schedule_mode or "interval",
-                    "interval_minutes": t.pull_interval_minutes,
-                    "weekdays": t.pull_schedule_weekdays or [],
-                    "scheduled_time": t.pull_schedule_time.isoformat() if t.pull_schedule_time else None,
-                    "start_date": t.pull_schedule_start_date.isoformat() if t.pull_schedule_start_date else None,
-                    "end_date": t.pull_schedule_end_date.isoformat() if t.pull_schedule_end_date else None,
-                    "window_start": t.pull_window_start.isoformat() if t.pull_window_start else None,
-                    "window_end": t.pull_window_end.isoformat() if t.pull_window_end else None,
-                    "next_pull_at": str(t.next_pull_at) if t.next_pull_at else None,
-                    "last_status": t.last_pull_status,
-                    "last_error": t.last_pull_error,
-                },
+                "pull_schedule": schedule_state(t),
                 "created_at": str(t.created_at) if t.created_at else None,
             }
             for t in terminals
@@ -316,22 +294,16 @@ def pull_terminal_logs_now(
     if not terminal.is_active:
         raise HTTPException(status_code=400, detail="La terminal está inactiva")
     try:
-        result = service_pull_logs(
+        result = service_run_pull(
             terminal,
             db,
             clear_device_memory=bool(payload and payload.clear_device_memory),
         )
         nuevos, duplicados, total, logs_msgs = result
-        record_pull_outcome(terminal, result)
-        db.commit()
         logger.info("Terminal raw pull completed", extra={"user": current_user.username, "action": "terminal_pull_manual"})
         return {"ok": True, "terminal_name": terminal.name, "total": total, "nuevos": nuevos, "duplicados": duplicados, "logs": logs_msgs[-200:], "warnings": pull_warnings(result)}
     except (TerminalOperationError, OSError, RuntimeError, ValueError) as exc:
-        db.rollback()
-        terminal = get_terminal_or_404(terminal_id, db)
-        terminal.last_pull_status = "error"
-        terminal.last_pull_error = str(exc)[:500]
-        db.commit()
+        # run_pull ya dejó el error en la terminal.
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -407,32 +379,21 @@ def update_pull_schedule(
     current_user: AuthUser = Depends(require_supervisor_or_root),
 ):
     terminal = get_terminal_or_404(terminal_id, db)
-    if payload.enabled and payload.mode == "interval" and (payload.interval_minutes is None or payload.interval_minutes < 1):
-        raise HTTPException(status_code=422, detail="El intervalo debe ser de al menos un minuto")
-    if payload.enabled and payload.mode == "weekly":
-        if not payload.weekdays or any(day < 0 or day > 6 for day in payload.weekdays):
-            raise HTTPException(status_code=422, detail="Seleccione al menos un día válido de la semana")
-        if payload.scheduled_time is None:
-            raise HTTPException(status_code=422, detail="Indique la hora de descarga automática")
-    if payload.start_date and payload.end_date and payload.end_date < payload.start_date:
-        raise HTTPException(status_code=422, detail="La fecha final no puede ser anterior a la fecha inicial")
-    if (payload.window_start is None) != (payload.window_end is None):
-        raise HTTPException(status_code=422, detail="Indique inicio y fin de franja, o deje ambos vacíos")
-    terminal.pull_schedule_enabled = payload.enabled
-    terminal.pull_schedule_mode = payload.mode if payload.enabled else "interval"
-    terminal.pull_interval_minutes = payload.interval_minutes if payload.enabled and payload.mode == "interval" else None
-    terminal.pull_schedule_weekdays = sorted(set(payload.weekdays or [])) if payload.enabled and payload.mode == "weekly" else None
-    terminal.pull_schedule_time = payload.scheduled_time if payload.enabled and payload.mode == "weekly" else None
-    terminal.pull_schedule_start_date = payload.start_date if payload.enabled else None
-    terminal.pull_schedule_end_date = payload.end_date if payload.enabled else None
-    terminal.pull_window_start = payload.window_start if payload.enabled else None
-    terminal.pull_window_end = payload.window_end if payload.enabled else None
-    if payload.enabled:
-        schedule_next_pull(terminal, datetime.now())
-    else:
-        terminal.next_pull_at = None
-        terminal.last_pull_status = None
-        terminal.last_pull_error = None
+    try:
+        apply_pull_schedule(
+            terminal,
+            enabled=payload.enabled,
+            mode=payload.mode,
+            interval_minutes=payload.interval_minutes,
+            weekdays=payload.weekdays,
+            scheduled_time=payload.scheduled_time,
+            start_date=payload.start_date,
+            end_date=payload.end_date,
+            window_start=payload.window_start,
+            window_end=payload.window_end,
+        )
+    except ScheduleError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     db.commit()
     logger.info("Terminal pull schedule updated", extra={"user": current_user.username, "action": "terminal_pull_schedule"})
     return ok_response({"enabled": terminal.pull_schedule_enabled, "next_pull_at": str(terminal.next_pull_at) if terminal.next_pull_at else None})

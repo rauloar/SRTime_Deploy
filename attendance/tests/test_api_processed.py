@@ -61,6 +61,7 @@ def seed_data(api_db):
         break_duration_minutes=60,
     )
     api_db.add(shift)
+    api_db.flush()  # el empleado referencia el turno: insertarlo primero
 
     emp = Employee(id=1, identifier="EMP001", first_name="Juan", last_name="Perez",
                    shift_id=1, is_active=True)

@@ -101,9 +101,13 @@ archivo de ejemplo. Los secretos de conexión se cifran al persistirse.
 
 ### Terminales
 
-- La tabla Desktop conserva prueba de conexión y sincronización de hora.
-- La ficha inferior de la terminal seleccionada permite listar usuarios del
-  reloj y sincronizar perfiles hacia ZKTeco.
+- La tabla Desktop tiene "Conectar" y "Reloj", como la tarjeta Web.
+- La ficha inferior de la terminal seleccionada tiene las mismas acciones y
+  nombres que la Web: "Bajar registros" (con "Borrar memoria de la terminal
+  después de bajar registros" si el driver lo declara), "Programar", "Volver a
+  bajar registros desde…", "Bajar usuarios" y "Subir usuarios" (ZKTeco), y
+  muestra última descarga, estado automático, próxima descarga y último
+  error o aviso.
 - La sincronización actualiza sólo nombre y privilegio; conserva `uid`,
   `user_id`, contraseña, grupo y tarjeta existentes en la terminal.
 - Una descarga ZKTeco crea empleados faltantes o completa perfiles vacíos. Si

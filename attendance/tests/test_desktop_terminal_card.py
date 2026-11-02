@@ -116,7 +116,110 @@ def test_scheduler_skips_terminals_of_disabled_addons(test_db, sundial_only, mon
     def unexpected_pull(*_args, **_kwargs):
         raise AssertionError("no debe descargar de una terminal sin addon habilitado")
 
-    monkeypatch.setattr(scheduler, "pull_logs", unexpected_pull)
+    monkeypatch.setattr(scheduler, "run_pull", unexpected_pull)
 
     assert scheduler.run_due_pulls() == 0
     assert test_db.get(DeviceTerminal, zk.id).last_pull_status is None
+
+
+def test_terminal_card_has_the_web_actions(test_db, sundial_and_zkteco):
+    """Mismas acciones y nombres que la tarjeta Web; borrar memoria sólo si el driver lo declara."""
+    QApplication.instance() or QApplication([])
+    from ui.tabs.terminals_tab import TerminalsTab
+
+    zk = DeviceTerminal(name="ZK", driver_name="ZKTeco", ip="127.0.0.1", port=4370)
+    sundial = DeviceTerminal(name="Sundial", driver_name="Sundial ERTeckno", ip="127.0.0.1", port=3000)
+    test_db.add_all([zk, sundial])
+    test_db.commit()
+    tab = TerminalsTab(test_db)
+
+    labels = [tab.btn_pull.text(), tab.btn_schedule.text(), tab.btn_list_users.text(), tab.btn_sync_profiles.text()]
+    assert labels == ["Bajar registros", "Programar", "Bajar usuarios", "Subir usuarios"]
+    row_buttons = [b.text() for b in tab.table.cellWidget(0, 6).findChildren(type(tab.btn_pull))]
+    assert row_buttons == ["Conectar", "Reloj"]
+
+    tab._show_terminal_detail(zk)
+    assert not tab.clear_memory_check.isHidden()
+    tab._show_terminal_detail(sundial)
+    assert tab.clear_memory_check.isHidden()
+
+
+def test_terminal_card_shows_schedule_and_last_warning(test_db, sundial_and_zkteco):
+    from datetime import datetime, time
+
+    QApplication.instance() or QApplication([])
+    from ui.tabs.terminals_tab import TerminalsTab
+
+    terminal = DeviceTerminal(
+        name="Sundial", driver_name="Sundial ERTeckno", ip="127.0.0.1", port=3000,
+        pull_schedule_enabled=True, pull_schedule_mode="weekly", pull_schedule_weekdays=[0, 2],
+        pull_schedule_time=time(7, 30), next_pull_at=datetime(2026, 11, 4, 7, 30),
+        last_pull_status="warning", last_pull_error="Llegaron marcas desde el 01/01/2011",
+    )
+    test_db.add(terminal)
+    test_db.commit()
+    tab = TerminalsTab(test_db)
+    tab._show_terminal_detail(terminal)
+
+    text = tab.detail_label.toPlainText()
+    assert "Estado automático: Lun, Mié · 07:30" in text
+    assert "Próxima descarga: 04/11/2026 07:30" in text
+    assert "Último aviso: Llegaron marcas desde el 01/01/2011" in text
+
+
+def test_schedule_dialog_values_match_the_web_request(test_db):
+    from datetime import time
+
+    QApplication.instance() or QApplication([])
+    from services.terminal_scheduler import apply_pull_schedule
+    from ui.tabs.terminals_tab import ScheduleDialog
+
+    terminal = DeviceTerminal(name="T", driver_name="ZKTeco")
+    dialog = ScheduleDialog(None, terminal)
+    dialog.enabled.setChecked(True)
+    dialog.mode.setCurrentIndex(1)  # Días definidos
+    dialog.days[0].setChecked(True)
+    dialog.days[4].setChecked(True)
+    values = dialog.values()
+
+    assert values["mode"] == "weekly" and values["weekdays"] == [0, 4]
+    assert values["interval_minutes"] is None and values["window_start"] is None
+    apply_pull_schedule(terminal, **values)
+    assert terminal.pull_schedule_weekdays == [0, 4]
+    assert terminal.pull_schedule_time == time(7, 0)
+    assert terminal.next_pull_at is not None
+
+
+def test_desktop_pull_uses_shared_service_and_reports_warnings(test_db, sundial_and_zkteco, monkeypatch):
+    QApplication.instance() or QApplication([])
+    import services.terminals as terminal_service
+    import ui.tabs.terminals_tab as terminals_tab
+    from services.importer_service import ImportResult
+    from ui.tabs.terminals_tab import TerminalsTab
+
+    terminal = DeviceTerminal(name="ZK", driver_name="ZKTeco", ip="127.0.0.1", port=4370)
+    test_db.add(terminal)
+    test_db.commit()
+    calls, shown = [], []
+
+    def fake_run_pull(t, session, progress=None, clear_device_memory=False):
+        calls.append((t.id, clear_device_memory))
+        result = ImportResult((4, 1, 5, []))
+        result.warnings.append("Aviso de prueba")
+        return result
+
+    monkeypatch.setattr(terminal_service, "run_pull", fake_run_pull)
+    monkeypatch.setattr(terminals_tab, "show_warning", lambda *args: shown.append(args))
+    tab = TerminalsTab(test_db)
+    tab._show_terminal_detail(terminal)
+    tab.clear_memory_check.setChecked(True)
+
+    tab.pull_selected_terminal()
+    worker = tab.pull_worker
+    worker.wait(5000)
+    QApplication.processEvents()
+
+    assert calls == [(terminal.id, True)]
+    assert tab.pull_worker is None and tab.btn_pull.text() == "Bajar registros"
+    assert shown and shown[0][2] == "Descarga finalizada con avisos."
+    assert "Aviso de prueba" in shown[0][3]

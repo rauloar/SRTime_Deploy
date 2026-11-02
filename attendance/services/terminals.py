@@ -22,6 +22,13 @@ class TerminalOperationError(RuntimeError):
     pass
 
 
+class TerminalBusy(TerminalOperationError):
+    """Otra descarga de la misma terminal está en curso (este u otro proceso)."""
+
+
+PULL_LOCK = "srtime-terminal-pull"
+
+
 def get_addon_info(terminal: DeviceTerminal) -> dict[str, Any]:
     import services.addons
 
@@ -317,6 +324,37 @@ def pull_logs(terminal: DeviceTerminal, session, progress_signal=None, clear_dev
             "Terminal attendance memory cleared after successful pull",
             extra={"action": "terminal_clear_attendance_memory", "terminal_id": terminal.id},
         )
+    return result
+
+
+def run_pull(terminal: DeviceTerminal, session, progress_signal=None, clear_device_memory: bool = False):
+    """Descarga de una terminal tal como la hacen la Web, el Desktop y el programador.
+
+    Una sola descarga por terminal a la vez, aunque la base la compartan varios
+    procesos. Deja el estado de la descarga en la terminal ("ok", "warning" o
+    "error" con su texto) y lo confirma en la base; si falla, vuelve a lanzar
+    el error para que cada cara lo muestre.
+    """
+    from services.locks import try_exclusive
+
+    terminal_id = terminal.id
+    with try_exclusive(session.get_bind(), PULL_LOCK, terminal_id) as acquired:
+        if not acquired:
+            raise TerminalBusy(
+                f"La terminal {terminal.name} ya se está descargando. Probá de nuevo cuando termine."
+            )
+        try:
+            result = pull_logs(terminal, session, progress_signal, clear_device_memory)
+        except Exception as exc:
+            session.rollback()
+            failed = session.get(DeviceTerminal, terminal_id)
+            if failed is not None:
+                failed.last_pull_status = "error"
+                failed.last_pull_error = str(exc)[:500]
+                session.commit()
+            raise
+    record_pull_outcome(terminal, result)
+    session.commit()
     return result
 
 

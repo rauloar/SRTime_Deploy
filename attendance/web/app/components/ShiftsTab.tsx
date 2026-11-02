@@ -66,7 +66,7 @@ export default function ShiftsTab() {
   }
 
   async function handleDelete(s: Shift) {
-    if (!await confirmAction({ title: "Eliminar turno", text: `¿Eliminar el turno '${s.name}'? Puede afectar los cálculos de los empleados que lo tienen asignado.`, confirmLabel: "Eliminar", danger: true })) return
+    if (!await confirmAction({ title: "Eliminar turno", text: `¿Eliminar el turno '${s.name}'?`, confirmLabel: "Eliminar", danger: true })) return
     try {
       await api.delete(`/api/shifts/${s.id}`)
       load()

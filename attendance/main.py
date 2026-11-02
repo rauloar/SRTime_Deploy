@@ -263,6 +263,12 @@ AAABAAEAICAAAAAAIADaCQAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAgAAAAIAgGAAAAc3p69AAACaFJ
     if dialog.exec() == QDialog.DialogCode.Accepted:
         window = MainWindow(dialog.accepted_user)
         window.show()
+        # Igual que el servidor Web: las descargas programadas corren mientras
+        # el Desktop está abierto. Con PostgreSQL compartido sólo una instancia
+        # descarga a la vez (services.locks).
+        from services.terminal_scheduler import start_scheduler, stop_scheduler
+        start_scheduler()
+        app.aboutToQuit.connect(stop_scheduler)
         sys.exit(app.exec())
     else:
         sys.exit(0)

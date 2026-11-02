@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, field_validator
 from datetime import time as Time
 
 from core.logging_config import get_logger
+from services.deletions import DeleteBlocked, delete_shift as service_delete_shift
 logger = get_logger(__name__)
 
 from api.deps import get_db, get_current_user, require_root, require_supervisor_or_root
@@ -106,6 +107,9 @@ def delete_shift(shift_id: int, db: Session = Depends(get_db), current_user: Aut
     shift = db.query(Shift).filter(Shift.id == shift_id).first()
     if not shift:
         raise HTTPException(status_code=404, detail="Shift not found")
-    db.delete(shift); db.commit()
+    try:
+        service_delete_shift(db, shift)
+    except DeleteBlocked as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     logger.info(f"Shift deleted: {shift.name}", extra={"user": current_user.username, "action": "delete_shift", "detail": shift.name})
     return {"ok": True, "message": f"Shift '{shift.name}' deleted"}

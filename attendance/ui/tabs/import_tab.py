@@ -20,19 +20,23 @@ class ImportWorker(QThread):
     finished = Signal(int, int, list)
     failed = Signal(str)
 
-    def __init__(self, session, *, parser_instance=None, path=None, terminal=None):
+    def __init__(self, session, *, parser_instance=None, path=None, terminal=None, clear_device_memory=False):
         super().__init__()
         self.session = session
         self.parser_instance = parser_instance
         self.path = path
         self.terminal = terminal
+        self.clear_device_memory = clear_device_memory
 
     def run(self):
         try:
             if self.terminal is not None:
-                # Incluye los perfiles ZKTeco y conserva el mismo contrato Web.
-                from services.terminals import pull_logs, pull_warnings
-                result = pull_logs(self.terminal, self.session, self.progress)
+                # Mismo camino que la Web: perfiles ZKTeco, una descarga por
+                # terminal a la vez y estado de la última descarga.
+                from services.terminals import pull_warnings, run_pull
+                result = run_pull(
+                    self.terminal, self.session, self.progress, clear_device_memory=self.clear_device_memory
+                )
                 nuevos, duplicados, _total, _logs = result
                 warnings = pull_warnings(result)
             else:

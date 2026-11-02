@@ -6,6 +6,7 @@ from models.shift import Shift
 from models.employee import User
 from datetime import time
 from ui.messages import ask_confirm, show_warning
+from services.deletions import DeleteBlocked, delete_shift as service_delete_shift
 
 class ShiftsTab(QWidget):
     def __init__(self, session: Session):
@@ -207,7 +208,10 @@ class ShiftsTab(QWidget):
         shift = self.session.query(Shift).filter_by(id=shift_id).first()
         if not shift: return
         
-        if ask_confirm(self, "Eliminar turno", f"¿Eliminar el turno '{shift.name}'? Puede afectar los cálculos de los empleados que lo tienen asignado.", "Eliminar", danger=True):
-            self.session.delete(shift)
-            self.session.commit()
+        if ask_confirm(self, "Eliminar turno", f"¿Eliminar el turno '{shift.name}'?", "Eliminar", danger=True):
+            try:
+                service_delete_shift(self.session, shift)
+            except DeleteBlocked as exc:
+                show_warning(self, "Eliminar turno", str(exc))
+                return
             self.load_data()

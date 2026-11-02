@@ -20,6 +20,8 @@ manifest = {
         "terminal_user_name_sync": True,
         "terminal_user_privilege_sync": True,
         "clear_attendance_memory": True,
+        # Entrega siempre toda su memoria: no hay puntero de lectura que mover.
+        "attendance_pointer": False,
     },
     "terminal_user_privileges": {
         "0": "Usuario de terminal",

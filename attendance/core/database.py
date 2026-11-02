@@ -1,8 +1,24 @@
 import os
-from sqlalchemy import create_engine
-from sqlalchemy.engine import URL
+import sqlite3
+
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import URL, Engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 from core.config import load_application_env, runtime_root
+
+
+@event.listens_for(Engine, "connect")
+def _sqlite_enforce_foreign_keys(dbapi_connection, _record):
+    """SQLite deja las claves foráneas apagadas por defecto; PostgreSQL las exige.
+
+    Se activan en toda conexión SQLite para que el Desktop rechace lo mismo que
+    la Web (por ejemplo, marcas de un empleado que no existe). Sólo controla
+    escrituras nuevas: filas ya guardadas no se revisan.
+    """
+    if isinstance(dbapi_connection, sqlite3.Connection):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
 # Determinar el directorio correcto donde reside el ejecutable original (o script).
 # Soporta: script de desarrollo, binario PyInstaller (sys.frozen) y binario

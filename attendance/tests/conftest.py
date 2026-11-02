@@ -24,19 +24,55 @@ from models.shift import Shift
 from models.processed_attendance import ProcessedAttendance
 
 
+TEST_DATABASE_URL = os.getenv("SRTIME_TEST_DATABASE_URL", "").strip()
+
+
 @pytest.fixture
 def test_db():
-    """Crea una base de datos SQLite en memoria para tests."""
+    """Base de tests: SQLite en memoria, o PostgreSQL si lo pide el entorno.
+
+    SRTime corre con los dos motores (Desktop SQLite, Web PostgreSQL), así que
+    la misma suite se puede correr contra ambos. Con
+    ``SRTIME_TEST_DATABASE_URL=postgresql://…`` cada test usa un schema propio
+    que se borra al terminar; sin la variable, SQLite en memoria.
+    """
+    if TEST_DATABASE_URL.startswith("postgresql"):
+        yield from _postgres_test_session(TEST_DATABASE_URL)
+        return
+
     engine = create_engine('sqlite:///:memory:')
     Base.metadata.create_all(engine)
-    
+
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     session = SessionLocal()
-    
+
     yield session
-    
+
     session.close()
     engine.dispose()
+
+
+def _postgres_test_session(url: str):
+    import uuid
+    from sqlalchemy import text
+
+    schema = f"srtime_test_{uuid.uuid4().hex[:12]}"
+    admin = create_engine(url)
+    with admin.begin() as connection:
+        connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+    engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
+    session = None
+    try:
+        Base.metadata.create_all(engine)
+        session = sessionmaker(autocommit=False, autoflush=False, bind=engine)()
+        yield session
+    finally:
+        if session is not None:
+            session.close()
+        engine.dispose()
+        with admin.begin() as connection:
+            connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+        admin.dispose()
 
 
 @pytest.fixture

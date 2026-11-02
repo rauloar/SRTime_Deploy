@@ -8,6 +8,7 @@ from models.user import AuthUser
 from models.shift import Shift
 from PySide6.QtWidgets import QSizePolicy
 from ui.messages import ask_confirm, show_error, show_info, show_success, show_warning
+from services.deletions import DeleteBlocked, delete_employee
 
 class UsersTab(QWidget):
     def __init__(self, session):
@@ -205,8 +206,11 @@ class UsersTab(QWidget):
             return
         identifier = user.identifier
         if ask_confirm(self, "Eliminar empleado", f"¿Eliminar el empleado '{identifier}'?", "Eliminar", danger=True):
-            self.session.delete(user)
-            self.session.commit()
+            try:
+                delete_employee(self.session, user)
+            except DeleteBlocked as exc:
+                show_warning(self, "Eliminar empleado", str(exc))
+                return
             show_success(self, "Eliminar empleado", f"Empleado '{identifier}' eliminado.")
             self.load_data()
 
@@ -440,7 +444,10 @@ class UsersTab(QWidget):
             show_warning(self, "Empleados", "No se encontró el empleado.")
             return
         if ask_confirm(self, "Eliminar empleado", f"¿Eliminar el empleado '{identifier}'?", "Eliminar", danger=True):
-            self.session.delete(user)
-            self.session.commit()
+            try:
+                delete_employee(self.session, user)
+            except DeleteBlocked as exc:
+                show_warning(self, "Eliminar empleado", str(exc))
+                return
             show_success(self, "Eliminar empleado", f"Empleado '{identifier}' eliminado.")
             self.load_data()

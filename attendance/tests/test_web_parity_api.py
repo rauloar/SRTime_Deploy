@@ -39,6 +39,7 @@ def api_db():
         id=1, name="Turno", expected_in=time(8, 0), expected_out=time(17, 0),
         grace_period_minutes=10, is_overnight_shift=False, break_duration_minutes=0,
     ))
+    session.flush()  # el empleado referencia el turno: insertarlo primero
     session.add(Employee(id=1, identifier="P001", first_name="Ana", last_name="Gomez", shift_id=1, is_active=True))
     session.add(ProcessedAttendance(
         employee_id=1, date=date(2026, 3, 2), status="OK",

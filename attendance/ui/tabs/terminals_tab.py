@@ -1,16 +1,149 @@
-import os
+from datetime import time
+
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget,
-    QTableWidgetItem, QHeaderView, QDialog, QFormLayout, 
+    QTableWidgetItem, QHeaderView, QDialog, QFormLayout,
     QLineEdit, QComboBox, QCheckBox, QApplication, QGroupBox, QTextEdit,
-    QDateEdit, QDialogButtonBox, QLabel
+    QDateEdit, QDialogButtonBox, QLabel, QSpinBox, QTimeEdit
 )
-from PySide6.QtCore import QDate, Qt
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import QDate, QTime, Qt
 
 from models.terminal import DeviceTerminal
 import services.addons
 from ui.messages import ask_confirm, show_error, show_info, show_success, show_warning
+
+
+WEEKDAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+
+
+def schedule_label(state: dict) -> str:
+    """Mismo texto que la tarjeta Web (scheduleLabel)."""
+    if not state.get("enabled"):
+        return "Manual"
+    if state.get("mode") == "weekly":
+        days = ", ".join(WEEKDAYS[day] for day in state.get("weekdays") or [] if 0 <= day <= 6)
+        hour = (state.get("scheduled_time") or "")[:5]
+        return f"{days or 'Días definidos'}{f' · {hour}' if hour else ''}"
+    return f"Cada {state.get('interval_minutes')} min"
+
+
+class ScheduleDialog(QDialog):
+    """Descarga automática de una terminal: mismos campos y reglas que la Web."""
+
+    def __init__(self, parent, terminal: DeviceTerminal):
+        super().__init__(parent)
+        self.setWindowTitle(f"Automatización · {terminal.name}")
+        layout = QVBoxLayout(self)
+        note = QLabel(
+            "La descarga automática solo guarda movimientos pendientes de procesar. "
+            "El procesamiento de asistencias se mantiene manual."
+        )
+        note.setWordWrap(True)
+        layout.addWidget(note)
+
+        self.enabled = QCheckBox("Descarga automática activa")
+        self.enabled.setChecked(bool(terminal.pull_schedule_enabled))
+        layout.addWidget(self.enabled)
+
+        self.options = QWidget()
+        form = QFormLayout(self.options)
+        self.mode = QComboBox()
+        self.mode.addItem("Cada intervalo", "interval")
+        self.mode.addItem("Días definidos", "weekly")
+        self.mode.setCurrentIndex(1 if terminal.pull_schedule_mode == "weekly" else 0)
+        form.addRow("Ciclo de descarga:", self.mode)
+
+        self.interval = QSpinBox()
+        self.interval.setRange(1, 10080)
+        self.interval.setValue(terminal.pull_interval_minutes or 60)
+        self.window = QCheckBox("Solo entre")
+        self.window.setChecked(terminal.pull_window_start is not None)
+        self.window_start = QTimeEdit(self._qtime(terminal.pull_window_start, time(8)))
+        self.window_end = QTimeEdit(self._qtime(terminal.pull_window_end, time(20)))
+        window_row = QHBoxLayout()
+        window_row.addWidget(self.window)
+        window_row.addWidget(self.window_start)
+        window_row.addWidget(QLabel("y"))
+        window_row.addWidget(self.window_end)
+        self.interval_rows = [
+            ("Intervalo (minutos):", self.interval),
+            ("Franja (opcional):", window_row),
+        ]
+
+        self.scheduled_time = QTimeEdit(self._qtime(terminal.pull_schedule_time, time(7)))
+        days_row = QHBoxLayout()
+        self.days = []
+        selected = set(terminal.pull_schedule_weekdays or [])
+        for index, name in enumerate(WEEKDAYS):
+            check = QCheckBox(name)
+            check.setChecked(index in selected)
+            self.days.append(check)
+            days_row.addWidget(check)
+        self.weekly_rows = [
+            ("Hora de descarga:", self.scheduled_time),
+            ("Días de ejecución:", days_row),
+        ]
+        for label, field in self.interval_rows + self.weekly_rows:
+            form.addRow(label, field)
+
+        self.use_start = QCheckBox("Desde")
+        self.use_start.setChecked(terminal.pull_schedule_start_date is not None)
+        self.start_date = self._date_edit(terminal.pull_schedule_start_date)
+        self.use_end = QCheckBox("Hasta")
+        self.use_end.setChecked(terminal.pull_schedule_end_date is not None)
+        self.end_date = self._date_edit(terminal.pull_schedule_end_date)
+        dates_row = QHBoxLayout()
+        for widget in (self.use_start, self.start_date, self.use_end, self.end_date):
+            dates_row.addWidget(widget)
+        form.addRow("Fechas (opcional):", dates_row)
+        self.form = form
+        layout.addWidget(self.options)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Save).setText("Guardar automatización")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Cancelar")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self.enabled.toggled.connect(self._refresh)
+        self.mode.currentIndexChanged.connect(self._refresh)
+        self._refresh()
+
+    @staticmethod
+    def _qtime(value, default: time) -> QTime:
+        value = value or default
+        return QTime(value.hour, value.minute)
+
+    @staticmethod
+    def _date_edit(value) -> QDateEdit:
+        edit = QDateEdit(QDate(value.year, value.month, value.day) if value else QDate.currentDate())
+        edit.setCalendarPopup(True)
+        edit.setDisplayFormat("dd/MM/yyyy")
+        return edit
+
+    def _refresh(self):
+        self.options.setVisible(self.enabled.isChecked())
+        weekly = self.mode.currentData() == "weekly"
+        for rows, visible in ((self.interval_rows, not weekly), (self.weekly_rows, weekly)):
+            for _label, field in rows:
+                self.form.setRowVisible(field, visible)
+        self.adjustSize()
+
+    def values(self) -> dict:
+        """Argumentos para services.terminal_scheduler.apply_pull_schedule."""
+        weekly = self.mode.currentData() == "weekly"
+        return {
+            "enabled": self.enabled.isChecked(),
+            "mode": self.mode.currentData(),
+            "interval_minutes": None if weekly else self.interval.value(),
+            "weekdays": [index for index, check in enumerate(self.days) if check.isChecked()] if weekly else None,
+            "scheduled_time": self.scheduled_time.time().toPython() if weekly else None,
+            "window_start": self.window_start.time().toPython() if not weekly and self.window.isChecked() else None,
+            "window_end": self.window_end.time().toPython() if not weekly and self.window.isChecked() else None,
+            "start_date": self.start_date.date().toPython() if self.use_start.isChecked() else None,
+            "end_date": self.end_date.date().toPython() if self.use_end.isChecked() else None,
+        }
 
 class TerminalDialog(QDialog):
     def __init__(self, parent=None, terminal=None):
@@ -140,18 +273,29 @@ class TerminalsTab(QWidget):
         self.detail_label.setReadOnly(True)
         self.detail_label.setMaximumHeight(110)
         detail_layout.addWidget(self.detail_label)
+        # Mismas acciones que la tarjeta Web, en el mismo orden y con los mismos nombres.
+        self.clear_memory_check = QCheckBox("Borrar memoria de la terminal después de bajar registros")
+        detail_layout.addWidget(self.clear_memory_check)
         detail_actions = QHBoxLayout()
-        self.btn_list_users = QPushButton("Ver usuarios de terminal")
-        self.btn_list_users.clicked.connect(self.list_terminal_users)
-        detail_actions.addWidget(self.btn_list_users)
-        self.btn_sync_profiles = QPushButton("Sincronizar perfiles hacia terminal")
-        self.btn_sync_profiles.clicked.connect(self.sync_terminal_profiles)
-        detail_actions.addWidget(self.btn_sync_profiles)
+        self.btn_pull = QPushButton("Bajar registros")
+        self.btn_pull.clicked.connect(self.pull_selected_terminal)
+        detail_actions.addWidget(self.btn_pull)
+        self.btn_schedule = QPushButton("Programar")
+        self.btn_schedule.clicked.connect(self.edit_schedule)
+        detail_actions.addWidget(self.btn_schedule)
         self.btn_pointer = QPushButton("Volver a bajar registros desde...")
         self.btn_pointer.clicked.connect(self.set_attendance_pointer)
         detail_actions.addWidget(self.btn_pointer)
+        self.btn_list_users = QPushButton("Bajar usuarios")
+        self.btn_list_users.clicked.connect(self.list_terminal_users)
+        detail_actions.addWidget(self.btn_list_users)
+        self.btn_sync_profiles = QPushButton("Subir usuarios")
+        self.btn_sync_profiles.clicked.connect(self.sync_terminal_profiles)
+        detail_actions.addWidget(self.btn_sync_profiles)
+        detail_actions.addStretch()
         detail_layout.addLayout(detail_actions)
         layout.addWidget(self.detail_group)
+        self.pull_worker = None
         self.selected_terminal_id = None
         self.table.itemSelectionChanged.connect(self._select_terminal_from_table)
         self.load_data()
@@ -186,7 +330,7 @@ class TerminalsTab(QWidget):
             act_pane = QWidget()
             h = QHBoxLayout(act_pane)
             h.setContentsMargins(2,2,2,2)
-            btn_ping = QPushButton("Píng")
+            btn_ping = QPushButton("Conectar")
             btn_ping.clicked.connect(lambda _, t_id=t.id: self.ping_terminal(t_id))
             btn_sync = QPushButton("Reloj")
             btn_sync.clicked.connect(lambda _, t_id=t.id: self.sync_terminal(t_id))
@@ -236,23 +380,88 @@ class TerminalsTab(QWidget):
             has_users = terminal is not None and supports_capability(terminal, "terminal_users")
             can_sync = terminal is not None and supports_capability(terminal, "terminal_user_name_sync")
             has_pointer = terminal is not None and supports_capability(terminal, "attendance_pointer")
+            can_clear = terminal is not None and supports_capability(terminal, "clear_attendance_memory")
         except TerminalOperationError:
-            has_users = can_sync = has_pointer = False
+            has_users = can_sync = has_pointer = can_clear = False
         self.btn_list_users.setVisible(has_users)
         self.btn_sync_profiles.setVisible(can_sync)
         self.btn_pointer.setVisible(has_pointer)
-        self.btn_list_users.setEnabled(enabled)
-        self.btn_sync_profiles.setEnabled(enabled)
-        self.btn_pointer.setEnabled(enabled)
+        self.clear_memory_check.setVisible(can_clear)
+        if not can_clear:
+            self.clear_memory_check.setChecked(False)
+        pulling = self.pull_worker is not None
+        for button in (self.btn_list_users, self.btn_sync_profiles, self.btn_pointer, self.btn_pull):
+            button.setEnabled(enabled and not pulling)
+        self.btn_schedule.setEnabled(terminal is not None)
         if terminal is None:
             self.detail_label.setText("Seleccione una terminal para ver sus detalles y operaciones extendidas.")
             return
+        from services.terminal_scheduler import schedule_state
+        state = schedule_state(terminal)
+        last = state.get("last_error")
+        last_line = ""
+        if last:
+            last_line = f"\n{'Último aviso' if state.get('last_status') == 'warning' else 'Último error'}: {last}"
         self.detail_label.setText(
-            f"Nombre: {terminal.name}\nDriver: {terminal.driver_name}\n"
-            f"Conexión: {terminal.ip or '-'}:{terminal.port or '-'}\n"
-            f"Serie: {terminal.serial_number or 'Sin verificar'}\n"
-            f"Última descarga: {terminal.last_sync or 'Nunca'}"
+            f"Nombre: {terminal.name} · {terminal.driver_name}\n"
+            f"Última descarga: {terminal.last_sync.strftime('%d/%m/%Y %H:%M') if terminal.last_sync else 'Nunca'}\n"
+            f"Estado automático: {schedule_label(state)}\n"
+            f"Próxima descarga: {terminal.next_pull_at.strftime('%d/%m/%Y %H:%M') if terminal.next_pull_at else '—'}"
+            f"{last_line}"
         )
+
+    def pull_selected_terminal(self):
+        terminal = self._selected_terminal()
+        if terminal is None or self.pull_worker is not None:
+            return
+        from ui.tabs.import_tab import ImportWorker
+        self.pull_worker = ImportWorker(
+            self.session, terminal=terminal, clear_device_memory=self.clear_memory_check.isChecked()
+        )
+        self.pull_worker.progress.connect(
+            lambda current, nuevos, duplicados, message: self.btn_pull.setText(f"Descargando... {current}")
+        )
+        self.pull_worker.finished.connect(self._pull_finished)
+        self.pull_worker.failed.connect(self._pull_failed)
+        self.btn_pull.setText("Descargando...")
+        self._show_terminal_detail(terminal)
+        self.pull_worker.start()
+
+    def _pull_done(self):
+        self.pull_worker = None
+        self.btn_pull.setText("Bajar registros")
+        self.session.expire_all()
+        self.load_data()
+
+    def _pull_finished(self, nuevos, duplicados, warnings):
+        self._pull_done()
+        details = [f"Nuevos: {nuevos}", f"Duplicados: {duplicados}"]
+        if warnings:
+            show_warning(self, "Bajar registros", "Descarga finalizada con avisos.", details + list(warnings))
+        else:
+            show_success(self, "Bajar registros", "Descarga finalizada.", details)
+
+    def _pull_failed(self, message):
+        self._pull_done()
+        show_error(self, "Bajar registros", message or "No se pudieron descargar los registros pendientes.")
+
+    def edit_schedule(self):
+        if not self.selected_terminal_id:
+            show_warning(self, "Terminales", "Seleccioná una terminal.")
+            return
+        terminal = self.session.get(DeviceTerminal, self.selected_terminal_id)
+        dialog = ScheduleDialog(self, terminal)
+        while dialog.exec():
+            from services.terminal_scheduler import ScheduleError, apply_pull_schedule
+            try:
+                apply_pull_schedule(terminal, **dialog.values())
+            except ScheduleError as exc:
+                self.session.rollback()
+                show_warning(self, "Automatización", str(exc))
+                continue
+            self.session.commit()
+            self.load_data()
+            return
 
     def _selected_terminal(self):
         if not self.selected_terminal_id:
@@ -337,7 +546,7 @@ class TerminalsTab(QWidget):
             set_attendance_pointer(terminal, since)
             show_success(
                 self, "Volver a bajar registros",
-                f"Lectura reposicionada. Usá \"Descargar registros\" para bajar desde el {since:%d/%m/%Y}.",
+                f"Lectura reposicionada. Usá \"Bajar registros\" para bajar desde el {since:%d/%m/%Y}.",
             )
         except Exception as exc:
             show_error(self, "Volver a bajar registros", "No se pudo reposicionar la lectura de la terminal.", exc)

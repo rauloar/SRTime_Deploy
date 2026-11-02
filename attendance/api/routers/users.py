@@ -16,6 +16,7 @@ from models.shift import Shift
 from models.user import AuthUser
 from api.responses import streaming_excel_response
 from services.export_helpers import build_excel_workbook
+from services.deletions import DeleteBlocked, delete_employee
 
 router = APIRouter()
 
@@ -149,8 +150,10 @@ def delete_user(user_id: int, db: Session = Depends(get_db), current_user: AuthU
     db_user = db.query(EmployeeModel).filter(EmployeeModel.id == user_id).first()
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
-    db.delete(db_user)
-    db.commit()
+    try:
+        delete_employee(db, db_user)
+    except DeleteBlocked as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     logger.info(f"Employee deleted: {db_user.identifier}", extra={"user": current_user.username, "action": "delete_employee", "detail": db_user.identifier})
     return {"ok": True, "message": f"User {db_user.identifier} deleted"}
 
