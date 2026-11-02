@@ -2,7 +2,11 @@
 
 A diferencia de test_sundial_protocol.py no usa sesiones grabadas: el reloj
 simulado lleva su propio puntero y registra qué comandos recibió, para verificar
-el contrato con SRTime (I3 sólo después de guardar, sin I5 con 0 pendientes).
+el contrato con SRTime (I3 sólo después de guardar, sin I5 con 0 pendientes, I2
+al primer día leído si la ingesta falla).
+
+Como los relojes reales, da por entregado lo que manda en I5 aunque no llegue
+I3 (visto en el reloj de laboratorio y en el WinSock.Log de un cliente).
 """
 
 import socket
@@ -30,11 +34,14 @@ RECORDS = [
 
 
 class FakeSundialClock:
-    """Reloj Sundial mínimo: conexión, estado, lectura por bloques, I3 y hora."""
+    """Reloj Sundial mínimo: conexión, estado, lectura por bloques, I3, I2 y hora."""
 
     def __init__(self, address="001", records=RECORDS):
         self.address = address
+        self.memory = list(records)
         self.pending = list(records)
+        self.pending_counter = None  # valor de I4 forzado (contador real no confiable)
+        self.drop_after_delivery = False  # corta el TCP después de mandar el bloque
         self.delivered = False
         self.pointer = None
         self.commands: list[bytes] = []
@@ -58,7 +65,10 @@ class FakeSundialClock:
             except OSError:
                 return
             with conn:
-                self._session(conn)
+                try:
+                    self._session(conn)
+                except ConnectionAbortedError:
+                    pass
 
     def _reply(self, conn, body: bytes):
         conn.sendall(protocol.build_frame(self.address, body))
@@ -85,29 +95,36 @@ class FakeSundialClock:
         seq, cmd = body[:1], body[2:]
         self.commands.append(cmd[:2])
         if cmd == b"I4":
+            counter = len(self.pending) if self.pending_counter is None else self.pending_counter
             self._reply(conn, seq + b"Bi10" + self.clock.strftime("%d%m%y%H%M%S").encode()
-                        + f"{len(self.pending):05d}".encode() + b"000")
+                        + f"{counter:05d}".encode() + b"000")
         elif cmd == b"I5":
-            if not self.pending:
-                return  # el reloj real no contesta I5 sin pendientes
             if self.delivered:
                 self._reply(conn, seq + b"Bc30")
                 return
+            if not self.pending:
+                return  # el reloj real no contesta I5 sin pendientes
             data = b"".join(
                 card.encode() + bytes([h + 0x21, m + 0x21, 0x40 + state, func + 0x21])
                 for card, h, m, state, func in self.pending
             )
-            self.delivered = True
+            # El reloj real da el bloque por entregado al mandarlo.
+            self.pending, self.delivered = [], True
             self._reply(conn, seq + b"Bi00" + DAY.strftime("%d%m%y").encode() + data)
+            if self.drop_after_delivery:
+                self.drop_after_delivery = False
+                raise ConnectionAbortedError
         elif cmd == b"I3":
-            if self.delivered:
-                self.pending, self.delivered = [], False
+            self.delivered = False
             self._reply(conn, seq + b"Bc10")
         elif cmd.startswith(b"H0"):
             self.clock = datetime.strptime(cmd[2:].decode(), "%d%m%y%H%M%S")
             self._reply(conn, seq + b"Bc10")
         elif cmd.startswith(b"I2"):
             self.pointer = datetime.strptime(cmd[2:].decode(), "%d%m%Y").date()
+            # Vuelve a entregar desde esa fecha (todas las marcas son de DAY).
+            self.pending = list(self.memory) if DAY >= self.pointer else []
+            self.delivered = False
             self._reply(conn, seq + b"Bc10")
 
 
@@ -183,20 +200,118 @@ def test_pull_without_pending_does_not_request_records(test_db, clock):
     assert b"I5" not in clock.commands and b"I3" not in clock.commands
 
 
-def test_failed_ingest_leaves_pointer_untouched(test_db, clock, monkeypatch):
+def _broken_ingest(rows, **_kwargs):
+    list(rows)  # lee del reloj y después falla al guardar
+    raise RuntimeError("base no disponible")
+
+
+def test_failed_ingest_moves_pointer_back(test_db, clock, monkeypatch):
     import services.importer_service as importer
 
-    def broken_ingest(**_kwargs):
-        raise RuntimeError("base no disponible")
+    monkeypatch.setattr(importer, "_ingest_rows", _broken_ingest)
 
-    monkeypatch.setattr(importer, "_ingest_rows", broken_ingest)
-
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError, match="base no disponible"):
         terminals.pull_logs(_terminal(test_db, clock), test_db)
 
-    # Sin I3 el reloj conserva las marcas para la próxima descarga.
+    # El reloj ya las dio por entregadas: sin I3, pero con I2 al primer día
+    # leído vuelven a quedar pendientes para la próxima descarga.
     assert b"I3" not in clock.commands
+    assert clock.pointer == DAY
     assert len(clock.pending) == 3
+
+
+def test_retry_after_failed_ingest_brings_the_records(test_db, clock, monkeypatch):
+    import services.importer_service as importer
+
+    terminal = _terminal(test_db, clock)
+    original = importer._ingest_rows
+    monkeypatch.setattr(importer, "_ingest_rows", _broken_ingest)
+    with pytest.raises(RuntimeError):
+        terminals.pull_logs(terminal, test_db)
+    monkeypatch.setattr(importer, "_ingest_rows", original)
+
+    assert terminals.pull_logs(terminal, test_db)[:3] == (3, 0, 3)
+    assert test_db.query(AttendanceLog).count() == 3
+
+
+def test_connection_cut_mid_read_moves_pointer_back(test_db, clock):
+    """Se cortó el TCP después de un bloque: I2 por una conexión nueva."""
+    clock.drop_after_delivery = True
+
+    with pytest.raises(Exception):
+        terminals.pull_logs(_terminal(test_db, clock), test_db)
+
+    assert clock.pointer == DAY
+    assert len(clock.pending) == 3
+    assert test_db.query(AttendanceLog).count() == 0
+
+
+def test_saved_records_are_not_moved_back_when_confirm_fails(clock):
+    driver = SundialDriver()
+    driver.connect({"ip": "127.0.0.1", "port": clock.port, "address": "1", "timeout": 2})
+    try:
+        assert len(list(driver.get_attendance_logs())) == 3
+        driver.client.close()  # I3 va a fallar
+        with pytest.raises(Exception):
+            driver.acknowledge_attendance_logs()
+        # Ya estaban guardadas: no hay nada que devolver.
+        assert driver.release_attendance_logs() is None
+    finally:
+        driver.disconnect()
+    assert clock.pointer is None
+
+
+@pytest.mark.parametrize("counter", [65535, 85125, 99997])
+def test_implausible_pending_counter_is_not_shown_as_a_number(test_db, clock, counter):
+    clock.pending_counter = counter
+
+    result = terminals.test_connection(_terminal(test_db, clock))
+
+    assert result["pending_records"].startswith(f"Sin dato confiable ({counter})")
+    driver = SundialDriver()
+    driver.connect({"ip": "127.0.0.1", "port": clock.port, "address": "1", "timeout": 2})
+    try:
+        assert driver.get_attendance_log_count() is None  # sin total para el progreso
+        assert len(list(driver.get_attendance_logs())) == 3  # se lee igual hasta c30
+    finally:
+        driver.disconnect()
+
+
+def test_records_older_than_previous_pull_raise_a_warning(test_db, clock):
+    terminal = _terminal(test_db, clock)
+    terminal.last_sync = datetime(2026, 11, 20, 10, 0)
+    test_db.commit()
+
+    result = terminals.pull_logs(terminal, test_db)
+    terminals.record_pull_outcome(terminal, result)
+
+    assert result[:3] == (3, 0, 3)  # se importan igual
+    assert len(result.warnings) == 1
+    assert "desde el 30/10/2026" in result.warnings[0] and "(20/11/2026)" in result.warnings[0]
+    assert terminal.last_pull_status == "warning"
+    assert terminal.last_pull_error == result.warnings[0]
+
+
+@pytest.mark.parametrize("previous", [None, datetime(2026, 10, 30, 18, 0), datetime(2026, 10, 31, 9, 0)])
+def test_records_after_previous_pull_do_not_warn(test_db, clock, previous):
+    terminal = _terminal(test_db, clock)
+    terminal.last_sync = previous
+    test_db.commit()
+
+    result = terminals.pull_logs(terminal, test_db)
+    terminals.record_pull_outcome(terminal, result)
+
+    assert result.warnings == []
+    assert terminal.last_pull_status == "ok" and terminal.last_pull_error is None
+
+
+def test_stale_warning_needs_a_pointer_driver(test_db):
+    """Equipos sin puntero (ZKTeco) entregan siempre toda la memoria: no aplica."""
+    terminal = DeviceTerminal(name="Reloj", driver_name="ZKTeco", ip="127.0.0.1", port=4370)
+    test_db.add(terminal)
+    test_db.commit()
+
+    assert terminals._stale_records_warning(terminal, datetime(2026, 11, 20), date(2020, 1, 1)) is None
 
 
 def test_network_rows_match_tm_mr001_file_rows(clock):

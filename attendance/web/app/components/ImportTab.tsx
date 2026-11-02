@@ -33,6 +33,7 @@ export default function ImportTab({ fileImport, networkImport }: { fileImport: b
   const [logs, setLogs] = useState<string[]>([])
   const [running, setRunning] = useState(false)
   const [error, setError] = useState("")
+  const [warning, setWarning] = useState("")
   const [parsers, setParsers] = useState<ParserInfo[]>([])
   const [terminals, setTerminals] = useState<TerminalInfo[]>([])
   const [selectedParser, setSelectedParser] = useState("")
@@ -103,7 +104,7 @@ export default function ImportTab({ fileImport, networkImport }: { fileImport: b
 
   async function testConnection() {
     if (!selectedTerminal) return
-    setRunning(true); setError(""); setLogs([])
+    setRunning(true); setError(""); setWarning(""); setLogs([])
     try {
       const res = await api.post(`/api/terminals/${selectedTerminal}/test`)
       setStatus("Conexión exitosa")
@@ -119,7 +120,7 @@ export default function ImportTab({ fileImport, networkImport }: { fileImport: b
 
   async function syncTime() {
     if (!selectedTerminal) return
-    setRunning(true); setError(""); setLogs([])
+    setRunning(true); setError(""); setWarning(""); setLogs([])
     try {
       await api.post(`/api/terminals/${selectedTerminal}/sync`)
       setStatus("Hora sincronizada")
@@ -134,10 +135,11 @@ export default function ImportTab({ fileImport, networkImport }: { fileImport: b
   async function runImport() {
     if (activeTab === "device") {
       if (!selectedTerminal) return
-      setRunning(true); setError(""); setLogs([])
+      setRunning(true); setError(""); setWarning(""); setLogs([])
       try {
         const res = await api.post(`/api/import/terminal/${selectedTerminal}/pull-logs`)
         setStatus(`Logs: ${res.data.total} | Nuevos: ${res.data.nuevos} | Duplicados: ${res.data.duplicados}`)
+        setWarning(((res.data.warnings || []) as string[]).join(" "))
         setLogs((res.data.logs || []) as string[])
       } catch (e: unknown) {
         setError(getErrorMessage(e, "No se pudieron descargar los registros de la terminal."))
@@ -159,7 +161,7 @@ export default function ImportTab({ fileImport, networkImport }: { fileImport: b
       return
     }
 
-    setRunning(true); setError(""); setLogs([])
+    setRunning(true); setError(""); setWarning(""); setLogs([])
     try {
       const form = new FormData()
       form.append("file", file)
@@ -290,6 +292,7 @@ export default function ImportTab({ fileImport, networkImport }: { fileImport: b
       <OperationProgress job={job} />
 
       <Notice kind="error">{error}</Notice>
+      <Notice kind="warning">{warning}</Notice>
 
       <div className="table-wrapper" style={{ maxHeight: 300, overflowY: "auto", padding: 10 }}>
         {logs.length === 0 ? (

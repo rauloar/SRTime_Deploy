@@ -11,7 +11,7 @@ logger = get_logger(__name__)
 from api.deps import get_db, get_current_user, get_terminal_or_404, require_supervisor_or_root
 from models.user import AuthUser
 from services.importer_service import import_att_logs
-from services.terminals import TerminalOperationError, pull_logs
+from services.terminals import TerminalOperationError, pull_logs, pull_warnings, record_pull_outcome
 from core.limiter import limiter
 from core.database import SessionLocal
 from core.operation_status import operation_status
@@ -224,7 +224,10 @@ def pull_logs_from_terminal(
     })
 
     try:
-        nuevos, duplicados, total, logs_msgs = pull_logs(terminal, db)
+        result = pull_logs(terminal, db)
+        nuevos, duplicados, total, logs_msgs = result
+        record_pull_outcome(terminal, result)
+        db.commit()
     except (TerminalOperationError, OSError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -239,4 +242,5 @@ def pull_logs_from_terminal(
         "nuevos": nuevos,
         "duplicados": duplicados,
         "logs": logs_msgs[-200:],
+        "warnings": pull_warnings(result),
     }

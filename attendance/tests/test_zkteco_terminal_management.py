@@ -492,3 +492,59 @@ def test_terminal_test_returns_user_friendly_connectivity_error(monkeypatch):
         app.dependency_overrides.clear()
         db.close()
         engine.dispose()
+
+
+class _InfoConnection:
+    """Datos que lee "Conectar"; ``sizes_fail`` simula firmware sin read_sizes."""
+
+    def __init__(self, clock, sizes_fail=False):
+        self.clock = clock
+        self.sizes_fail = sizes_fail
+        self.records = None
+
+    def get_device_name(self):
+        return "iFace800/ID"
+
+    def get_mac(self):
+        return "00:17:61:11:DF:5C"
+
+    def get_serialnumber(self):
+        return "6614143900089"
+
+    def get_firmware_version(self):
+        return "Ver 6.60 Jun  3 2014"
+
+    def get_time(self):
+        return self.clock
+
+    def read_sizes(self):
+        if self.sizes_fail:
+            raise RuntimeError("can't read sizes")
+        self.records = 103
+        return True
+
+    def disconnect(self):
+        pass
+
+
+@pytest.mark.parametrize("sizes_fail", [False, True])
+def test_zkteco_test_connection_reports_drift_and_records(monkeypatch, sizes_fail):
+    from datetime import timedelta
+    import core.timezone
+
+    now = datetime(2026, 11, 2, 16, 40, 0)
+    monkeypatch.setattr(core.timezone, "local_now", lambda: now)
+    driver = ZKTecoDriver()
+    connection = _InfoConnection(now + timedelta(seconds=7), sizes_fail=sizes_fail)
+    monkeypatch.setattr(driver, "connect", lambda _params: setattr(driver, "conn", connection))
+
+    result = driver.test_connection({"ip": "192.0.2.201"})
+
+    assert result["clock_drift"] == "+7 s"
+    if sizes_fail:
+        # Un dato secundario no hace fallar "Conectar".
+        assert "attendance_records" not in result
+    else:
+        assert result["attendance_records"] == 103
+    declared = [item["name"] for item in manifest["connection_details"]]
+    assert declared[-2:] == ["clock_drift", "attendance_records"]

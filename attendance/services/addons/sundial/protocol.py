@@ -231,15 +231,25 @@ class SundialClient:
             raise SundialError(f"Estado: respuesta inesperada {printable(reply)}")
         return parse_status(reply)
 
-    def read_records(self, confirm: bool = True) -> list[Record]:
-        records = []
+    def iter_record_blocks(self):
+        """I5 hasta que el reloj contesta c30; entrega cada bloque apenas llega.
+
+        El reloj da por entregado cada bloque al mandarlo, aunque después no
+        llegue I3 (verificado en relojes reales): quien lee debe conservar lo
+        recibido aunque la lectura se corte a mitad.
+        """
         while True:
             reply = self._exchange(b"I5")
             if reply[1:4] == b"Bc3":
-                break
+                return
             if reply[1:5] != b"Bi00":
                 raise SundialError(f"Lectura: respuesta inesperada {printable(reply)}")
-            records += parse_records(reply)
+            yield parse_records(reply)
+
+    def read_records(self, confirm: bool = True) -> list[Record]:
+        records = []
+        for block in self.iter_record_blocks():
+            records += block
         if confirm:
             self.confirm_read()
         return records

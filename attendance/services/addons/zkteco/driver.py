@@ -158,6 +158,8 @@ class ZKTecoDriver(BiometricDriver):
         return None
 
     def test_connection(self, params: dict) -> dict:
+        from core.timezone import local_now
+
         self.connect(params)
         try:
             name = self.conn.get_device_name()
@@ -165,7 +167,7 @@ class ZKTecoDriver(BiometricDriver):
             serial_number = self.conn.get_serialnumber()
             firmware = self.conn.get_firmware_version()
             t = self.conn.get_time()
-            return {
+            result = {
                 "status": "ok",
                 "name": name,
                 "mac": mac,
@@ -173,6 +175,17 @@ class ZKTecoDriver(BiometricDriver):
                 "firmware": firmware,
                 "time": str(t),
             }
+            if t:
+                drift = t - local_now().replace(tzinfo=None)
+                result["clock_drift"] = f"{round(drift.total_seconds()):+d} s"
+            # read_sizes informa cuántas marcas guarda el equipo sin descargarlas.
+            # Es un dato secundario: si el firmware no lo contesta, no se informa.
+            try:
+                if self.conn.read_sizes():
+                    result["attendance_records"] = self.conn.records
+            except Exception:
+                pass
+            return result
         finally:
             self.disconnect()
 

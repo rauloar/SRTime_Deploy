@@ -17,7 +17,7 @@ from ui.messages import show_error, show_success, show_warning
 
 class ImportWorker(QThread):
     progress = Signal(int, int, int, str)
-    finished = Signal(int, int)
+    finished = Signal(int, int, list)
     failed = Signal(str)
 
     def __init__(self, session, *, parser_instance=None, path=None, terminal=None):
@@ -31,16 +31,17 @@ class ImportWorker(QThread):
         try:
             if self.terminal is not None:
                 # Incluye los perfiles ZKTeco y conserva el mismo contrato Web.
-                from services.terminals import pull_logs
-                nuevos, duplicados, _total, _logs = pull_logs(
-                    self.terminal, self.session, self.progress
-                )
+                from services.terminals import pull_logs, pull_warnings
+                result = pull_logs(self.terminal, self.session, self.progress)
+                nuevos, duplicados, _total, _logs = result
+                warnings = pull_warnings(result)
             else:
                 from services.importer_service import import_att_logs
                 nuevos, duplicados, _total, _logs = import_att_logs(
                     self.path, self.session, self.progress, self.parser_instance
                 )
-            self.finished.emit(nuevos, duplicados)
+                warnings = []
+            self.finished.emit(nuevos, duplicados, warnings)
         except Exception as exc:
             self.failed.emit(str(exc))
 
@@ -266,9 +267,13 @@ class ImportTab(QWidget):
         if message:
             self.live_log.append(message)
 
-    def import_finished(self, nuevos, duplicados):
+    def import_finished(self, nuevos, duplicados, warnings=None):
         self.data_changed.emit()
-        show_success(self, "Importar", "Importación finalizada.", [f"Nuevos: {nuevos}", f"Duplicados: {duplicados}"])
+        details = [f"Nuevos: {nuevos}", f"Duplicados: {duplicados}"]
+        if warnings:
+            show_warning(self, "Importar", "Importación finalizada con avisos.", details + list(warnings))
+        else:
+            show_success(self, "Importar", "Importación finalizada.", details)
 
     def import_failed(self, message):
         self.live_log.append(message)

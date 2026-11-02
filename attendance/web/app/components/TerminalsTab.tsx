@@ -66,7 +66,7 @@ interface PullJob {
   total: number
   percent: number
   message: string
-  result?: { nuevos: number; duplicados: number; total: number }
+  result?: { nuevos: number; duplicados: number; total: number; warnings?: string[] }
   error?: string
 }
 
@@ -290,7 +290,15 @@ export default function TerminalsTab() {
         window.setTimeout(() => { void pollPullJob(terminalId, jobId) }, 700)
       } else {
         setPullingId(null)
-        if (next.state === "completed") void showMessage({ kind: "success", title: "Bajar registros", text: "Descarga finalizada.", details: [`Nuevos: ${next.result?.nuevos || 0}`, `Duplicados: ${next.result?.duplicados || 0}`] })
+        if (next.state === "completed") {
+          const warnings = next.result?.warnings || []
+          void showMessage({
+            kind: warnings.length ? "warning" : "success",
+            title: "Bajar registros",
+            text: warnings.length ? "Descarga finalizada con avisos." : "Descarga finalizada.",
+            details: [`Nuevos: ${next.result?.nuevos || 0}`, `Duplicados: ${next.result?.duplicados || 0}`, ...warnings],
+          })
+        }
         else void showMessage({ kind: "error", title: "Bajar registros", text: next.error || "La descarga no pudo completarse." })
         load()
       }
@@ -560,7 +568,7 @@ export default function TerminalsTab() {
             const scheduleState = t.pull_schedule
             const capabilities = getCapabilities(t.driver_name)
             const isPulling = pullJob?.terminalId === t.id && (pullJob.state === "queued" || pullJob.state === "running")
-            const statusColor = scheduleState?.last_status === "error" ? "var(--status-error)" : "var(--status-ok)"
+            const statusColor = scheduleState?.last_status === "error" ? "var(--status-error)" : scheduleState?.last_status === "warning" ? "var(--status-warning)" : "var(--status-ok)"
             return <section className="table-wrapper" style={{ marginTop: 18, padding: 20 }}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
                 <div><strong style={{ fontSize: 17 }}>{t.name}</strong><div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 4 }}>Administración de terminal · {t.driver_name}</div></div>
@@ -571,7 +579,9 @@ export default function TerminalsTab() {
                 <div><span style={{ color: "var(--text-secondary)" }}>Estado automático</span><br /><span style={{ color: scheduleState?.enabled ? statusColor : "var(--text-secondary)" }}>{scheduleLabel(scheduleState)}</span></div>
                 <div><span style={{ color: "var(--text-secondary)" }}>Próxima descarga</span><br />{scheduleState?.next_pull_at ? new Date(scheduleState.next_pull_at).toLocaleString() : "—"}</div>
               </div>
-              {scheduleState?.last_error && <p style={{ color: "var(--status-error)", fontSize: 12, margin: "0 0 12px" }}>Último error: {scheduleState.last_error}</p>}
+              {scheduleState?.last_error && (scheduleState.last_status === "warning"
+                ? <p style={{ color: "var(--status-warning)", fontSize: 12, margin: "0 0 12px" }}>Último aviso: {scheduleState.last_error}</p>
+                : <p style={{ color: "var(--status-error)", fontSize: 12, margin: "0 0 12px" }}>Último error: {scheduleState.last_error}</p>)}
               {isPulling && <div style={{ margin: "0 0 14px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--text-secondary)", marginBottom: 5 }}><span>{pullJob.message}</span><span>{pullJob.total ? `${pullJob.percent}%` : "Preparando"}</span></div>
                 <div style={{ height: 8, borderRadius: 5, background: "var(--bg-main)", overflow: "hidden" }}><div style={{ height: "100%", width: `${pullJob.percent || 2}%`, background: "var(--primary)", transition: "width .25s" }} /></div>

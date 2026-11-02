@@ -16,7 +16,7 @@ from core.logging_config import get_logger
 from core.timezone import local_now
 from models.terminal import DeviceTerminal
 from services.setup_service import is_database_configured
-from services.terminals import pull_logs, with_enabled_driver
+from services.terminals import pull_logs, record_pull_outcome, with_enabled_driver
 
 logger = get_logger(__name__)
 _stop_event = Event()
@@ -92,9 +92,9 @@ def run_due_pulls() -> int:
                 db.commit()
                 continue
             try:
-                nuevos, duplicados, total, _ = pull_logs(terminal, db)
-                terminal.last_pull_status = "ok"
-                terminal.last_pull_error = None
+                result = pull_logs(terminal, db)
+                nuevos, duplicados, total, _ = result
+                record_pull_outcome(terminal, result)
                 db.commit()
                 completed += 1
                 logger.info(

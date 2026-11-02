@@ -32,6 +32,8 @@ manifest = {
         {"name": "mac", "label": "MAC"},
         {"name": "firmware", "label": "Firmware"},
         {"name": "time", "label": "Hora del reloj"},
+        {"name": "clock_drift", "label": "Desvío de hora"},
+        {"name": "attendance_records", "label": "Marcas en memoria"},
     ],
     "connection_fields": [
         {"name": "ip", "label": "Dirección IP", "type": "text", "default": "", "required": True},

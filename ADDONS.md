@@ -229,22 +229,41 @@ Comandos   : ^0 conectar · I4 estado · I5 leer bloque · I3 confirmar lectura
 Transporte : TCP al módulo Tibbo (servidor transparente, puerto 3000) → RS-232 del reloj
 ```
 Verificado contra un reloj real de laboratorio (módulo Tibbo, dirección 001) y contra sesiones
-grabadas de TecknoComm. Herramienta standalone equivalente: PySundial (fuera del repo).
+grabadas de TecknoComm, incluido el WinSock.Log de un cliente (2021–2026): decodificado con
+este protocolo reproduce su TM-MR001 línea por línea. Herramienta standalone equivalente:
+PySundial (fuera del repo).
+
+Comportamientos del reloj real (cliente y laboratorio) que el driver contempla:
+- `I5` da el bloque por entregado al mandarlo, aunque después no llegue `I3`.
+- El contador de pendientes de `I4` no siempre es confiable (65535, 85125, 99974–99997 con
+  lecturas de cientos): por eso se lee hasta `c30` y no hasta el contador.
+- El puntero puede quedar desubicado: un reloj de cliente entregó marcas de años atrás hasta
+  que se lo reposicionó con `I2`.
 
 **Driver de red (`driver.py`):**
 - `connection_fields`: `ip`, `port` (3000), `address` (número de terminal 1–999), `timeout`.
 - `test_connection` → `I4`: número de terminal, hora del reloj, desvío y pendientes. No lee marcas.
+  Un contador mayor a `PLAUSIBLE_PENDING_MAX` (60000) se informa como "Sin dato confiable (…)"
+  y `get_attendance_log_count` devuelve `None` (progreso sin total).
 - Si el TCP al módulo Tibbo conecta pero el reloj no contesta, lanza `TerminalCheckError`
   ("Chequear terminal: …"): la red y el Tibbo están bien; revisar reloj, cable serie, número de
   terminal o configuración serie. Sin TCP es un `ConnectionError` común (red o Tibbo).
 - `sync_time` → `H0` con la hora local de SRTime (`TIMEZONE`).
 - `get_attendance_log_count` → pendientes del estado. Con 0 pendientes no se envía `I5`
   (el reloj no contesta, igual que en TecknoComm).
-- `get_attendance_logs` → `I5`… sin confirmar; cada marca sale con la misma tupla que su
-  línea TM-MR001 (`flags` = función + terminal + `00`).
+- `get_attendance_logs` → `I5` hasta `c30` (`SundialClient.iter_record_blocks`), acumulando bloque
+  a bloque; cada marca sale con la misma tupla que su línea TM-MR001 (`flags` = función +
+  terminal + `00`).
 - `acknowledge_attendance_logs` → `I3`, llamado por `import_from_driver` **después** del
-  commit de `_ingest_rows`. Si la ingesta falla, el puntero no avanza y la próxima descarga
-  repite las marcas (las ya guardadas cuentan como duplicadas).
+  commit de `_ingest_rows`.
+- `release_attendance_logs` → `I2` al primer día leído, llamado por `import_from_driver` si la
+  ingesta falla (también si la conexión se cortó a mitad: abre una nueva). Como `I5` ya los dio
+  por entregados, sin esto se perderían de pendientes; así la próxima descarga los repite y los
+  ya guardados cuentan como duplicados.
+- Aviso de puntero desubicado (genérico, para drivers con `attendance_pointer`): si llegan marcas
+  anteriores a la descarga anterior (`last_sync` − 1 día), `pull_logs` agrega un aviso. Se importan
+  igual; Web y Desktop lo muestran al terminar, y el programador deja `last_pull_status =
+  "warning"` con el texto (la tarjeta Web lo muestra como "Último aviso").
 - `set_attendance_pointer(since)` → `I2DDMMYYYY` (capability `attendance_pointer`): la tarjeta de
   terminal ofrece "Volver a bajar registros desde…" en Web y Desktop; la próxima descarga trae
   de nuevo esas marcas y las ya guardadas cuentan como duplicadas. Endpoint

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from models.terminal import DeviceTerminal
@@ -14,6 +14,8 @@ from core.timezone import local_now
 
 SECRET_FIELDS = frozenset({"password", "db_password", "token", "api_token", "secret", "api_key"})
 logger = get_logger(__name__)
+# Margen para la hora del reloj y marcas del mismo día de la descarga anterior.
+STALE_RECORDS_TOLERANCE = timedelta(days=1)
 
 
 class TerminalOperationError(RuntimeError):
@@ -239,6 +241,37 @@ def _seed_terminal_employee_profiles(driver, session) -> dict[str, int]:
     return {"created": created, "completed": completed, "preserved": preserved}
 
 
+def _stale_records_warning(terminal: DeviceTerminal, previous_sync, first_date) -> str | None:
+    """Aviso si un equipo con puntero de lectura entregó marcas ya descargadas antes.
+
+    Con el puntero bien ubicado sólo llegan marcas posteriores a la descarga
+    anterior. Marcas más viejas indican un puntero desubicado (en relojes reales
+    llegaron marcas de años atrás) o un "Volver a bajar registros desde…"
+    pedido a propósito. Equipos sin puntero entregan siempre todo: no aplica.
+    """
+    if not (previous_sync and first_date and supports_capability(terminal, "attendance_pointer")):
+        return None
+    if first_date >= (previous_sync - STALE_RECORDS_TOLERANCE).date():
+        return None
+    return (
+        f"Llegaron marcas desde el {first_date:%d/%m/%Y}, anteriores a la descarga anterior "
+        f"({previous_sync:%d/%m/%Y}). Si no se pidió «Volver a bajar registros desde…», "
+        "el puntero de la terminal puede estar desubicado: revisar las marcas importadas."
+    )
+
+
+def pull_warnings(result) -> list[str]:
+    """Avisos de una descarga (lista vacía si no hubo)."""
+    return list(getattr(result, "warnings", None) or [])
+
+
+def record_pull_outcome(terminal: DeviceTerminal, result) -> None:
+    """Estado de la última descarga exitosa: "ok", o "warning" con el aviso."""
+    warnings = pull_warnings(result)
+    terminal.last_pull_status = "warning" if warnings else "ok"
+    terminal.last_pull_error = " ".join(warnings)[:500] if warnings else None
+
+
 def pull_logs(terminal: DeviceTerminal, session, progress_signal=None, clear_device_memory: bool = False):
     from services.importer_service import import_from_driver
 
@@ -259,6 +292,7 @@ def pull_logs(terminal: DeviceTerminal, session, progress_signal=None, clear_dev
         connected_driver.clear_attendance_logs()
         clear_result["cleared"] = True
 
+    previous_sync = terminal.last_sync
     result = import_from_driver(
         driver,
         get_connection_params(terminal),
@@ -269,6 +303,13 @@ def pull_logs(terminal: DeviceTerminal, session, progress_signal=None, clear_dev
     )
     terminal.last_sync = local_now().replace(tzinfo=None)
     session.commit()
+    warning = _stale_records_warning(terminal, previous_sync, getattr(result, "first_date", None))
+    if warning:
+        result.warnings.append(warning)
+        logger.warning(
+            "Terminal delivered records older than its previous pull: %s", warning,
+            extra={"action": "terminal_pull_stale_records", "terminal_id": terminal.id},
+        )
     if any(profile_result.values()):
         logger.info("Terminal employee profiles synchronized during pull: %s", profile_result)
     if clear_result["cleared"]:

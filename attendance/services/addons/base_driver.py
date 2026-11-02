@@ -44,6 +44,15 @@ class BiometricDriver:
         """
         return None
 
+    def release_attendance_logs(self) -> None:
+        """Devuelve al equipo los registros leídos que SRTime no llegó a guardar.
+
+        Se llama sólo si la ingesta falla. Equipos cuya lectura ya los da por
+        entregados (aunque no llegue la confirmación) se reposicionan acá para
+        que la próxima descarga los vuelva a traer. Default: no hace nada.
+        """
+        return None
+
     def test_connection(self, params: dict) -> dict:
         """Prueba la conexión y devuelve metadatos como mac, nombre, hora, etc."""
         return {"status": "unsupported"}

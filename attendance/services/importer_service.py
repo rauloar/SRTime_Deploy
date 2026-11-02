@@ -13,6 +13,36 @@ INGEST_BATCH_SIZE = 500
 MAX_RETURNED_LOG_MESSAGES = 200
 
 
+class ImportResult(tuple):
+    """``(nuevos, duplicados, total, logs)`` más datos de la descarga.
+
+    Sigue siendo una tupla de cuatro (los llamadores la desempaquetan igual) y
+    agrega el rango de fechas recibido y los avisos para el operador.
+    """
+
+    def __new__(cls, values, first_date=None, last_date=None):
+        result = super().__new__(cls, tuple(values))
+        result.first_date = first_date
+        result.last_date = last_date
+        result.warnings = []
+        return result
+
+
+class _DateSpan:
+    """Registra la primera y la última fecha de las filas que pasan."""
+
+    def __init__(self):
+        self.first = self.last = None
+
+    def track(self, rows):
+        for row in rows:
+            day = row[1]
+            if day is not None:
+                self.first = day if self.first is None or day < self.first else self.first
+                self.last = day if self.last is None or day > self.last else self.last
+            yield row
+
+
 # ── Shared ingestion core ─────────────────────────────────────
 
 def _ingest_rows(
@@ -226,12 +256,14 @@ def import_from_driver(
         if progress_signal:
             progress_signal.emit(0, 0, 0, "Descargando registros...")
 
+        span = _DateSpan()
         result = _ingest_rows(
-            rows=driver_instance.get_attendance_logs(),
+            rows=span.track(driver_instance.get_attendance_logs()),
             session=session,
             source_label=driver_instance.display_name,
             progress_signal=progress_signal,
         )
+        result = ImportResult(result, span.first, span.last)
         # _ingest_rows ya hizo commit: recién ahora el equipo puede avanzar su
         # puntero de lectura sin riesgo de perder registros. Hook opcional del
         # contrato de drivers (BiometricDriver lo define vacío).
@@ -244,6 +276,19 @@ def import_from_driver(
     except Exception:
         session.rollback()
         logger.exception("Device import failed")
+        # Equipos que dan por entregado lo leído aunque no se confirme: que lo
+        # vuelvan a entregar en la próxima descarga (hook opcional del contrato).
+        release = getattr(driver_instance, "release_attendance_logs", None)
+        if release:
+            try:
+                since = release()
+                if since:
+                    logger.warning("Device pointer moved back to %s after failed import", since)
+            except Exception:
+                logger.exception(
+                    "Device pointer could not be moved back after failed import: "
+                    "use 'Volver a bajar registros desde' with the first unsaved date"
+                )
         raise
     finally:
         try:

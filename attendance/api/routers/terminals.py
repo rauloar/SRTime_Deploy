@@ -19,6 +19,8 @@ from services.terminals import (
     test_connection as service_test_connection,
     with_enabled_driver,
     pull_logs as service_pull_logs,
+    pull_warnings,
+    record_pull_outcome,
     list_terminal_users as service_list_terminal_users,
     sync_terminal_user_names as service_sync_terminal_user_names,
 )
@@ -57,13 +59,13 @@ def _run_terminal_pull_job(job_id: str, terminal_id: int, username: str, clear_d
             progress_signal=_TerminalPullProgress(job_id),
             clear_device_memory=clear_device_memory,
         )
-        terminal.last_pull_status = "ok"
-        terminal.last_pull_error = None
+        record_pull_outcome(terminal, result)
         db.commit()
         nuevos, duplicados, total, logs_msgs = result
         operation_status.complete(
             job_id,
-            {"terminal_name": terminal.name, "total": total, "nuevos": nuevos, "duplicados": duplicados, "logs": logs_msgs[-200:]},
+            {"terminal_name": terminal.name, "total": total, "nuevos": nuevos, "duplicados": duplicados,
+             "logs": logs_msgs[-200:], "warnings": pull_warnings(result)},
             f"Descarga completada: {nuevos} nuevos, {duplicados} duplicados",
         )
         logger.info("Terminal raw pull job completed", extra={"user": username, "action": "terminal_pull_job"})
@@ -314,16 +316,16 @@ def pull_terminal_logs_now(
     if not terminal.is_active:
         raise HTTPException(status_code=400, detail="La terminal está inactiva")
     try:
-        nuevos, duplicados, total, logs_msgs = service_pull_logs(
+        result = service_pull_logs(
             terminal,
             db,
             clear_device_memory=bool(payload and payload.clear_device_memory),
         )
-        terminal.last_pull_status = "ok"
-        terminal.last_pull_error = None
+        nuevos, duplicados, total, logs_msgs = result
+        record_pull_outcome(terminal, result)
         db.commit()
         logger.info("Terminal raw pull completed", extra={"user": current_user.username, "action": "terminal_pull_manual"})
-        return {"ok": True, "terminal_name": terminal.name, "total": total, "nuevos": nuevos, "duplicados": duplicados, "logs": logs_msgs[-200:]}
+        return {"ok": True, "terminal_name": terminal.name, "total": total, "nuevos": nuevos, "duplicados": duplicados, "logs": logs_msgs[-200:], "warnings": pull_warnings(result)}
     except (TerminalOperationError, OSError, RuntimeError, ValueError) as exc:
         db.rollback()
         terminal = get_terminal_or_404(terminal_id, db)
